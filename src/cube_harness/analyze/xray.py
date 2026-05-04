@@ -241,6 +241,14 @@ class XRayState:
                     continue
                 self._apply_agent_name(full, storage)
                 self._apply_exp_tag(full, storage)
+                # Cache stats, then drop steps for any trajectory that isn't the one being
+                # viewed — refresh only updates table stats, not displayed content. Bounds RAM
+                # on long live runs (steps would otherwise accumulate per completed episode).
+                if full.summary_stats is None:
+                    full.summary_stats = xray_utils.compute_trajectory_stats(full)
+                is_current = self.current_trajectory is not None and self.current_trajectory.id == traj_id
+                if not is_current:
+                    full.steps = []
                 changed = True
                 # Find the existing slot owned by this storage (avoids ID collision)
                 idx = next(
@@ -254,7 +262,7 @@ class XRayState:
                 if idx is not None:
                     self.trajectories[idx] = full
                     self._traj_storages[idx] = storage
-                    if self.current_trajectory is not None and self.current_trajectory.id == traj_id:
+                    if is_current:
                         self.current_trajectory = full
                         self._env_step_indices = self._build_env_indices()
                 else:
@@ -334,6 +342,9 @@ class XRayState:
 
         When multiple experiments share the same task/episode IDs, prefers the trajectory
         whose agent_name matches selected_agent_key, falling back to the first match.
+
+        Previously-loaded trajectories have their steps evicted to free RAM — only the
+        currently selected trajectory keeps its steps in memory.
         """
         # Prefer the slot whose agent matches the current selection (multi-experiment safety)
         idx = next(
@@ -364,6 +375,15 @@ class XRayState:
                 self._traj_storages[idx] = storage
             except Exception:
                 pass  # keep stub; renders will show empty state gracefully
+        # Evict steps from all other trajectories to keep RAM bounded.
+        # summary_stats is preserved so table stats remain accurate after eviction.
+        prev_idx = next(
+            (i for i, t in enumerate(self.trajectories) if t is self.current_trajectory and i != idx),
+            None,
+        )
+        if prev_idx is not None and self.trajectories[prev_idx].steps:
+            prev = self.trajectories[prev_idx]
+            prev.steps = []
         self.current_trajectory = traj
         self.step = 0
         self._env_step_indices = self._build_env_indices()
