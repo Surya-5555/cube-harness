@@ -168,7 +168,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
         pass_to_pass = self._exec.pass_to_pass
         eval_timeout = self._exec.eval_timeout
 
-        # auto-fix(PENDING)↓
+        # auto-fix(423)↓
         # Baseline p2p: run pass_to_pass BEFORE applying test_patch so we can
         # tell whether a post-patch p2p failure is an agent regression or a
         # pre-existing environmental issue (sphinx linkcheck hits the network
@@ -186,7 +186,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
                     "evaluate: p2p baseline already fails for %s — post-patch p2p will not be counted against the agent",
                     self.metadata.id,
                 )
-        # /auto-fix(PENDING)
+        # /auto-fix(423)
 
         # Apply test patch
         self._apply_patch(self._exec.test_patch)
@@ -203,7 +203,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
             p2p_passed, p2p_output = self._run_tests(
                 self.metadata.repo, pass_to_pass, timeout=eval_timeout, strict=False
             )
-            # auto-fix(PENDING)↓
+            # auto-fix(423)↓
             # If baseline p2p was already broken, do not punish the agent for
             # an unchanged p2p result. Coarse-grain (whole-suite) by design:
             # accepts that a regression-in-a-mostly-broken-suite can slip
@@ -217,7 +217,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
                 )
                 p2p_passed = True
                 p2p_output += "\n[NOTE: pre-existing p2p baseline failures; not counted as agent regression]"
-            # /auto-fix(PENDING)
+            # /auto-fix(423)
 
         resolved = f2p_passed and p2p_passed
         reward = 1.0 if resolved else 0.0
@@ -402,4 +402,4 @@ class SWEBenchVerifiedTaskConfig(TaskConfig[SWEBenchVerifiedTaskMetadata]):
 
 
 # === auto-fix notes ===
-# auto-fix-note(PENDING) {class=L1 anchor=PR#PENDING hash=PENDING ctx=daytona+toolkit/swebench-verified/sphinx-doc__sphinx-8475}
+# auto-fix-note(423) {class=L1 anchor=PR#423 hash=00588ac5 ctx=daytona+toolkit/swebench-verified/sphinx-doc__sphinx-8475}
