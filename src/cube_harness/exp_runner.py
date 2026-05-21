@@ -2,16 +2,19 @@
 
 import logging
 import os
+import signal
 import socket
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 import ray
+from cube.resource import InfraConfig
 
 from cube_harness.core import Trajectory
 from cube_harness.episode import Episode
@@ -24,6 +27,14 @@ from cube_harness.storage import FileStorage, Storage
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
+
+# Wall-clock budget for ``infra.cleanup_stale()`` at lifecycle exit. The Azure
+# implementation lists the resource group and parallel-deletes expired VMs;
+# 30s covers a several-hundred-orphan sweep with headroom. If exceeded the
+# lifecycle exits anyway — half-done cleanup is recovered by the next
+# benchmark setup's L3 sweep.
+_CLEANUP_GRACE_TIMEOUT_S: float = 30.0
+
 
 # Default timeouts shared with xray_utils for ghost-episode detection.
 DEFAULT_STEP_TIMEOUT_S: float = 9000.0
@@ -69,13 +80,33 @@ def _trajectory_id(episode: Episode) -> str:
 
 
 @contextmanager
-def _experiment_lifecycle(exp_dir: Path, mode: Literal["ray", "sequential"]) -> Iterator[tuple[ExperimentStatus, Path]]:
+def _experiment_lifecycle(
+    exp_dir: Path,
+    mode: Literal["ray", "sequential"],
+    infra: InfraConfig | None = None,
+) -> Iterator[tuple[ExperimentStatus, Path]]:
     """Manage `experiment_status.json` from RUNNING through terminal write.
 
     Writes RUNNING on entry. On normal exit, writes COMPLETED; on exception,
     writes INTERRUPTED. Both initial and terminal writes log a warning on
     failure rather than swallowing silently — these bracket the run, so a
     failure here is something an operator should see.
+
+    When ``infra`` is provided, also installs a SIGTERM handler that raises
+    SystemExit so finally blocks run on orchestrator-driven shutdowns
+    (``kubectl delete``, ``docker stop``, systemd unit stop), and sweeps stale
+    cloud resources via ``infra.cleanup_stale()`` on lifecycle exit. This is
+    best-effort: Ray captures signals delivered to the main thread (see TODO
+    in ``_run_with_ray_impl``), so signal-driven cleanup mainly helps the
+    sequential path. Hard kills (SIGKILL, OOM) cannot be intercepted — rely
+    on the external scheduled sweeper for those.
+
+    Ctrl+C (KeyboardInterrupt) still runs cleanup so Ray workers get their
+    teardown window and stale infra resources get reclaimed — but cleanup
+    is bounded by ``_CLEANUP_GRACE_TIMEOUT_S`` and pressing Ctrl+C a second
+    time force-exits with a message. The daemon thread keeps running on
+    timeout/force-exit but dies when the main thread exits; residue is
+    recovered by the next benchmark setup's L3 sweep.
     """
     now = time.time()
     exp_status = ExperimentStatus(
@@ -92,6 +123,15 @@ def _experiment_lifecycle(exp_dir: Path, mode: Literal["ray", "sequential"]) -> 
         exp_status.write(exp_status_path)
     except Exception:
         logger.warning("Failed to write initial experiment status", exc_info=True)
+
+    prev_sigterm = None
+    if infra is not None:
+        try:
+            prev_sigterm = signal.signal(signal.SIGTERM, _raise_systemexit_on_sigterm)
+        except ValueError:
+            # signal.signal only works in the main thread — non-fatal if we're not there.
+            logger.debug("Could not install SIGTERM handler (non-main thread); skipping")
+
     completed = False
     try:
         yield exp_status, exp_status_path
@@ -104,6 +144,109 @@ def _experiment_lifecycle(exp_dir: Path, mode: Literal["ray", "sequential"]) -> 
             exp_status.write(exp_status_path)
         except Exception:
             logger.warning("Failed to write terminal experiment status", exc_info=True)
+
+        if prev_sigterm is not None:
+            try:
+                signal.signal(signal.SIGTERM, prev_sigterm)
+            except ValueError:
+                pass
+
+        if infra is not None:
+            _run_cleanup_with_grace(infra, timeout_s=_CLEANUP_GRACE_TIMEOUT_S)
+
+
+def _raise_systemexit_on_sigterm(signum: int, frame: object) -> None:
+    """Convert SIGTERM into SystemExit so the lifecycle's finally blocks run.
+
+    Without this, Python's default SIGTERM behaviour is to terminate the process
+    immediately, bypassing context managers and ``finally`` clauses — meaning a
+    ``kubectl delete pod`` or ``docker stop`` would leak any in-flight cloud
+    resources. Raising SystemExit lets the lifecycle exit gracefully and run
+    ``cleanup_stale()`` on the way out.
+    """
+    logger.warning("Received SIGTERM — propagating as SystemExit for graceful cleanup")
+    raise SystemExit(128 + signum)
+
+
+def _run_cleanup_with_grace(infra: InfraConfig, timeout_s: float) -> Literal["OK", "ERROR", "TIMEOUT", "FORCED"]:
+    """Run ``infra.cleanup_stale()`` with a timeout and Ctrl+C escalation.
+
+    Cleanup runs in a daemon thread; the main thread polls for completion and
+    drives the escalation. The first Ctrl+C is what got us here (caught by
+    the enclosing context). A second Ctrl+C prints an escalation hint; a
+    third sets a force-exit flag and stops polling. The daemon thread keeps
+    running but dies when the process exits — half-done cleanup is recovered
+    by the next benchmark setup's L3 sweep.
+
+    Returns one of:
+      - ``OK``      cleanup completed and reclaimed N (possibly zero) resources
+      - ``ERROR``   ``cleanup_stale()`` raised; logged at WARNING, not propagated
+      - ``TIMEOUT`` exceeded ``timeout_s`` seconds
+      - ``FORCED``  user pressed Ctrl+C past the threshold
+    """
+    result: dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            result["deleted"] = infra.cleanup_stale()
+        except Exception as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=_worker, daemon=True, name="cube-cleanup-stale")
+
+    forced = threading.Event()
+    presses = {"count": 0}
+
+    def _on_sigint(signum: int, frame: object) -> None:
+        presses["count"] += 1
+        if presses["count"] == 1:
+            print(
+                "\n[cube] Cleanup in progress — letting Ray workers shut down and sweeping stale "
+                "infra. Press Ctrl+C again to force exit (next launch will sweep any residue).",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(
+                "\n[cube] Forcing exit. Cleanup incomplete — next launch will sweep.",
+                file=sys.stderr,
+                flush=True,
+            )
+            forced.set()
+
+    prev_sigint = None
+    try:
+        prev_sigint = signal.signal(signal.SIGINT, _on_sigint)
+    except ValueError:
+        # signal.signal only works in the main thread; skip the escalation install otherwise.
+        logger.debug("Could not install SIGINT handler (non-main thread); cleanup runs without escalation")
+
+    thread.start()
+    try:
+        start = time.time()
+        while thread.is_alive():
+            thread.join(timeout=0.5)
+            if forced.is_set():
+                return "FORCED"
+            if time.time() - start > timeout_s:
+                logger.warning(
+                    "Lifecycle exit: cleanup_stale exceeded %.0fs — exiting; next launch will sweep",
+                    timeout_s,
+                )
+                return "TIMEOUT"
+        if "error" in result:
+            logger.warning("Lifecycle exit: cleanup_stale failed: %s", result["error"])
+            return "ERROR"
+        deleted = result.get("deleted", [])
+        if deleted:
+            logger.info("Lifecycle exit: cleanup_stale reclaimed %d resource(s)", len(deleted))
+        return "OK"
+    finally:
+        if prev_sigint is not None:
+            try:
+                signal.signal(signal.SIGINT, prev_sigint)
+            except ValueError:
+                pass
 
 
 def _pre_claim(storage: Storage, episode: Episode) -> None:
@@ -159,7 +302,7 @@ def run_with_ray(
     try:
         with (
             tracer.benchmark(exp.name),
-            _experiment_lifecycle(exp.output_dir, mode="ray") as (exp_status, exp_status_path),
+            _experiment_lifecycle(exp.output_dir, mode="ray", infra=exp.infra) as (exp_status, exp_status_path),
         ):
             return _run_with_retries(
                 exp,
@@ -481,7 +624,7 @@ def run_sequentially(
     try:
         with (
             tracer.benchmark(exp.name),
-            _experiment_lifecycle(exp.output_dir, mode="sequential") as (exp_status, exp_status_path),
+            _experiment_lifecycle(exp.output_dir, mode="sequential", infra=exp.infra) as (exp_status, exp_status_path),
         ):
             return _run_sequentially_with_retries(
                 exp,
