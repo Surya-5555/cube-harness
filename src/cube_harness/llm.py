@@ -124,6 +124,27 @@ class LLMConfig(ValidatedConfig):
             )
         return self
 
+    # auto-fix(430)↓
+    @model_validator(mode="after")
+    def _check_interleaved_thinking_requires_reasoning(self) -> "LLMConfig":
+        """``interleaved_thinking=True`` with ``reasoning_effort=None`` is a silent
+        no-op (the "off" mode in the off/once/always table above): the beta header
+        path is gated on ``reasoning_effort is not None`` in ``_complete``, so the
+        flag is ignored and no thinking happens. Raise at config time so callers
+        who think they enabled per-step thinking discover the miss before a
+        million-token eval, not after.
+        """
+        if self.interleaved_thinking and self.reasoning_effort is None:
+            raise ValueError(
+                "interleaved_thinking=True is a no-op when reasoning_effort=None "
+                "(this is the 'off' mode in the off/once/always table). Either set "
+                "reasoning_effort to a level (to get 'always' mode) or drop "
+                "interleaved_thinking. See LLMConfig docstring."
+            )
+        return self
+
+    # /auto-fix(430)
+
     def make(self) -> "LLM":
         """Create LLM instance from config."""
         return LLM(config=self)
@@ -431,3 +452,4 @@ class LLMCall(TypedBaseModel):
 #              Anthropic, asserts per-turn reasoning_token pattern) +
 #              original validation probe: 15/15 steps think with the
 #              flag on, 255 -> 846 reasoning tokens.
+# auto-fix-note(430) {class=L1 anchor=PR#430 hash=f513c550 ctx=anthropic/cube-harness/genny-swe/silent-no-op}

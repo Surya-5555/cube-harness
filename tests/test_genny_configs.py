@@ -28,14 +28,15 @@ def test_swe_uses_once_thinking_cadence() -> None:
 
 def test_default_keeps_helper_built_llm_config() -> None:
     """``GENNY_CONFIGS["default"]`` keeps ``make_agent_config``'s
-    auto-built ``LLMConfig`` — ``interleaved_thinking=True``, no
-    ``reasoning_effort`` baked in (recipes pick the level).
+    auto-built ``LLMConfig`` — both thinking knobs at their defaults
+    (``interleaved_thinking=False``, ``reasoning_effort=None``). Recipes
+    that want extended thinking opt in explicitly.
 
     Pinned here so a future change to ``make_agent_config`` defaults
     surfaces as a test break, not a silent agent-behavior shift.
     """
     agent = GENNY_CONFIGS["default"]
-    assert agent.llm_config.interleaved_thinking is True
+    assert agent.llm_config.interleaved_thinking is False
     assert agent.llm_config.reasoning_effort is None
     assert agent.llm_config.model_name == DEFAULT_MODEL
 
