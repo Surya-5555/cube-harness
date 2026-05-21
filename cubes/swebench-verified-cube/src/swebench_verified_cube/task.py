@@ -30,6 +30,27 @@ When your fix is complete:
 2. Confirm the patch only contains source file changes, then call `final_step`.\
 """
 
+# auto-fix(PENDING)↓
+# Tests with hard external-network dependencies in their SWE-bench Verified
+# pass_to_pass list. These hit real public URLs (google.com, w3.org) and fail
+# intermittently with ConnectionResetError when the container's shared egress
+# IP is rate-limited by the public endpoint — failures are non-deterministic
+# and unrelated to the agent's patch. PR#423's baseline-subtract relaxation
+# already catches these in the (common) case that they fail identically before
+# and after the patch, but it's a coarse safety net; stripping them at the
+# source is exact and deterministic. Auto-CUBE 2026-05-20 swebench session
+# observed these 3 fail on daytona × sphinx-doc__sphinx-8475 across R1/R3/R5/R7/R8.
+# Extend conservatively, only after observing a test fail with a clear
+# network-side error in a trace.
+_NETWORK_DEPENDENT_P2P: frozenset[str] = frozenset(
+    {
+        "tests/test_build_linkcheck.py::test_defaults",
+        "tests/test_build_linkcheck.py::test_defaults_json",
+        "tests/test_build_linkcheck.py::test_anchors_ignored",
+    }
+)
+# /auto-fix(PENDING)
+
 
 class SWEBenchVerifiedTaskMetadata(TaskMetadata):
     """TaskMetadata subclass for SWE-bench Verified tasks.
@@ -178,7 +199,19 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
 
         fail_to_pass = self._exec.fail_to_pass
-        pass_to_pass = self._exec.pass_to_pass
+        # auto-fix(PENDING)↓
+        # Strip known network-dependent tests from pass_to_pass — see the
+        # _NETWORK_DEPENDENT_P2P docstring for rationale. Exact, deterministic;
+        # complements (does not replace) PR#423's coarse baseline-subtract.
+        pass_to_pass = [t for t in self._exec.pass_to_pass if t not in _NETWORK_DEPENDENT_P2P]
+        n_skipped = len(self._exec.pass_to_pass) - len(pass_to_pass)
+        if n_skipped:
+            logger.info(
+                "evaluate: skipped %d network-dependent p2p test(s) for %s",
+                n_skipped,
+                self.metadata.id,
+            )
+        # /auto-fix(PENDING)
         eval_timeout = self._exec.eval_timeout
 
         # auto-fix(423)↓
@@ -416,3 +449,4 @@ class SWEBenchVerifiedTaskConfig(TaskConfig[SWEBenchVerifiedTaskMetadata]):
 
 # === auto-fix notes ===
 # auto-fix-note(423) {class=L1 anchor=PR#423 hash=00588ac5 ctx=daytona+toolkit/swebench-verified/sphinx-doc__sphinx-8475}
+# auto-fix-note(PENDING) {class=L1 anchor=PR#PENDING hash=PENDING ctx=daytona/swebench-verified/sphinx-doc__sphinx-8475/test_build_linkcheck}

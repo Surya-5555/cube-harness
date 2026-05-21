@@ -125,3 +125,55 @@ def test_f2p_failure_scores_zero_regardless_of_p2p_baseline() -> None:
 
     assert reward == 0.0
     assert info["fail_to_pass_passed"] is False
+
+
+def test_network_dependent_p2p_are_stripped_before_baseline() -> None:
+    """Tests in ``_NETWORK_DEPENDENT_P2P`` are removed from pass_to_pass BEFORE
+    the baseline check fires — they reach neither the baseline run nor the
+    post-patch run. This is the exact, deterministic counterpart to PR#423's
+    coarse baseline-subtract relaxation.
+    """
+    from swebench_verified_cube.task import _NETWORK_DEPENDENT_P2P
+
+    task = _make_task()
+    # Mix two skip-listed tests with one real test that must survive.
+    skip_listed = sorted(_NETWORK_DEPENDENT_P2P)[:2]
+    real_test = "tests/test_build_linkcheck.py::test_invalid_ssl"
+    task.execution_info.pass_to_pass = [*skip_listed, real_test]  # type: ignore[union-attr]
+
+    # The 2 skip-listed entries should never appear in any _run_tests call:
+    # baseline gets only [real_test], post-patch gets only [real_test], f2p
+    # unchanged.
+    seen_p2p_args: list[list[str]] = []
+
+    def _stub_run_tests(repo, directives, **_kw):  # noqa: ARG001
+        if directives and directives != task._exec.fail_to_pass:
+            seen_p2p_args.append(list(directives))
+        return (True, "1 passed")
+
+    with (
+        patch.object(task, "_apply_patch", return_value=""),
+        patch.object(task, "_run_tests", side_effect=_stub_run_tests),
+    ):
+        reward, info = task.evaluate()
+
+    # Both p2p invocations (baseline + post-patch) saw the stripped list.
+    assert len(seen_p2p_args) == 2
+    for call_directives in seen_p2p_args:
+        assert call_directives == [real_test]
+        for skipped in skip_listed:
+            assert skipped not in call_directives
+    assert reward == 1.0
+
+
+def test_skip_list_uses_pytest_id_format() -> None:
+    """Sanity-pin the test IDs against the exact format stored in the task
+    execution cache — guards against accidental ``tests.test_X.test_y``
+    (django-style) or trailing-slash regressions that would silently make
+    the skip list a no-op.
+    """
+    from swebench_verified_cube.task import _NETWORK_DEPENDENT_P2P
+
+    for tid in _NETWORK_DEPENDENT_P2P:
+        assert tid.startswith("tests/")
+        assert "::" in tid, f"{tid!r} must use pytest 'path::name' form"

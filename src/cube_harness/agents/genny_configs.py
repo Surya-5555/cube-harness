@@ -55,17 +55,18 @@ def make_agent_config(
     max_actions: int = 150,
     cost_limit: float = 1.0,
 ) -> GennyConfig:
-    """Genny is a multi-step tool-use agent, so the default-built LLMConfig opts
-    into ``interleaved_thinking=True``: when a caller flips on Anthropic
-    extended thinking via ``reasoning_effort``, the model thinks after every
-    tool result rather than only on step 0 (see auto-fix(412)).
+    """Helper for the canonical ``GENNY_CONFIGS`` entries.
 
-    **Recipes that override ``agent.llm_config`` with their own ``LLMConfig``
-    must pass ``interleaved_thinking=True`` themselves** — the raw
-    ``LLMConfig`` default is False (matches the Anthropic provider default).
+    When ``llm_config`` is omitted, builds a plain ``LLMConfig(model_name=DEFAULT_MODEL)``
+    — no ``reasoning_effort``, no ``interleaved_thinking``. Recipes that want
+    extended thinking should pass an explicit ``LLMConfig`` choosing the
+    off/once/always mode from the LLMConfig docstring. (Earlier revisions of
+    this helper set ``interleaved_thinking=True`` here unconditionally, but
+    with ``reasoning_effort=None`` that was a silent no-op — the LLMConfig
+    validator added in PR#PENDING now rejects that combination outright.)
     """
     return GennyConfig(
-        llm_config=llm_config or LLMConfig(model_name=DEFAULT_MODEL, interleaved_thinking=True),
+        llm_config=llm_config or LLMConfig(model_name=DEFAULT_MODEL),
         system_prompt=SYSTEM_PROMPT,
         goal_template=INSTANCE_TEMPLATES[template],
         flat_history=True,

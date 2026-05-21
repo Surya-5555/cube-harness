@@ -790,11 +790,13 @@ class TestInterleavedThinkingBeta:
         hdrs = mock_completion.call_args.kwargs.get("extra_headers") or {}
         assert "interleaved-thinking" not in hdrs.get("anthropic-beta", "")
 
-    @patch("cube_harness.llm.litellm.completion")
-    def test_off_mode_no_beta(self, mock_completion, sample_prompt) -> None:
-        """No reasoning_effort -> no beta even if interleaved_thinking=True (degenerate)."""
-        mock_completion.return_value = self._ok()
-        cfg = LLMConfig(model_name="claude-haiku-4-5", temperature=1.0, interleaved_thinking=True)
-        LLM(config=cfg)(sample_prompt)
-        hdrs = mock_completion.call_args.kwargs.get("extra_headers") or {}
-        assert "interleaved-thinking" not in hdrs.get("anthropic-beta", "")
+    def test_interleaved_without_reasoning_effort_raises(self) -> None:
+        """``interleaved_thinking=True`` with ``reasoning_effort=None`` is the
+        silent-no-op combination — was previously accepted (degenerate "off"
+        mode that ignored the flag), now rejected at config time so callers
+        don't ship configs that look like they enable thinking but don't.
+        """
+        import pytest
+
+        with pytest.raises(ValueError, match="interleaved_thinking=True is a no-op"):
+            LLMConfig(model_name="claude-haiku-4-5", temperature=1.0, interleaved_thinking=True)
