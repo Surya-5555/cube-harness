@@ -59,24 +59,35 @@ total_steps: {{total_steps}}
 agent: {{agent_name}}
 benchmark: {{benchmark_name}}
 
-# Files you can read
+# Task description
 
-Transcript (one file per step):
-  {{transcript_dir}}/steps/
+{{task_description}}
 
-Consolidated transcript (full text):
-  {{transcript_dir}}/transcript.txt
+# Trajectory directory
 
-Episode metadata (reward_info, action_schemas, summary_stats):
-  {{episode_metadata_path}}
+Root: {{episode_dir}}
 
-Episode config (agent prompts, model, budget):
-  {{episode_config_path}}
+You may read any file under this directory. The structure below is a
+guide, not an allowlist — `Glob` / `Read` anything that looks useful.
 
-Task description:
-  {{task_description}}
+  {{episode_dir}}/
+  ├── episode.metadata.json        — reward_info, action_schemas, summary_stats
+  ├── episode_config.json          — agent prompts, model, budget
+  ├── episode_record.json          — atlas-eval-log per-episode summary (may be absent on older runs)
+  ├── findings.json                — prior investigation output, if any
+  └── _investigation_transcript/
+      ├── transcript.txt           — consolidated full text
+      └── steps/
+          └── NNN_{{{{obs,act}}}}.txt    — one file per step (NNN = 000, 001, ...)
 
-Source code (use Glob / Grep — do NOT pre-read all of it):
+# Codebase map
+
+A benchmark-context sub-agent has produced an `investigation_context.md`
+mapping the source code that ran this experiment. **Navigate freely**
+with `Glob` / `Grep` / `Read` — read any part of the code you find
+useful to back a specific claim. Don't pre-read everything; let your
+hypotheses drive what you open.
+
 {{source_paths_block}}
 
 # Output schema

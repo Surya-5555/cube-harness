@@ -863,8 +863,15 @@ def test_investigate_episode_pipeline(tmp_path: Path) -> None:
     assert driver.last_call is not None
     assert driver.last_call["model"] == "claude-sonnet-4-6"
     assert driver.last_call["cwd"] == ep
-    assert "task1_ep0" in driver.last_call["user_prompt"]
-    assert "_investigation_transcript" in driver.last_call["user_prompt"]
+    user_prompt = driver.last_call["user_prompt"]
+    assert "task1_ep0" in user_prompt
+    assert "_investigation_transcript" in user_prompt
+    # -- Prompt points at the trajectory dir root + tree, not a fixed file list --
+    assert "# Trajectory directory" in user_prompt
+    assert str(ep) in user_prompt  # episode_dir root is rendered
+    assert "read any file under this directory" in user_prompt
+    # -- Codebase map framing (the benchmark-context source pointers) --
+    assert "# Codebase map" in user_prompt
 
 
 def test_investigate_experiment_appends_extra_prompt_fragment(tmp_path: Path) -> None:
