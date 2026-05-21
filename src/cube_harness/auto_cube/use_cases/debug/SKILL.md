@@ -43,19 +43,26 @@ you learn):
 ```json
 {
   "<cube>|<task_id>|<model>|<agent_config>|<infra>|<tool>": {
-    "result": "pass | fail | error | unknown",
-    "disposition": "covered | model-ceiling | infra-suspect | scaffold-suspect | benchmark-suspect | pending",
+    "outcome": "success | success_lucky | almost | failure | should_have_been_rewarded",
+    "primary_blame": "<one of the 10 BlameCategory values, or 'none'>",
+    "primary_blame_confidence": 0,
+    "coverage_state": "covered | model-ceiling | zoom-in | shipped-fix",
     "last_session": "<session-slug>",
     "last_seen_utc": "2026-05-21T12:00:00Z",
-    "finding_summary": "<one line>"
+    "finding_summary": "<one line from the Investigator's summary>"
   }
 }
 ```
 
-Read it at **session start** to pick what to investigate next. Update
-it as you classify cells. **"Done" = the cell is covered well
-enough**, not that the task passes. A clean failure tagged
-`model-ceiling` is just as "done" as a pass.
+The first three fields mirror the Investigator's `BaseFindings`
+directly (don't reinterpret). `coverage_state` is the orchestrator's
+roll-up — see "Dispositions" below.
+
+Read the ledger at **session start** to pick what to investigate
+next. Update it as you classify cells. **"Done" = the cell is covered
+well enough**, not that the task passes. A clean failure with
+`primary_blame=model_capability` at confidence ≥ 4 is just as "done"
+for this model as a pass.
 
 ## The loop
 
@@ -99,23 +106,34 @@ fast and cheaply, then narrow.
   Self-contained sessions don't pollute `~/cube_harness_results/` and
   are easy to archive or delete as one unit.
 - Run the experiment, then dispatch the Investigator on the output
-  directory.
-- **Classify each task** into a disposition (see below). Update
-  `done.json` (this session's per-task dispositions) and write
-  classifications back to `coverage.json` for cells that are now
-  decisively covered.
+  directory. The Investigator emits `BaseFindings` per episode
+  (canonical 10-category `primary_blame` + `outcome` + evidence —
+  see "Dispositions" below).
+- **Aggregate each episode into a coverage decision** (covered /
+  model-ceiling done / zoom-in candidate — see "Dispositions"). Write
+  the per-episode `BaseFindings` into `done.json` along with the
+  derived coverage state, and update `coverage.json` for cells that
+  are now decisively covered.
 
 ### 3. Zoom in (focused-deep)
 
-Take only the **interesting** subset from zoom-out. Now you can spend.
+Take only the **zoom-in-candidate** subset from zoom-out. Now you
+can spend.
 
 - Sweep the relevant axes — model × agent config × infra × tool
-  variant — informed by the Investigator's hints from zoom-out.
-  Vary one axis at a time when possible so the disposition is
-  unambiguous.
-- Each Investigator dispatch picks up `investigator_extra.md` from
-  this directory (debug-flavoured biasing toward the dispositions
-  above). Add round-specific bias via `--extra-prompt` when needed.
+  variant — informed by the Investigator's `primary_blame` /
+  3-bucket signal from zoom-out (agent-side blame → vary
+  agent/model; tool-side → vary tool/scaffold; benchmark-side →
+  Fix Report against the cube). Vary one axis at a time when
+  possible so the next attribution is unambiguous.
+- Dispatch the **`general_blame`** Investigator use_case by default
+  (`ch-investigate <exp_dir>` — `general_blame` is the framework
+  default). Switch via `--recipe <name>` only when a different
+  blame ontology fits the round (e.g. `fix_audit` after a
+  Fix Report PR). Each dispatch picks up `investigator_extra.md`
+  from this directory as a biasing fragment; add round-specific
+  bias via `--extra-prompt "..."` or
+  `--extra-prompt @<path/to/fragment.md>`.
 - Once a root cause is confirmed, follow **intervention discipline**
   (below) — hack to confirm, then ship the principled fix as a Fix
   Report PR.
@@ -133,34 +151,53 @@ Take only the **interesting** subset from zoom-out. Now you can spend.
   later), open `design-debt` issues per the spec.
 
 A session is "done" when every (cube × axis-point) you intended to
-cover has either landed in the ledger as covered, model-ceiling, or
-benchmark-suspect; or when you've exhausted independent failure modes.
+cover has either landed in the ledger as covered or model-ceiling,
+or has shipped a Fix Report for a confirmed agent/tool/benchmark
+root cause; or when you've exhausted independent failure modes.
 Don't over-iterate on the same five tasks — go broad first, then
 deep where the signal is.
 
-## Dispositions
+## Dispositions — from `BaseFindings` to coverage decisions
 
-When classifying a task / cell:
+The Investigator's structured output **is** the per-episode report.
+You don't invent new categories; you read `BaseFindings`
+(`src/cube_harness/eval_log.py`) and aggregate. Schema:
 
-- **PASS** — green. Add to `coverage.json` as covered.
-- **model-ceiling-done** — plausibly solvable but the current model
-  lacks the capability. Don't burn more budget here with this model;
-  record the cell so a future session with a more capable model can
-  revisit. Treated as "done" for coverage purposes.
-- **infra-suspect** — likely an infra issue (container,
-  network, resource provisioning, lifecycle). Zoom in by varying
-  infra.
-- **scaffold-suspect** — likely an agent-loop / tool / prompt issue.
-  Zoom in by varying agent config or tool.
-- **benchmark-suspect** — the cube itself looks wrong (ambiguous
-  prompt, broken ground truth, contaminated data, impossible-but-
-  marked-possible). Often deserves a Fix Report against the cube.
-- **interesting / pending** — looks worth investigating but the cause
-  isn't obvious. Carry forward to zoom-in.
+- `outcome` ∈ `{success, success_lucky, almost, failure, should_have_been_rewarded}`
+- `primary_blame` ∈ closed 10-category taxonomy (Appendix in the CUBE
+  paper / `BlameCategory` enum): `task_unclear`, `model_capability`,
+  `tool_failure`, `env_failure`, `agent_scaffolding`,
+  `action_space_limited`, `insufficient_observation`, `eval_brittle`,
+  `submission_format`, `none`
+- `primary_blame_confidence` ∈ 0..5
+- `evidence` — verbatim transcript quotes (required when
+  `primary_blame != "none"`)
+- `summary`, `hypothesis`, `hypothesis_confidence`
 
-Disposition is a judgement call. The Investigator's output is the
-strongest signal; `investigator_extra.md` in this directory tells the
-Investigator to attribute toward these categories.
+For coverage decisions, map the Investigator's output onto these
+three orchestration buckets:
+
+| Coverage state | Trigger | What to do |
+|---|---|---|
+| **covered** | `outcome ∈ {success, success_lucky, almost}` | Record cell as covered in `coverage.json`. Move on. |
+| **model-ceiling done** | `outcome=failure` + `primary_blame=model_capability` + `confidence ≥ 4` | Record as done-for-this-model; a future session with a more capable model can revisit. |
+| **zoom-in candidate** | anything else | Carry forward to zoom-in. Use the `primary_blame` category to decide which axis to vary first. |
+
+For higher-level signal, use the paper's **3-bucket aggregation**:
+
+- **agent-side**: `model_capability`, `agent_scaffolding` → vary
+  agent config / model
+- **tool-side**: `tool_failure`, `action_space_limited`,
+  `insufficient_observation` → vary tool / scaffold
+- **benchmark-side**: `task_unclear`, `env_failure`, `eval_brittle`,
+  `submission_format` → likely a Fix Report against the cube; a
+  high benchmark-side rate is also the wrapper-faithfulness signal
+  the paper calls out
+
+`evidence` and `hypothesis` are what you actually read to decide
+*how* to zoom in. The Investigator already enforces evidence-grounded
+attribution; trust the structured output, don't second-guess
+categories without re-reading transcripts.
 
 ## Intervention discipline (auto-fix)
 

@@ -80,12 +80,14 @@ Drop this into a fresh Claude Code session (cube-harness as cwd; the
 > hasn't seen yet.
 >
 > Zoom out first: a broad task slice on a cheap model and a single
-> agent/infra combination — classify dispositions (PASS,
-> model-ceiling, infra-suspect, scaffold-suspect, benchmark-suspect,
-> interesting). Then zoom in on the interesting subset, sweeping one
-> axis at a time among `<axes-to-vary>`. File Fix Reports per
-> `openspec/specs/auto-fix/spec.md` for confirmed root causes;
-> update `coverage.json` as cells get classified.
+> agent/infra combination. The Investigator emits `BaseFindings` per
+> episode (canonical 10-category `primary_blame`, `outcome`,
+> evidence) — aggregate into coverage states (covered /
+> model-ceiling-done / zoom-in candidate) using the 3-bucket
+> agent/tool/benchmark grouping. Then zoom in on the candidates,
+> sweeping one axis at a time among `<axes-to-vary>`. File Fix
+> Reports per `openspec/specs/auto-fix/spec.md` for confirmed root
+> causes; update `coverage.json` as cells get classified.
 >
 > Land experiment outputs inside the session dir, not the default
 > `~/cube_harness_results/`. Per-round budget ≈ `$<X>`. Stop when the
