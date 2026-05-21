@@ -889,7 +889,7 @@ def test_investigate_experiment_appends_extra_prompt_fragment(tmp_path: Path) ->
     assert driver.last_call is not None
     user_prompt = driver.last_call["user_prompt"]
     assert fragment in user_prompt, "extra prompt fragment not appended"
-    assert "## Additional instructions" in user_prompt, "fragment lacks header separator"
+    assert "\n---\n" in user_prompt, "fragment lacks separator from base prompt"
     # The recipe's own templated content still comes first.
     assert user_prompt.index("task1_ep0") < user_prompt.index(fragment), (
         "extra fragment should be appended after the base prompt, not prepended"

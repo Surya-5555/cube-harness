@@ -290,7 +290,9 @@ async def _investigate_episode_impl(
         related_paths=related_paths,
     )
     if extra_prompt_fragment:
-        user_prompt = f"{user_prompt}\n\n---\n\n## Additional instructions\n\n{extra_prompt_fragment.strip()}\n"
+        # Append after a visual separator. The fragment is expected to carry
+        # its own header / structure — adding a wrapper here just stacks H2s.
+        user_prompt = f"{user_prompt}\n\n---\n\n{extra_prompt_fragment.strip()}\n"
 
     additional_dirs = list(source_paths.values()) + [transcript_dir] + related_paths
     logger.info(
