@@ -40,9 +40,11 @@ src/cube_harness/
 ├── benchmarks/                 # Legacy in-tree benchmarks (miniwob, workarena) — most now live in cubes/
 ├── metrics/tracer.py           # OpenTelemetry tracer, Ray env-var propagation
 ├── analyze/
+│   ├── investigator/           # Per-trajectory blame; use_cases/{general_blame, profiling, agent_scaffolding, hinter, fix_audit}
 │   ├── xray.py                 # Gradio-based XRay viewer
 │   ├── inspect_results.py      # CLI-ish inspection helpers
 │   └── xray_utils.py
+├── auto_cube/                  # Auto-CUBE outer-loop methodology; use_cases/<name>/ each with SKILL.md (loaded by /auto-cube-<name>)
 └── mcp/                        # Serve harness tools AS an MCP server
     ├── server.py
     └── convert.py
@@ -95,7 +97,9 @@ region or its footnote, treat it as a possibly-rotten marker (review rule AF-001
 Methodology (Fix Report, L0–L3 tiers, rot lint):
 [`openspec/specs/auto-fix/spec.md`](openspec/specs/auto-fix/spec.md). Human
 entry point for running the loop:
-[`.claude/skills/auto-cube/README.md`](.claude/skills/auto-cube/README.md).
+[`src/cube_harness/auto_cube/README.md`](src/cube_harness/auto_cube/README.md)
+(use-cases live at `src/cube_harness/auto_cube/use_cases/<name>/`; the
+default is `debug`, invoked as `/auto-cube` or `/auto-cube-debug`).
 
 ## Workflow for code changes
 
@@ -207,3 +211,19 @@ Each use_case has a `recipe.py` (Pydantic `InvestigatorRecipe`) and a `SKILL.md`
 Per-batch synthesis (`meta_analysis.json` + `.md`) is mirrored into
 `~/cube_auto_cube_journal/<experiment>/` for cross-iteration narrative —
 the only artefact the Investigator writes outside the experiment dir.
+
+## Auto-CUBE use cases
+
+`src/cube_harness/auto_cube/use_cases/<name>/` is the outer-loop
+use-case catalog. Each subdirectory holds a `SKILL.md` (loaded as the
+Auto-CUBE agent's system prompt) and an optional `investigator_extra.md`
+(biasing fragment appended to per-episode Investigator prompts via
+`InvestigationConfig.extra_prompt_fragment` / `ch-investigate --extra-prompt`).
+
+- **`debug`** — default. Curious-scientist methodology, sparse coverage
+  across `task × infra × tool × model × agent-config`, ships Fix Report
+  PRs. Invoked as `/auto-cube` (alias) or `/auto-cube-debug`.
+
+`scripts/sync_auto_cube_skills.py` symlinks each SKILL.md into
+`.claude/skills/auto-cube-<name>/` and creates the `auto-cube → debug`
+alias. To create a new use-case, invoke `/new-auto-cube-use-case`.

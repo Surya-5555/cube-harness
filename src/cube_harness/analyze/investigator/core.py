@@ -115,6 +115,14 @@ class InvestigationConfig(TypedBaseModel):
     # machine-local journal dir; override or point at a tempdir to redirect.
     journal_dir: Path = Field(default_factory=lambda: Path("~/cube_auto_cube_journal").expanduser())
 
+    # Optional biasing fragment appended to every per-episode user prompt.
+    # Lets an Auto-CUBE use-case (or any caller) add use-case-specific
+    # guidance without forking a new Investigator recipe — e.g.
+    # "attribute toward dispositions {covered, model-ceiling, infra-suspect,
+    # scaffold-suspect, benchmark-suspect}". The recipe's base prompts stay
+    # invariant; the fragment is appended after the rendered template.
+    extra_prompt_fragment: str | None = None
+
 
 def _load_trajectory_meta(path: Path) -> Trajectory | None:
     """Load episode.metadata.json as a Trajectory. The `steps` field will be empty
@@ -229,6 +237,7 @@ async def _investigate_episode_impl(
     verbose: bool = False,
     trace_mode: TraceMode = "actions",
     all_refs: list[EpisodeRef] | None = None,
+    extra_prompt_fragment: str | None = None,
 ) -> tuple[BaseFindings, InvestigationMetadata, list[ToolAction], DriverResult, float]:
     """Async core shared by investigate_episode (single) and investigate_experiment (parallel)."""
     transcript_dir = episode_dir / "_investigation_transcript"
@@ -280,6 +289,8 @@ async def _investigate_episode_impl(
         source_paths=source_paths,
         related_paths=related_paths,
     )
+    if extra_prompt_fragment:
+        user_prompt = f"{user_prompt}\n\n---\n\n## Additional instructions\n\n{extra_prompt_fragment.strip()}\n"
 
     additional_dirs = list(source_paths.values()) + [transcript_dir] + related_paths
     logger.info(
@@ -349,6 +360,7 @@ def investigate_episode(
     verbose: bool = False,
     trace_mode: TraceMode = "actions",
     model: str | None = None,
+    extra_prompt_fragment: str | None = None,
 ) -> tuple[BaseFindings, InvestigationMetadata]:
     """Run a post-hoc investigator on a single episode trajectory directory.
 
@@ -373,6 +385,7 @@ def investigate_episode(
             audit=audit,
             verbose=verbose,
             trace_mode=trace_mode,
+            extra_prompt_fragment=extra_prompt_fragment,
         )
     )
     return findings, investigation_metadata
@@ -491,6 +504,7 @@ def investigate_experiment(
             seeded_runs_out=seeded_runs,
             audit_costs_out=audit_costs,
             all_refs=refs,
+            extra_prompt_fragment=cfg.extra_prompt_fragment,
         )
     )
 
@@ -548,6 +562,7 @@ async def _investigate_experiment_async(
     seeded_runs_out: dict[tuple[str, str], list[tuple[BaseFindings, InvestigationMetadata]]],
     audit_costs_out: dict[str, float],
     all_refs: list[EpisodeRef],
+    extra_prompt_fragment: str | None = None,
 ) -> dict[str, tuple[BaseFindings, InvestigationMetadata]]:
     """Run the investigator across `selected` × `n_seeds`, bounded by `n_parallel`."""
     semaphore = asyncio.Semaphore(n_parallel)
@@ -568,6 +583,7 @@ async def _investigate_experiment_async(
                         verbose=verbose,
                         trace_mode=trace_mode,
                         all_refs=all_refs,
+                        extra_prompt_fragment=extra_prompt_fragment,
                     ),
                     timeout=episode_timeout_s,
                 )

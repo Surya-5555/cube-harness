@@ -867,6 +867,37 @@ def test_investigate_episode_pipeline(tmp_path: Path) -> None:
     assert "_investigation_transcript" in driver.last_call["user_prompt"]
 
 
+def test_investigate_experiment_appends_extra_prompt_fragment(tmp_path: Path) -> None:
+    """`InvestigationConfig.extra_prompt_fragment` is appended to the per-episode
+    user prompt without altering the recipe's base prompts. Lets an Auto-CUBE
+    use-case bias the Investigator (e.g. attribute toward debug dispositions)
+    without forking a new recipe."""
+    exp, _ = _make_episode_dir(tmp_path, "task1_ep0")
+    driver = _FakeDriver(output_text=f"Here is my analysis:\n```json\n{_VALID_FINDINGS_JSON}\n```")
+    fragment = "ATTRIBUTE TOWARD: infra-suspect | scaffold-suspect | benchmark-suspect."
+
+    investigate_experiment(
+        exp,
+        InvestigationConfig(
+            driver=driver,
+            ids=["task1_ep0"],
+            synthesis_model="",
+            extra_prompt_fragment=fragment,
+        ),
+    )
+
+    assert driver.last_call is not None
+    user_prompt = driver.last_call["user_prompt"]
+    assert fragment in user_prompt, "extra prompt fragment not appended"
+    assert "## Additional instructions" in user_prompt, "fragment lacks header separator"
+    # The recipe's own templated content still comes first.
+    assert user_prompt.index("task1_ep0") < user_prompt.index(fragment), (
+        "extra fragment should be appended after the base prompt, not prepended"
+    )
+    # System prompt is the recipe's invariant — fragment must not touch it.
+    assert fragment not in driver.last_call["system_prompt"]
+
+
 class _HangingDriver:
     """AgentDriver whose run() never returns in test time — simulates a hung
     SDK subprocess (the auto-fix(409) failure mode)."""

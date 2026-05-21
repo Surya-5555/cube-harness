@@ -690,7 +690,7 @@ analyze = [
     { name = "gradio" },
     { name = "pandas" },
 ]
-judge = [
+investigator = [
     { name = "claude-agent-sdk" },
 ]
 
@@ -708,7 +708,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = "~=4.14" },
     { name = "browsergym-core", specifier = ">=0.14.3" },
-    { name = "claude-agent-sdk", marker = "extra == 'judge'", specifier = ">=0.1.6" },
+    { name = "claude-agent-sdk", marker = "extra == 'investigator'", specifier = ">=0.1.6" },
     { name = "cube-browser-playwright", specifier = ">=0.2.0" },
     { name = "cube-standard", specifier = ">=0.1.0rc8" },
     { name = "docker", specifier = ">=7.1.0" },
@@ -731,7 +731,7 @@ requires-dist = [
     { name = "typer", specifier = "~=0.25" },
     { name = "zstandard", specifier = ">=0.20.0" },
 ]
-provides-extras = ["analyze", "judge"]
+provides-extras = ["analyze", "investigator"]
 
 [package.metadata.requires-dev]
 dev = [
