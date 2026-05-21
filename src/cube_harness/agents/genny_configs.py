@@ -78,6 +78,20 @@ def make_agent_config(
 GENNY_CONFIGS: ConfigRegistry[GennyConfig] = ConfigRegistry(
     {
         "default": make_agent_config(),
-        "swe": make_agent_config(template="workflow"),
+        # swe: SWE-bench-style debugging rewards deliberation at turn start
+        # over re-thinking after every tool call. Use the "once" cadence
+        # (``reasoning_effort="medium"`` + ``interleaved_thinking=False``)
+        # instead of the helper's "always" cadence — Auto-CUBE matrix
+        # 2026-05-20 found no measurable accuracy gain from per-step
+        # thinking on the 4-step Reproduce → Explore → Fix → Verify
+        # workflow, and "once" is ~2× faster wall-clock per episode.
+        "swe": make_agent_config(
+            llm_config=LLMConfig(
+                model_name=DEFAULT_MODEL,
+                reasoning_effort="medium",
+                interleaved_thinking=False,
+            ),
+            template="workflow",
+        ),
     }
 )
