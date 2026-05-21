@@ -78,6 +78,15 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         return self.execution_info
 
     def _build_tool(self) -> None:
+        # NON-ROOT DOCKER WORKAROUND
+        # tbench2 task images assume root-by-default Docker semantics (Daytona,
+        # local Docker, AWS, Azure all give the container `USER root`). On
+        # non-root backends — EAI Toolkit enforces uid 13011 by cluster policy
+        # — `/app` is often read-only and `git` may not be installed in the
+        # image. The block below copies `/app` to `/tmp/app` only if needed,
+        # and configures git identity *best-effort* so images without git
+        # still set up cleanly. Daytona/local short-circuit at the writable-
+        # /app probe and never execute the extra_setup chain.
         # auto-fix(418)↓
         new_wd = relocate_if_readonly(
             self._container,
@@ -315,6 +324,14 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             timeout=15,
         )
         if "YES" in assets_probe:
+            # NON-ROOT DOCKER WORKAROUND
+            # The `/opt/cube` data mount and the surrounding fast-path exist
+            # entirely to serve non-root Docker backends where the image lacks
+            # `curl` / `apt` / `astral.sh` egress and the test.sh's upstream
+            # `curl install.sh | sh` route cannot complete. On root-capable
+            # backends (Daytona, local, AWS, Azure) `apt-get install curl`
+            # + `curl install.sh` runs inside the test image directly and
+            # this entire fast-path is unreached.
             # auto-fix(420)↓
             # Verify /opt/cube/uvx is new enough to handle test.sh's `uvx -w`
             # (a.k.a. `--with`) syntax. Older cube_assets bundles (uv ≲0.4) fail
