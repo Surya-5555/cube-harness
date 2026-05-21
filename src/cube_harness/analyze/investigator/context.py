@@ -94,18 +94,29 @@ def _load_experiment_view(path: Path) -> _ExperimentView:
         return _ExperimentView(experiment=None, raw=raw)
 
 
-def find_default_context_file(experiment_dir: Path) -> Path:
-    """Return `<experiment_dir>/investigation_context.md` if it exists, else raise.
+def resolve_context_path(
+    experiment_dir: Path,
+    *,
+    context_dir: Path | None = None,
+    benchmark_key: str | None = None,
+) -> Path:
+    """Where the `investigation_context.md` for this run lives / should be written.
 
-    Used by `_investigate_episode_impl` to decide whether to invoke the benchmark-context
-    sub-agent. Raising — rather than returning `None` — is intentional: callers
-    catch `FileNotFoundError` and call the sub-agent; if the sub-agent runs but
-    still fails to produce a file, the error propagates with a useful path.
+    - `context_dir=None` (default): per-experiment, plain filename — back-compat
+      for standalone `ch-investigate` (one map per experiment dir).
+    - `context_dir` set (Auto-CUBE points it at the session dir): the map is
+      cached **per session** and keyed by benchmark so a session investigating
+      several benchmarks doesn't collide. Per-session keying avoids the staleness
+      a machine-wide cache would hit when a different worktree/venv has different
+      installed code.
     """
-    path = Path(experiment_dir) / INVESTIGATION_CONTEXT_FILENAME
-    if not path.exists():
-        raise FileNotFoundError(path)
-    return path
+    if context_dir is None:
+        return Path(experiment_dir) / INVESTIGATION_CONTEXT_FILENAME
+    base = Path(context_dir)
+    if benchmark_key:
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", benchmark_key)
+        return base / f"investigation_context_{safe}.md"
+    return base / INVESTIGATION_CONTEXT_FILENAME
 
 
 def _parse_paths_block(text: str) -> list[tuple[str | None, Path]]:

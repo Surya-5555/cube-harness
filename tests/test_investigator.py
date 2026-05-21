@@ -1019,6 +1019,45 @@ def test_benchmark_context_agent_writes_paths_block(tmp_path: Path) -> None:
     assert resolved["agent_src"] == other
 
 
+def test_resolve_context_path_per_experiment_vs_per_session(tmp_path: Path) -> None:
+    """context_dir=None → per-experiment plain file; context_dir set → per-session,
+    benchmark-keyed (a session investigating two benchmarks must not collide)."""
+    from cube_harness.analyze.investigator.context import resolve_context_path
+
+    exp = tmp_path / "exp"
+    assert resolve_context_path(exp) == exp / INVESTIGATION_CONTEXT_FILENAME
+
+    session = tmp_path / "session"
+    p1 = resolve_context_path(exp, context_dir=session, benchmark_key="pkg.SWEBenchVerified")
+    p2 = resolve_context_path(exp, context_dir=session, benchmark_key="pkg.MiniWob")
+    assert p1.parent == session and p2.parent == session
+    assert p1 != p2  # benchmark-keyed → distinct files in the same session dir
+    assert p1.name == "investigation_context_pkg.SWEBenchVerified.md"
+
+
+def test_investigate_experiment_injects_full_context_markdown(tmp_path: Path) -> None:
+    """The full investigation_context.md (architecture orientation + pointers, not
+    just the paths block) is injected verbatim into the investigator user prompt,
+    and an existing cached file is reused (not regenerated)."""
+    exp, _ = _make_episode_dir(tmp_path, "task1_ep0")
+    # Replace the test-seeded context with a richer one carrying prose the paths
+    # block alone would not surface.
+    (exp / INVESTIGATION_CONTEXT_FILENAME).write_text(
+        "# Codebase orientation\n\n"
+        "ARCH: cube-standard defines the contract; cube-harness runs the loop.\n"
+        "KEY: cubes/foo/task.py:evaluate is the reward function.\n\n"
+        f"```paths\nexp: {exp}\n```\n"
+    )
+    driver = _FakeDriver(output_text=f"```json\n{_VALID_FINDINGS_JSON}\n```")
+
+    investigate_experiment(exp, InvestigationConfig(driver=driver, ids=["task1_ep0"], synthesis_model=""))
+
+    assert driver.last_call is not None
+    user_prompt = driver.last_call["user_prompt"]
+    assert "ARCH: cube-standard defines the contract" in user_prompt, "architecture prose not injected"
+    assert "cubes/foo/task.py:evaluate is the reward function" in user_prompt, "key-location pointer not injected"
+
+
 # ---------------------------------------------------------------------------
 # CLI smoke (subcommand dispatch only — no real LLM calls)
 # ---------------------------------------------------------------------------

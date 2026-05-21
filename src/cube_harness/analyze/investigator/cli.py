@@ -128,6 +128,18 @@ def run_cmd(
             ),
         ),
     ] = None,
+    context_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--context-dir",
+            help=(
+                "Cache the codebase-map (investigation_context.md) here instead of "
+                "in the experiment dir. Auto-CUBE points this at the session dir so "
+                "the Opus context agent runs once per (session, benchmark) and the "
+                "map is reused across rounds."
+            ),
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("-v", "--verbose", help="Stream tool calls + text to stderr.")] = False,
 ) -> None:
     """Batch-investigate episodes in an experiment directory.
@@ -168,6 +180,7 @@ def run_cmd(
         synthesis_model=synthesis_model,
         journal_dir=journal_dir,
         extra_prompt_fragment=extra_prompt_fragment,
+        context_dir=context_dir,
     )
     results = investigate_experiment(path, config)
     _print_summary_table(results)

@@ -106,14 +106,13 @@ fast and cheaply, then narrow.
   Self-contained sessions don't pollute `~/cube_harness_results/` and
   are easy to archive or delete as one unit.
 - Run the experiment, then dispatch the Investigator on the output
-  directory. The Investigator emits `BaseFindings` per episode
-  (canonical 10-category `primary_blame` + `outcome` + evidence —
-  see "Dispositions" below). On first dispatch it generates an
-  `investigation_context.md` (the benchmark-level codebase map the
-  Investigator reads to navigate the installed source). If that file
-  is missing, stale, or sparse for this cube, regenerate it
-  (`ch-investigate init-context <exp_dir>`) so the Investigator can
-  ground attributions in real code.
+  directory. **Point `ch-investigate --context-dir` at the session
+  dir** (`~/cube_auto_cube_journal/<slug>/`) so the Opus codebase-map
+  agent runs **once per (session, benchmark)** and the map is reused
+  across all rounds — per-session keying keeps the map matched to this
+  worktree's installed code. The Investigator emits `BaseFindings` per
+  episode (canonical 10-category `primary_blame` + `outcome` +
+  evidence — see "Dispositions" below).
 - **Aggregate each episode into a coverage decision** (covered /
   model-ceiling done / zoom-in candidate — see "Dispositions"). Write
   the per-episode `BaseFindings` into `done.json` along with the

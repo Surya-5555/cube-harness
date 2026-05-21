@@ -1,9 +1,11 @@
-"""Sub-agent that auto-generates `<experiment_dir>/investigation_context.md`.
+"""Sub-agent that auto-generates the investigation_context.md codebase map.
 
-When `_investigate_episode_impl` runs and `find_default_context_file(experiment_dir)`
-raises `FileNotFoundError`, this agent walks `experiment_config.json`, identifies
-the cube package, agent package, and `cube_harness` source, and emits a
-```paths fenced block in the format `validate_context_file` already parses.
+When `_investigate_episode_impl` runs and no cached context file exists at the
+path `resolve_context_path` picks (per-experiment, or per-session when Auto-CUBE
+sets `context_dir`), this agent walks `experiment_config.json`, identifies the
+cube package, agent package, and `cube_harness` source, explores them, and emits
+an architecture orientation + key-location pointers + a ```paths fenced block in
+the format `validate_context_file` already parses.
 
 A driver is required — the previous "no driver, use a venv-walk heuristic"
 fallback was speculative and never used in practice. Callers without a
@@ -28,29 +30,52 @@ DEFAULT_CONTEXT_MODEL = "claude-opus-4-7"
 
 BENCHMARK_CONTEXT_SYSTEM_PROMPT = """You are a setup agent for the cube-harness trajectory investigator.
 
-Your single job: produce a markdown file (`investigation_context.md`) that lists every
-local source directory the investigator will need read access to in order to analyse an
-agent episode.
+A Sonnet-class investigator will read agent episodes and attribute failures to a
+fixed blame taxonomy, grounding every claim in source code. You run **once** (you
+are Opus-class) to give it a strong head-start: a map of the codebase it will
+navigate, so it lands on the right files instead of grepping blind. Your output
+is read directly into the investigator's prompt — make it a genuine orientation,
+not just a list of directories.
 
 You have read-only tools (Read / Glob / Grep / Bash). Do not write files via
 Bash — your only output is the assistant message containing the markdown.
 
-Procedure:
-1. Read `experiment_config.json` in the working directory. It is JSON with
-   `_type` strings naming the agent class and benchmark class (full dotted paths).
-2. For each `_type`, find the on-disk directory of the package's top-level
-   module. `python -c "import importlib.util as u; print(u.find_spec('PKG').origin)"`
-   returns a file path; the parent directory is what you want.
-3. Always include the `cube_harness` source root (parent of `cube_harness/__init__.py`)
-   and the `cube` (cube-standard) source root.
-4. If the experiment uses an infra package (look for `infra._type` in the config),
-   include its source root too.
-5. Verify each path actually exists locally before listing it. Skip anything
-   missing — better to list nothing than to hallucinate.
+## Procedure
 
-Output format: a markdown file beginning with a one-line description, then a
-fenced block of paths. Each line of the block is `name: /absolute/path`.
-Example:
+1. Read `experiment_config.json` in the working directory. It is JSON with
+   `_type` strings naming the agent class and benchmark class (full dotted paths),
+   and possibly an `infra._type`.
+2. For each `_type`, resolve the on-disk package directory:
+   `python -c "import importlib.util as u; print(u.find_spec('PKG').origin)"`
+   returns a file path; the parent directory is what you want.
+3. Always resolve the `cube_harness` source root and the `cube` (cube-standard)
+   source root. Include the infra package root if `infra._type` is present.
+4. **Explore** (this is the value you add): open the resolved packages and find
+   the entry points the investigator will most likely need —
+   - the agent loop (where the LLM is called, where actions are parsed/executed),
+   - the tool wrapper(s) for this benchmark (the action surface),
+   - the task's reward / evaluate function,
+   - task setup / reset (the initial observation),
+   - infra entrypoint (how the container/VM is provisioned),
+   - the submission protocol (how the agent signals "done").
+   Note the `path:symbol` (file + function/class) for each, verified by actually
+   reading enough to be sure.
+5. Verify every path you cite exists. Skip anything missing — better to omit than
+   to hallucinate.
+
+## Output format
+
+A markdown document with three parts, in this order:
+
+1. **Architecture orientation** (≈ 5–12 sentences): how cube-standard defines the
+   contract (Task / Tool / Benchmark / Resource), how cube-harness runs it (agent
+   loop → episode → trajectory), then the specifics of *this* benchmark — what the
+   task is, what the action surface looks like, how reward is computed. Orient,
+   don't transcribe; the investigator will drill in itself.
+2. **Key locations**: a short bullet list of `path:symbol — what it is` for the
+   entry points from step 4. These are the head-start pointers.
+3. A fenced ```paths block of the package roots (this part is machine-parsed —
+   keep the exact format). Each line is `name: /absolute/path`:
 
 ```paths
 cube_package: /abs/path/to/cubes/swebench_verified
@@ -59,9 +84,8 @@ cube_harness: /abs/path/to/src/cube_harness
 cube_standard: /abs/path/to/cube
 ```
 
-Names are free-form labels for human readers; the investigator only uses the paths.
-Pick descriptive names (`cube_package`, `agent_package`, `cube_harness`,
-`cube_standard`, `infra_package`). One path per line. No trailing comments.
+Keep the whole document tight — a head-start, not a manual. The investigator can
+open any file it needs; your job is to point it at the right ones fast.
 
 Reply with the markdown content only — no preamble, no closing chatter."""
 
@@ -96,13 +120,17 @@ async def generate_context_file(
     driver: AgentDriver,
     model: str = DEFAULT_CONTEXT_MODEL,
     verbose: bool = False,
+    out_path: Path | None = None,
 ) -> Path:
-    """Invoke the sub-agent and write `<experiment_dir>/investigation_context.md`.
+    """Invoke the sub-agent and write the `investigation_context.md`.
 
-    The driver is required — there is no offline / no-driver fallback.
+    Writes to `out_path` if given (Auto-CUBE points this at a per-session cache),
+    else `<experiment_dir>/investigation_context.md`. The driver is required —
+    there is no offline / no-driver fallback.
     """
     experiment_dir = Path(experiment_dir).resolve()
-    out = experiment_dir / INVESTIGATION_CONTEXT_FILENAME
+    out = Path(out_path) if out_path is not None else experiment_dir / INVESTIGATION_CONTEXT_FILENAME
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     user_prompt = _user_prompt_for(experiment_dir)
     result = await driver.run(
