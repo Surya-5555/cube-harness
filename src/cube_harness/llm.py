@@ -124,7 +124,7 @@ class LLMConfig(ValidatedConfig):
             )
         return self
 
-    # auto-fix(PENDING)↓
+    # auto-fix(430)↓
     @model_validator(mode="after")
     def _check_interleaved_thinking_requires_reasoning(self) -> "LLMConfig":
         """``interleaved_thinking=True`` with ``reasoning_effort=None`` is a silent
@@ -143,7 +143,7 @@ class LLMConfig(ValidatedConfig):
             )
         return self
 
-    # /auto-fix(PENDING)
+    # /auto-fix(430)
 
     def make(self) -> "LLM":
         """Create LLM instance from config."""
@@ -452,4 +452,4 @@ class LLMCall(TypedBaseModel):
 #              Anthropic, asserts per-turn reasoning_token pattern) +
 #              original validation probe: 15/15 steps think with the
 #              flag on, 255 -> 846 reasoning tokens.
-# auto-fix-note(PENDING) {class=L1 anchor=PR#PENDING hash=PENDING ctx=anthropic/cube-harness/genny-swe/silent-no-op}
+# auto-fix-note(430) {class=L1 anchor=PR#430 hash=f513c550 ctx=anthropic/cube-harness/genny-swe/silent-no-op}

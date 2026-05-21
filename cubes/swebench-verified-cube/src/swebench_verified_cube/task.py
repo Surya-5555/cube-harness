@@ -30,7 +30,7 @@ When your fix is complete:
 2. Confirm the patch only contains source file changes, then call `final_step`.\
 """
 
-# auto-fix(PENDING)↓
+# auto-fix(430)↓
 # Tests with hard external-network dependencies in their SWE-bench Verified
 # pass_to_pass list. These hit real public URLs (google.com, w3.org) and fail
 # intermittently with ConnectionResetError when the container's shared egress
@@ -49,7 +49,7 @@ _NETWORK_DEPENDENT_P2P: frozenset[str] = frozenset(
         "tests/test_build_linkcheck.py::test_anchors_ignored",
     }
 )
-# /auto-fix(PENDING)
+# /auto-fix(430)
 
 
 class SWEBenchVerifiedTaskMetadata(TaskMetadata):
@@ -199,7 +199,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
 
         fail_to_pass = self._exec.fail_to_pass
-        # auto-fix(PENDING)↓
+        # auto-fix(430)↓
         # Strip known network-dependent tests from pass_to_pass — see the
         # _NETWORK_DEPENDENT_P2P docstring for rationale. Exact, deterministic;
         # complements (does not replace) PR#423's coarse baseline-subtract.
@@ -211,7 +211,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
                 n_skipped,
                 self.metadata.id,
             )
-        # /auto-fix(PENDING)
+        # /auto-fix(430)
         eval_timeout = self._exec.eval_timeout
 
         # auto-fix(423)↓
@@ -449,4 +449,4 @@ class SWEBenchVerifiedTaskConfig(TaskConfig[SWEBenchVerifiedTaskMetadata]):
 
 # === auto-fix notes ===
 # auto-fix-note(423) {class=L1 anchor=PR#423 hash=00588ac5 ctx=daytona+toolkit/swebench-verified/sphinx-doc__sphinx-8475}
-# auto-fix-note(PENDING) {class=L1 anchor=PR#PENDING hash=PENDING ctx=daytona/swebench-verified/sphinx-doc__sphinx-8475/test_build_linkcheck}
+# auto-fix-note(430) {class=L1 anchor=PR#430 hash=6a2bbc39 ctx=daytona/swebench-verified/sphinx-doc__sphinx-8475/test_build_linkcheck}

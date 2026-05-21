@@ -63,7 +63,7 @@ def make_agent_config(
     off/once/always mode from the LLMConfig docstring. (Earlier revisions of
     this helper set ``interleaved_thinking=True`` here unconditionally, but
     with ``reasoning_effort=None`` that was a silent no-op — the LLMConfig
-    validator added in PR#PENDING now rejects that combination outright.)
+    validator added in PR#430 now rejects that combination outright.)
     """
     return GennyConfig(
         llm_config=llm_config or LLMConfig(model_name=DEFAULT_MODEL),
