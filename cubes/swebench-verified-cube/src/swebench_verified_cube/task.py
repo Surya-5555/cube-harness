@@ -164,12 +164,32 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
 
-        # Apply test patch
-        self._apply_patch(self._exec.test_patch)
-
         fail_to_pass = self._exec.fail_to_pass
         pass_to_pass = self._exec.pass_to_pass
         eval_timeout = self._exec.eval_timeout
+
+        # auto-fix(423)↓
+        # Baseline p2p: run pass_to_pass BEFORE applying test_patch so we can
+        # tell whether a post-patch p2p failure is an agent regression or a
+        # pre-existing environmental issue (sphinx linkcheck hits the network
+        # from an offline container → ConnectionResetError; sympy import-time
+        # deprecations; …). Mirrors swebench-live-cube's evaluate() pattern.
+        # Without this, every container with a flaky p2p test silently scores
+        # correct fixes as 0.
+        p2p_baseline_passed = True
+        if pass_to_pass:
+            p2p_baseline_passed, _ = self._run_tests(
+                self.metadata.repo, pass_to_pass, timeout=eval_timeout, strict=False
+            )
+            if not p2p_baseline_passed:
+                logger.warning(
+                    "evaluate: p2p baseline already fails for %s — post-patch p2p will not be counted against the agent",
+                    self.metadata.id,
+                )
+        # /auto-fix(423)
+
+        # Apply test patch
+        self._apply_patch(self._exec.test_patch)
 
         # Run FAIL_TO_PASS tests — these must all pass for resolution
         f2p_passed, f2p_output = self._run_tests(self.metadata.repo, fail_to_pass, timeout=eval_timeout)
@@ -183,6 +203,21 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
             p2p_passed, p2p_output = self._run_tests(
                 self.metadata.repo, pass_to_pass, timeout=eval_timeout, strict=False
             )
+            # auto-fix(423)↓
+            # If baseline p2p was already broken, do not punish the agent for
+            # an unchanged p2p result. Coarse-grain (whole-suite) by design:
+            # accepts that a regression-in-a-mostly-broken-suite can slip
+            # through, but the alternative (silently scoring correct fixes as
+            # 0) was worse. Per-test diff via pytest output parsing is a
+            # follow-up; see swebench-live-cube._get_failing_test_ids.
+            if not p2p_baseline_passed and not p2p_passed:
+                logger.info(
+                    "evaluate: p2p still failing post-patch but baseline was already failing for %s — treating as pass",
+                    self.metadata.id,
+                )
+                p2p_passed = True
+                p2p_output += "\n[NOTE: pre-existing p2p baseline failures; not counted as agent regression]"
+            # /auto-fix(423)
 
         resolved = f2p_passed and p2p_passed
         reward = 1.0 if resolved else 0.0
@@ -192,6 +227,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
             "resolved": resolved,
             "fail_to_pass_passed": f2p_passed,
             "pass_to_pass_passed": p2p_passed,
+            "pass_to_pass_baseline_passed": p2p_baseline_passed,
             "fail_to_pass_output": f2p_output,
             "pass_to_pass_output": p2p_output,
         }
@@ -363,3 +399,7 @@ class SWEBenchVerifiedTaskConfig(TaskConfig[SWEBenchVerifiedTaskMetadata]):
             oracle_mode=self.oracle_mode,
             append_submission_instructions=self.append_submission_instructions,
         )
+
+
+# === auto-fix notes ===
+# auto-fix-note(423) {class=L1 anchor=PR#423 hash=00588ac5 ctx=daytona+toolkit/swebench-verified/sphinx-doc__sphinx-8475}
