@@ -30,9 +30,9 @@ DEFAULT_CONTEXT_MODEL = "claude-opus-4-7"
 
 BENCHMARK_CONTEXT_SYSTEM_PROMPT = """You are a setup agent for the cube-harness trajectory investigator.
 
-A Sonnet-class investigator will read agent episodes and attribute failures to a
-fixed blame taxonomy, grounding every claim in source code. You run **once** (you
-are Opus-class) to give it a strong head-start: a map of the codebase it will
+The investigator will read agent episodes and attribute failures to a fixed
+blame taxonomy, grounding every claim in source code. You run **once per
+session** to give it a strong head-start: a map of the codebase it will
 navigate, so it lands on the right files instead of grepping blind. Your output
 is read directly into the investigator's prompt — make it a genuine orientation,
 not just a list of directories.
@@ -57,8 +57,16 @@ Bash — your only output is the assistant message containing the markdown.
    carried over from another cube.** Find:
    - the agent loop (where the LLM is called, where actions are parsed/executed),
    - the tool wrapper(s) for this benchmark (the action surface),
+   - **the upstream benchmark, if this cube wraps one.** Many cubes are thin
+     adapters over an installed third-party benchmark package — the real task
+     definitions, environment, and scoring live *upstream* and the cube
+     delegates to them (e.g. a `workarena`/`browsergym`-style package). Resolve
+     that upstream package on disk and map it too: pointers should follow the
+     delegation all the way to where the real task/eval logic lives, not stop
+     at the cube wrapper. Find it by grepping the cube's imports.
    - **the verifier — the `evaluate` / reward function: where and exactly how a
-     solution is scored. Pin the `path:symbol`.**
+     solution is scored. Pin the `path:symbol`** (this may be in the cube *or*
+     delegated to the upstream package — follow it).
    - **where the ground truth / expected answer lives — this varies per cube: it
      may be a field in the task metadata, on the task config, a file staged in
      the container, or computed inline in `evaluate`. Locate it concretely so
@@ -74,7 +82,7 @@ Bash — your only output is the assistant message containing the markdown.
 
 ## Output format
 
-The investigator (Sonnet) is likely **unfamiliar with the cube codebase** — your
+The investigator is likely **unfamiliar with the cube codebase** — your
 output is its orientation. The whole document is embedded directly into the
 investigator's prompt, so do not refer to it as a file ("see investigation_context.md");
 just write the content. Use `##` headings (not `#`) so it nests cleanly when
@@ -102,7 +110,9 @@ round-trips.
   solution is verified (the evaluate function) and where the ground truth /
   expected answer lives** (so the investigator can check the agent's answer
   itself), and any infra specifics (container/VM). These vary per cube — say
-  what *this* one does.
+  what *this* one does. **If the cube wraps an upstream benchmark package, say
+  so and note that the real task/eval logic lives upstream** (the cube is the
+  adapter).
 
 ### `## Key locations`
 
@@ -123,21 +133,27 @@ shape only* — the real files differ per benchmark; map what you actually find:
     ├── agents/<agent>.py        — <Agent>.run: the agent loop
     └── episode.py               — Episode: drives agent ⇄ env, budget
 
-    /abs/path/to/cubes/<this-cube>/src/<pkg>/     (benchmark root)
-    ├── task.py:evaluate         — VERIFIER: how a solution is scored
+    /abs/path/to/cubes/<this-cube>/src/<pkg>/     (benchmark root — the adapter)
+    ├── task.py:evaluate         — VERIFIER (or where it delegates upstream)
     ├── task.py / metadata       — GROUND TRUTH: where the expected answer lives
     └── tools.py                 — benchmark-specific actions (if any)
+
+    /abs/path/to/<upstream-pkg>/                  (upstream benchmark, if wrapped)
+    ├── ...:<eval fn>            — the real scoring the cube delegates to
+    └── ...                      — real task definitions / environment
 
 ### `## Paths`
 
 A fenced ```paths block of the package roots — **machine-parsed, keep this exact
-format**. One `name: /absolute/path` per line. Verify each exists:
+format**. One `name: /absolute/path` per line. Verify each exists. Include an
+`upstream_package` entry when the cube wraps one:
 
 ```paths
 cube_standard: /abs/path/to/cube-standard/src/cube
 cube_harness: /abs/path/to/cube-harness/src/cube_harness
 cube_package: /abs/path/to/cubes/<this-cube>/src/<pkg>
 agent_package: /abs/path/to/cube_harness/agents
+upstream_package: /abs/path/to/<wrapped-benchmark>
 ```
 
 The orientation may be long; the tree must be precise. The investigator opens
