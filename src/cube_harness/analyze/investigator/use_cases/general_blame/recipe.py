@@ -82,11 +82,11 @@ guide, not an allowlist — `Glob` / `Read` anything that looks useful.
 
 # Codebase map
 
-A benchmark-context sub-agent has produced an `investigation_context.md`
-mapping the source code that ran this experiment. **Navigate freely**
-with `Glob` / `Grep` / `Read` — read any part of the code you find
-useful to back a specific claim. Don't pre-read everything; let your
-hypotheses drive what you open.
+A one-time orientation to the code that ran this experiment — what
+cube-standard and cube-harness are, and where this benchmark's pieces
+live on disk. **Navigate freely** with `Glob` / `Grep` / `Read`: this
+is a head-start, not a boundary. Read any file you need to back a
+claim; let your hypotheses drive what you open.
 
 {{source_paths_block}}
 

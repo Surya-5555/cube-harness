@@ -65,27 +65,68 @@ Bash — your only output is the assistant message containing the markdown.
 
 ## Output format
 
-A markdown document with three parts, in this order:
+The investigator (Sonnet) is likely **unfamiliar with the cube codebase** — your
+output is its orientation. The whole document is embedded directly into the
+investigator's prompt, so do not refer to it as a file ("see investigation_context.md");
+just write the content. Use `##` headings (not `#`) so it nests cleanly when
+embedded.
 
-1. **Architecture orientation** (≈ 5–12 sentences): how cube-standard defines the
-   contract (Task / Tool / Benchmark / Resource), how cube-harness runs it (agent
-   loop → episode → trajectory), then the specifics of *this* benchmark — what the
-   task is, what the action surface looks like, how reward is computed. Orient,
-   don't transcribe; the investigator will drill in itself.
-2. **Key locations**: a short bullet list of `path:symbol — what it is` for the
-   entry points from step 4. These are the head-start pointers.
-3. A fenced ```paths block of the package roots (this part is machine-parsed —
-   keep the exact format). Each line is `name: /absolute/path`:
+Three parts, in this order:
+
+### `## Orientation`
+
+Teach the investigator the codebase. Be generous — several paragraphs is the
+right length; a strong orientation saves the investigator many grep/read
+round-trips.
+
+- **cube-standard** — the protocol/contract layer. Explain the pieces it will
+  meet: `Task` (reset / step / evaluate), `Tool` (`@tool_action`), `Benchmark`,
+  `Resource` (provisioned infra), `Container`, `Server`, `CLI`. Benchmarks and
+  tools *implement* these ABCs; generalist tools (e.g. the terminal tool) live
+  in cube-standard and are shared.
+- **cube-harness** — the runtime. The agent (the LLM loop that emits actions),
+  `Episode` (drives agent ⇄ env, enforces budget), `Trajectory` (the recorded
+  result the investigator reads), `exp_runner`, storage. Note that the
+  investigator itself lives here.
+- **this benchmark** — what the task is, the action surface (which tools the
+  agent had), how an episode starts (initial observation / reset), how reward
+  is computed (the evaluate function), and any infra specifics (container/VM).
+
+### `## Key locations`
+
+A **tree** rooted at each package's on-disk directory, annotating the files and
+symbols the investigator is most likely to need. Show **at least the absolute
+root path** of each package; entries beneath may be relative. Cover: the agent
+loop, the tool wrappers (benchmark + shared), the reward/`evaluate` function,
+task `reset`, the infra entrypoint, and the submission protocol. Example shape:
+
+    /abs/path/to/cube-standard/src/cube/          (cube-standard root)
+    ├── task.py                  — Task ABC: reset() / step() / evaluate()
+    ├── tool.py                  — Tool ABC, @tool_action
+    └── tools/terminal.py        — TerminalTool: shared shell action surface
+
+    /abs/path/to/cube-harness/src/cube_harness/   (cube-harness root)
+    ├── agents/genny.py          — Genny.run: the agent loop
+    └── episode.py               — Episode: drives agent ⇄ env, budget
+
+    /abs/path/to/cubes/<this-cube>/src/<pkg>/     (benchmark root)
+    ├── task.py:evaluate         — reward: how a solution is scored
+    └── tools.py                 — benchmark-specific actions (if any)
+
+### `## Paths`
+
+A fenced ```paths block of the package roots — **machine-parsed, keep this exact
+format**. One `name: /absolute/path` per line. Verify each exists:
 
 ```paths
-cube_package: /abs/path/to/cubes/swebench_verified
+cube_standard: /abs/path/to/cube-standard/src/cube
+cube_harness: /abs/path/to/cube-harness/src/cube_harness
+cube_package: /abs/path/to/cubes/<this-cube>/src/<pkg>
 agent_package: /abs/path/to/cube_harness/agents
-cube_harness: /abs/path/to/src/cube_harness
-cube_standard: /abs/path/to/cube
 ```
 
-Keep the whole document tight — a head-start, not a manual. The investigator can
-open any file it needs; your job is to point it at the right ones fast.
+The orientation may be long; the tree must be precise. The investigator opens
+any file it needs — your job is the head-start.
 
 Reply with the markdown content only — no preamble, no closing chatter."""
 
