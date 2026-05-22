@@ -94,18 +94,29 @@ def _load_experiment_view(path: Path) -> _ExperimentView:
         return _ExperimentView(experiment=None, raw=raw)
 
 
-def find_default_context_file(experiment_dir: Path) -> Path:
-    """Return `<experiment_dir>/investigation_context.md` if it exists, else raise.
+def resolve_context_path(
+    experiment_dir: Path,
+    *,
+    context_dir: Path | None = None,
+    benchmark_key: str | None = None,
+) -> Path:
+    """Where the `investigation_context.md` for this run lives / should be written.
 
-    Used by `_investigate_episode_impl` to decide whether to invoke the benchmark-context
-    sub-agent. Raising — rather than returning `None` — is intentional: callers
-    catch `FileNotFoundError` and call the sub-agent; if the sub-agent runs but
-    still fails to produce a file, the error propagates with a useful path.
+    - `context_dir=None` (default): per-experiment, plain filename — back-compat
+      for standalone `ch-investigate` (one map per experiment dir).
+    - `context_dir` set (Auto-CUBE points it at the session dir): the map is
+      cached **per session** and keyed by benchmark so a session investigating
+      several benchmarks doesn't collide. Per-session keying avoids the staleness
+      a machine-wide cache would hit when a different worktree/venv has different
+      installed code.
     """
-    path = Path(experiment_dir) / INVESTIGATION_CONTEXT_FILENAME
-    if not path.exists():
-        raise FileNotFoundError(path)
-    return path
+    if context_dir is None:
+        return Path(experiment_dir) / INVESTIGATION_CONTEXT_FILENAME
+    base = Path(context_dir)
+    if benchmark_key:
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", benchmark_key)
+        return base / f"investigation_context_{safe}.md"
+    return base / INVESTIGATION_CONTEXT_FILENAME
 
 
 def _parse_paths_block(text: str) -> list[tuple[str | None, Path]]:
@@ -131,25 +142,26 @@ def _parse_paths_block(text: str) -> list[tuple[str | None, Path]]:
 
 
 def validate_context_file(path: Path) -> dict[str, Path]:
-    """Parse a `investigation_context.md` and verify every listed path exists locally.
+    """Parse `investigation_context.md` and return the name → path map of the paths
+    that exist locally (these are granted to the investigator as readable dirs).
 
-    Returns a `name → path` map (auto-naming entries that lack a label). Raises
-    `FileNotFoundError` on the first missing path with a message identifying the
-    offending entry — this catches the common failure mode where the
-    benchmark-context sub-agent hallucinates a path.
-
-    Raises `ValueError` if the file lacks a ```paths fenced block at all.
+    Lenient by design — the map is a best-effort head-start, not a contract:
+    - A listed path that doesn't exist is **skipped with a warning**, not fatal.
+      A slightly-stale or mistaken entry shouldn't sink the whole investigation;
+      the investigator still works from the trajectory + the paths that resolved.
+    - A file with no ```paths fenced block yields an **empty map** (also just a
+      warning) — the investigator runs without extra source dirs.
     """
     path = Path(path)
-    text = path.read_text()
-    pairs = _parse_paths_block(text)
+    pairs = _parse_paths_block(path.read_text())
     if not pairs:
-        raise ValueError(f"{path} has no ```paths fenced block")
+        logger.warning("%s has no ```paths block — investigator runs without extra source dirs", path)
+        return {}
 
     resolved: dict[str, Path] = {}
     for idx, (name, p) in enumerate(pairs):
         if not p.exists():
-            raise FileNotFoundError(f"{path}: listed path does not exist: {p} (entry {idx}, name={name!r})")
-        key = name or f"path_{idx}"
-        resolved[key] = p
+            logger.warning("%s: skipping listed path that does not exist: %s (name=%r)", path, p, name)
+            continue
+        resolved[name or f"path_{idx}"] = p
     return resolved

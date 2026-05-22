@@ -117,6 +117,29 @@ def run_cmd(
             help="Mirror meta_analysis.{json,md} into <journal-dir>/<experiment>/.",
         ),
     ] = Path("~/cube_auto_cube_journal").expanduser(),
+    extra_prompt: Annotated[
+        str | None,
+        typer.Option(
+            "--extra-prompt",
+            help=(
+                "Extra biasing fragment appended to every per-episode user prompt. "
+                "Pass literal text, or '@<path>' to read from a file (e.g. an "
+                "Auto-CUBE use-case's investigator_extra.md)."
+            ),
+        ),
+    ] = None,
+    context_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--context-dir",
+            help=(
+                "Cache the codebase-map (investigation_context.md) here instead of "
+                "in the experiment dir. Auto-CUBE points this at the session dir so "
+                "the Opus context agent runs once per (session, benchmark) and the "
+                "map is reused across rounds."
+            ),
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("-v", "--verbose", help="Stream tool calls + text to stderr.")] = False,
 ) -> None:
     """Batch-investigate episodes in an experiment directory.
@@ -135,6 +158,14 @@ def run_cmd(
     if investigator_model is not None and investigator_model != chosen_recipe.model:
         chosen_recipe = chosen_recipe.model_copy(update={"model": investigator_model})
 
+    if extra_prompt and extra_prompt.startswith("@"):
+        fragment_path = Path(extra_prompt[1:]).expanduser()
+        if not fragment_path.exists():
+            raise typer.BadParameter(f"--extra-prompt file not found: {fragment_path}")
+        extra_prompt_fragment: str | None = fragment_path.read_text()
+    else:
+        extra_prompt_fragment = extra_prompt or None
+
     config = InvestigationConfig(
         recipe=chosen_recipe,
         driver=_make_driver(driver),
@@ -148,6 +179,8 @@ def run_cmd(
         trace_mode=trace_mode,  # type: ignore[arg-type]
         synthesis_model=synthesis_model,
         journal_dir=journal_dir,
+        extra_prompt_fragment=extra_prompt_fragment,
+        context_dir=context_dir,
     )
     results = investigate_experiment(path, config)
     _print_summary_table(results)

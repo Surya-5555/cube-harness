@@ -29,7 +29,7 @@ from cube_harness.analyze.investigator.audit import AUDIT_FILENAME, run_audit_pa
 from cube_harness.analyze.investigator.benchmark_context_agent import generate_context_file
 from cube_harness.analyze.investigator.context import (
     _load_experiment_view,
-    find_default_context_file,
+    resolve_context_path,
     validate_context_file,
 )
 from cube_harness.analyze.investigator.episode_discovery import (
@@ -115,6 +115,22 @@ class InvestigationConfig(TypedBaseModel):
     # machine-local journal dir; override or point at a tempdir to redirect.
     journal_dir: Path = Field(default_factory=lambda: Path("~/cube_auto_cube_journal").expanduser())
 
+    # Optional biasing fragment appended to every per-episode user prompt.
+    # Lets an Auto-CUBE use-case (or any caller) add use-case-specific
+    # guidance without forking a new Investigator recipe — e.g.
+    # "attribute toward dispositions {covered, model-ceiling, infra-suspect,
+    # scaffold-suspect, benchmark-suspect}". The recipe's base prompts stay
+    # invariant; the fragment is appended after the rendered template.
+    extra_prompt_fragment: str | None = None
+
+    # Where to cache `investigation_context.md` (the Opus-generated codebase
+    # map). `None` → per-experiment (back-compat). Auto-CUBE points this at the
+    # session dir so the map is generated once per (session, benchmark) and
+    # reused across rounds — per-session keying avoids the staleness a
+    # machine-wide cache would hit when a different worktree/venv has different
+    # installed code.
+    context_dir: Path | None = None
+
 
 def _load_trajectory_meta(path: Path) -> Trajectory | None:
     """Load episode.metadata.json as a Trajectory. The `steps` field will be empty
@@ -177,21 +193,23 @@ def _build_user_prompt(
     total_steps: int | None,
     agent_name: str,
     benchmark_name: str,
+    episode_dir: Path,
     transcript_dir: Path,
     episode_metadata_path: Path,
     episode_config_path: Path,
     task_description: str,
-    source_paths: dict[str, Path],
+    codebase_map: str,
     related_paths: list[Path],
 ) -> str:
-    """Render the recipe's user-prompt template with per-episode fields."""
-    src_block = (
-        "\n".join(f"  {name}: {p}" for name, p in source_paths.items())
-        if source_paths
-        else "  (none resolved — investigator from transcript only)"
-    )
+    """Render the recipe's user-prompt template with per-episode fields.
+
+    `codebase_map` is the full `investigation_context.md` markdown (architecture
+    orientation + key-location pointers + the paths block) — injected verbatim so
+    the investigator reads it inline rather than being told a file exists.
+    """
+    src_block = codebase_map.strip() or "  (no codebase map — investigate from transcript only)"
     if related_paths:
-        src_block += "\n  related_episodes:\n" + "\n".join(f"    - {p}" for p in related_paths)
+        src_block += "\n\nrelated_episodes:\n" + "\n".join(f"  - {p}" for p in related_paths)
 
     return recipe.user_prompt_template.format(
         trajectory_id=trajectory_id,
@@ -200,6 +218,7 @@ def _build_user_prompt(
         total_steps=total_steps if total_steps is not None else "unknown",
         agent_name=agent_name,
         benchmark_name=benchmark_name,
+        episode_dir=episode_dir,
         transcript_dir=transcript_dir,
         episode_metadata_path=episode_metadata_path,
         episode_config_path=episode_config_path,
@@ -208,14 +227,25 @@ def _build_user_prompt(
     )
 
 
-async def _ensure_context_file(experiment_dir: Path, driver: AgentDriver) -> Path:
-    """Find or generate `investigation_context.md` and verify every listed path exists."""
-    try:
-        path = find_default_context_file(experiment_dir)
-    except FileNotFoundError:
-        logger.info("investigation_context.md missing under %s — invoking benchmark-context-agent", experiment_dir)
-        path = await generate_context_file(experiment_dir, driver=driver)
-    return path
+async def _ensure_context_file(
+    experiment_dir: Path,
+    driver: AgentDriver,
+    *,
+    context_dir: Path | None = None,
+    benchmark_dotted: str | None = None,
+) -> Path:
+    """Reuse the cached `investigation_context.md` if present, else generate it.
+
+    The cache location is resolved by `resolve_context_path`: per-experiment by
+    default, or per-(session, benchmark) when `context_dir` is set (Auto-CUBE).
+    Reuse-if-present means the Opus context agent runs at most once per session
+    per benchmark; a fresh session regenerates against its own worktree's code.
+    """
+    path = resolve_context_path(experiment_dir, context_dir=context_dir, benchmark_key=benchmark_dotted)
+    if path.exists():
+        return path
+    logger.info("investigation_context not cached at %s — invoking benchmark-context-agent", path)
+    return await generate_context_file(experiment_dir, driver=driver, out_path=path)
 
 
 async def _investigate_episode_impl(
@@ -229,6 +259,8 @@ async def _investigate_episode_impl(
     verbose: bool = False,
     trace_mode: TraceMode = "actions",
     all_refs: list[EpisodeRef] | None = None,
+    extra_prompt_fragment: str | None = None,
+    context_dir: Path | None = None,
 ) -> tuple[BaseFindings, InvestigationMetadata, list[ToolAction], DriverResult, float]:
     """Async core shared by investigate_episode (single) and investigate_experiment (parallel)."""
     transcript_dir = episode_dir / "_investigation_transcript"
@@ -249,8 +281,11 @@ async def _investigate_episode_impl(
     else:
         task_id, reward, total_steps, task_description = "unknown", None, None, ""
 
-    context_path = await _ensure_context_file(experiment_dir, driver)
-    source_paths = validate_context_file(context_path)
+    context_path = await _ensure_context_file(
+        experiment_dir, driver, context_dir=context_dir, benchmark_dotted=view.benchmark_dotted
+    )
+    source_paths = validate_context_file(context_path)  # parsed paths → additional_dirs (read access)
+    context_markdown = context_path.read_text()  # full map → injected into the prompt
 
     related_paths: list[Path] = []
     if selector is not None:
@@ -273,13 +308,18 @@ async def _investigate_episode_impl(
         total_steps=total_steps,
         agent_name=view.agent_dotted,
         benchmark_name=view.benchmark_dotted,
+        episode_dir=episode_dir,
         transcript_dir=transcript_dir,
         episode_metadata_path=metadata_path,
         episode_config_path=config_path,
         task_description=task_description,
-        source_paths=source_paths,
+        codebase_map=context_markdown,
         related_paths=related_paths,
     )
+    if extra_prompt_fragment:
+        # Append after a visual separator. The fragment is expected to carry
+        # its own header / structure — adding a wrapper here just stacks H2s.
+        user_prompt = f"{user_prompt}\n\n---\n\n{extra_prompt_fragment.strip()}\n"
 
     additional_dirs = list(source_paths.values()) + [transcript_dir] + related_paths
     logger.info(
@@ -349,6 +389,7 @@ def investigate_episode(
     verbose: bool = False,
     trace_mode: TraceMode = "actions",
     model: str | None = None,
+    extra_prompt_fragment: str | None = None,
 ) -> tuple[BaseFindings, InvestigationMetadata]:
     """Run a post-hoc investigator on a single episode trajectory directory.
 
@@ -373,6 +414,7 @@ def investigate_episode(
             audit=audit,
             verbose=verbose,
             trace_mode=trace_mode,
+            extra_prompt_fragment=extra_prompt_fragment,
         )
     )
     return findings, investigation_metadata
@@ -491,6 +533,8 @@ def investigate_experiment(
             seeded_runs_out=seeded_runs,
             audit_costs_out=audit_costs,
             all_refs=refs,
+            extra_prompt_fragment=cfg.extra_prompt_fragment,
+            context_dir=cfg.context_dir,
         )
     )
 
@@ -548,6 +592,8 @@ async def _investigate_experiment_async(
     seeded_runs_out: dict[tuple[str, str], list[tuple[BaseFindings, InvestigationMetadata]]],
     audit_costs_out: dict[str, float],
     all_refs: list[EpisodeRef],
+    extra_prompt_fragment: str | None = None,
+    context_dir: Path | None = None,
 ) -> dict[str, tuple[BaseFindings, InvestigationMetadata]]:
     """Run the investigator across `selected` × `n_seeds`, bounded by `n_parallel`."""
     semaphore = asyncio.Semaphore(n_parallel)
@@ -568,6 +614,8 @@ async def _investigate_experiment_async(
                         verbose=verbose,
                         trace_mode=trace_mode,
                         all_refs=all_refs,
+                        extra_prompt_fragment=extra_prompt_fragment,
+                        context_dir=context_dir,
                     ),
                     timeout=episode_timeout_s,
                 )

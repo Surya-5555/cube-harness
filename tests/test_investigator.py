@@ -476,18 +476,23 @@ def test_validate_context_file_parses_paths_block(tmp_path: Path) -> None:
     assert "path_1" in resolved
 
 
-def test_validate_context_file_raises_on_missing_path(tmp_path: Path) -> None:
+def test_validate_context_file_skips_missing_path(tmp_path: Path) -> None:
+    """A missing path is skipped (warned), not fatal — the existing ones still resolve.
+    Lenient by design: a slightly-stale map shouldn't sink the whole investigation."""
     p = tmp_path / INVESTIGATION_CONTEXT_FILENAME
-    p.write_text("```paths\nfake: /no/such/path\n```\n")
-    with pytest.raises(FileNotFoundError):
-        validate_context_file(p)
+    good = tmp_path / "good"
+    good.mkdir()
+    p.write_text(f"```paths\nfake: /no/such/path\ngood: {good}\n```\n")
+    resolved = validate_context_file(p)
+    assert resolved == {"good": good}  # missing entry dropped, good one kept
 
 
-def test_validate_context_file_raises_without_paths_fence(tmp_path: Path) -> None:
+def test_validate_context_file_empty_without_paths_fence(tmp_path: Path) -> None:
+    """No ```paths block → empty map (warned), not a raise. The investigator still
+    runs from the trajectory; it just gets no extra source dirs."""
     p = tmp_path / INVESTIGATION_CONTEXT_FILENAME
     p.write_text("# no fenced block here\n")
-    with pytest.raises(ValueError):
-        validate_context_file(p)
+    assert validate_context_file(p) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -863,8 +868,46 @@ def test_investigate_episode_pipeline(tmp_path: Path) -> None:
     assert driver.last_call is not None
     assert driver.last_call["model"] == "claude-sonnet-4-6"
     assert driver.last_call["cwd"] == ep
-    assert "task1_ep0" in driver.last_call["user_prompt"]
-    assert "_investigation_transcript" in driver.last_call["user_prompt"]
+    user_prompt = driver.last_call["user_prompt"]
+    assert "task1_ep0" in user_prompt
+    assert "_investigation_transcript" in user_prompt
+    # -- Prompt points at the trajectory dir root + tree, not a fixed file list --
+    assert "# Trajectory directory" in user_prompt
+    assert str(ep) in user_prompt  # episode_dir root is rendered
+    assert "read any file under this directory" in user_prompt
+    # -- Codebase map framing (the benchmark-context source pointers) --
+    assert "# Codebase map" in user_prompt
+
+
+def test_investigate_experiment_appends_extra_prompt_fragment(tmp_path: Path) -> None:
+    """`InvestigationConfig.extra_prompt_fragment` is appended to the per-episode
+    user prompt without altering the recipe's base prompts. Lets an Auto-CUBE
+    use-case bias the Investigator (e.g. attribute toward debug dispositions)
+    without forking a new recipe."""
+    exp, _ = _make_episode_dir(tmp_path, "task1_ep0")
+    driver = _FakeDriver(output_text=f"Here is my analysis:\n```json\n{_VALID_FINDINGS_JSON}\n```")
+    fragment = "ATTRIBUTE TOWARD: infra-suspect | scaffold-suspect | benchmark-suspect."
+
+    investigate_experiment(
+        exp,
+        InvestigationConfig(
+            driver=driver,
+            ids=["task1_ep0"],
+            synthesis_model="",
+            extra_prompt_fragment=fragment,
+        ),
+    )
+
+    assert driver.last_call is not None
+    user_prompt = driver.last_call["user_prompt"]
+    assert fragment in user_prompt, "extra prompt fragment not appended"
+    assert "\n---\n" in user_prompt, "fragment lacks separator from base prompt"
+    # The recipe's own templated content still comes first.
+    assert user_prompt.index("task1_ep0") < user_prompt.index(fragment), (
+        "extra fragment should be appended after the base prompt, not prepended"
+    )
+    # System prompt is the recipe's invariant — fragment must not touch it.
+    assert fragment not in driver.last_call["system_prompt"]
 
 
 class _HangingDriver:
@@ -979,6 +1022,45 @@ def test_benchmark_context_agent_writes_paths_block(tmp_path: Path) -> None:
     assert "```paths" in out.read_text()
     resolved = validate_context_file(out)
     assert resolved["agent_src"] == other
+
+
+def test_resolve_context_path_per_experiment_vs_per_session(tmp_path: Path) -> None:
+    """context_dir=None → per-experiment plain file; context_dir set → per-session,
+    benchmark-keyed (a session investigating two benchmarks must not collide)."""
+    from cube_harness.analyze.investigator.context import resolve_context_path
+
+    exp = tmp_path / "exp"
+    assert resolve_context_path(exp) == exp / INVESTIGATION_CONTEXT_FILENAME
+
+    session = tmp_path / "session"
+    p1 = resolve_context_path(exp, context_dir=session, benchmark_key="pkg.SWEBenchVerified")
+    p2 = resolve_context_path(exp, context_dir=session, benchmark_key="pkg.MiniWob")
+    assert p1.parent == session and p2.parent == session
+    assert p1 != p2  # benchmark-keyed → distinct files in the same session dir
+    assert p1.name == "investigation_context_pkg.SWEBenchVerified.md"
+
+
+def test_investigate_experiment_injects_full_context_markdown(tmp_path: Path) -> None:
+    """The full investigation_context.md (architecture orientation + pointers, not
+    just the paths block) is injected verbatim into the investigator user prompt,
+    and an existing cached file is reused (not regenerated)."""
+    exp, _ = _make_episode_dir(tmp_path, "task1_ep0")
+    # Replace the test-seeded context with a richer one carrying prose the paths
+    # block alone would not surface.
+    (exp / INVESTIGATION_CONTEXT_FILENAME).write_text(
+        "# Codebase orientation\n\n"
+        "ARCH: cube-standard defines the contract; cube-harness runs the loop.\n"
+        "KEY: cubes/foo/task.py:evaluate is the reward function.\n\n"
+        f"```paths\nexp: {exp}\n```\n"
+    )
+    driver = _FakeDriver(output_text=f"```json\n{_VALID_FINDINGS_JSON}\n```")
+
+    investigate_experiment(exp, InvestigationConfig(driver=driver, ids=["task1_ep0"], synthesis_model=""))
+
+    assert driver.last_call is not None
+    user_prompt = driver.last_call["user_prompt"]
+    assert "ARCH: cube-standard defines the contract" in user_prompt, "architecture prose not injected"
+    assert "cubes/foo/task.py:evaluate is the reward function" in user_prompt, "key-location pointer not injected"
 
 
 # ---------------------------------------------------------------------------
