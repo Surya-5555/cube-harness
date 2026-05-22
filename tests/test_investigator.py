@@ -476,18 +476,23 @@ def test_validate_context_file_parses_paths_block(tmp_path: Path) -> None:
     assert "path_1" in resolved
 
 
-def test_validate_context_file_raises_on_missing_path(tmp_path: Path) -> None:
+def test_validate_context_file_skips_missing_path(tmp_path: Path) -> None:
+    """A missing path is skipped (warned), not fatal — the existing ones still resolve.
+    Lenient by design: a slightly-stale map shouldn't sink the whole investigation."""
     p = tmp_path / INVESTIGATION_CONTEXT_FILENAME
-    p.write_text("```paths\nfake: /no/such/path\n```\n")
-    with pytest.raises(FileNotFoundError):
-        validate_context_file(p)
+    good = tmp_path / "good"
+    good.mkdir()
+    p.write_text(f"```paths\nfake: /no/such/path\ngood: {good}\n```\n")
+    resolved = validate_context_file(p)
+    assert resolved == {"good": good}  # missing entry dropped, good one kept
 
 
-def test_validate_context_file_raises_without_paths_fence(tmp_path: Path) -> None:
+def test_validate_context_file_empty_without_paths_fence(tmp_path: Path) -> None:
+    """No ```paths block → empty map (warned), not a raise. The investigator still
+    runs from the trajectory; it just gets no extra source dirs."""
     p = tmp_path / INVESTIGATION_CONTEXT_FILENAME
     p.write_text("# no fenced block here\n")
-    with pytest.raises(ValueError):
-        validate_context_file(p)
+    assert validate_context_file(p) == {}
 
 
 # ---------------------------------------------------------------------------
