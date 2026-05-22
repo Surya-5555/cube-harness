@@ -74,8 +74,11 @@ budget; the recorded result is a `Trajectory` (what you are reading now).
 
 **This benchmark (SWE-bench-verified)** hands the agent a repository with a
 failing test and asks for a patch. The action surface is the shared terminal
-tool (shell). An episode starts with the issue text + repo checkout; reward is
-`evaluate()` applying the patch and running the test suite — pass ⇒ reward 1.
+tool (shell). An episode starts with the issue text + repo checkout. The
+**verifier** is `evaluate()`: it applies the agent's patch and runs the test
+suite. The **ground truth** is the `FAIL_TO_PASS` / `PASS_TO_PASS` test lists
+carried in the task metadata (`TaskMetadata.extra`) — a solution is correct iff
+those tests flip to passing without regressing the rest.
 
 ## Key locations
 
@@ -89,7 +92,8 @@ tool (shell). An episode starts with the issue text + repo checkout; reward is
     └── episode.py:Episode        — drives agent ⇄ env, enforces budget
 
     /Users/alex/dev/cube/cube-harness/cubes/swebench-verified-cube/src/swebench_verified_cube/
-    ├── task.py:evaluate          — reward: applies the patch, runs the test suite
+    ├── task.py:evaluate          — VERIFIER: applies the patch, runs the test suite
+    ├── task.py (TaskMetadata.extra) — GROUND TRUTH: FAIL_TO_PASS / PASS_TO_PASS test ids
     ├── task.py:reset             — initial observation (issue text + repo)
     └── benchmark.py              — task collection + shared setup
 

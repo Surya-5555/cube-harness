@@ -51,15 +51,24 @@ Bash — your only output is the assistant message containing the markdown.
 3. Always resolve the `cube_harness` source root and the `cube` (cube-standard)
    source root. Include the infra package root if `infra._type` is present.
 4. **Explore** (this is the value you add): open the resolved packages and find
-   the entry points the investigator will most likely need —
+   the entry points the investigator will most likely need. **Cubes lay these
+   out very differently — search, do not assume a layout, and stay
+   cube-agnostic: let *this* benchmark's source drive the map, never a template
+   carried over from another cube.** Find:
    - the agent loop (where the LLM is called, where actions are parsed/executed),
    - the tool wrapper(s) for this benchmark (the action surface),
-   - the task's reward / evaluate function,
+   - **the verifier — the `evaluate` / reward function: where and exactly how a
+     solution is scored. Pin the `path:symbol`.**
+   - **where the ground truth / expected answer lives — this varies per cube: it
+     may be a field in the task metadata, on the task config, a file staged in
+     the container, or computed inline in `evaluate`. Locate it concretely so
+     the investigator can check the agent's answer against it — this is what
+     distinguishes a real failure from `eval_brittle` / `should_have_been_rewarded`.**
    - task setup / reset (the initial observation),
    - infra entrypoint (how the container/VM is provisioned),
    - the submission protocol (how the agent signals "done").
-   Note the `path:symbol` (file + function/class) for each, verified by actually
-   reading enough to be sure.
+   Note the `path:symbol` (file + function/class, or the metadata key/path) for
+   each, verified by actually reading enough to be sure.
 5. Verify every path you cite exists. Skip anything missing — better to omit than
    to hallucinate.
 
@@ -89,16 +98,21 @@ round-trips.
   result the investigator reads), `exp_runner`, storage. Note that the
   investigator itself lives here.
 - **this benchmark** — what the task is, the action surface (which tools the
-  agent had), how an episode starts (initial observation / reset), how reward
-  is computed (the evaluate function), and any infra specifics (container/VM).
+  agent had), how an episode starts (initial observation / reset), **how a
+  solution is verified (the evaluate function) and where the ground truth /
+  expected answer lives** (so the investigator can check the agent's answer
+  itself), and any infra specifics (container/VM). These vary per cube — say
+  what *this* one does.
 
 ### `## Key locations`
 
 A **tree** rooted at each package's on-disk directory, annotating the files and
 symbols the investigator is most likely to need. Show **at least the absolute
 root path** of each package; entries beneath may be relative. Cover: the agent
-loop, the tool wrappers (benchmark + shared), the reward/`evaluate` function,
-task `reset`, the infra entrypoint, and the submission protocol. Example shape:
+loop, the tool wrappers (benchmark + shared), the **verifier / `evaluate`
+function**, **where the ground truth lives**, task `reset`, the infra
+entrypoint, and the submission protocol. The example below is *illustrative
+shape only* — the real files differ per benchmark; map what you actually find:
 
     /abs/path/to/cube-standard/src/cube/          (cube-standard root)
     ├── task.py                  — Task ABC: reset() / step() / evaluate()
@@ -106,11 +120,12 @@ task `reset`, the infra entrypoint, and the submission protocol. Example shape:
     └── tools/terminal.py        — TerminalTool: shared shell action surface
 
     /abs/path/to/cube-harness/src/cube_harness/   (cube-harness root)
-    ├── agents/genny.py          — Genny.run: the agent loop
+    ├── agents/<agent>.py        — <Agent>.run: the agent loop
     └── episode.py               — Episode: drives agent ⇄ env, budget
 
     /abs/path/to/cubes/<this-cube>/src/<pkg>/     (benchmark root)
-    ├── task.py:evaluate         — reward: how a solution is scored
+    ├── task.py:evaluate         — VERIFIER: how a solution is scored
+    ├── task.py / metadata       — GROUND TRUTH: where the expected answer lives
     └── tools.py                 — benchmark-specific actions (if any)
 
 ### `## Paths`
