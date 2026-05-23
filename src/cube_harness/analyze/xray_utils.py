@@ -193,6 +193,7 @@ def build_progress_html(
     n_running: int,
     per_agent: list[tuple[str, int, int, int]] | None = None,
     exp_names: list[str] | None = None,
+    ray_dashboard_urls: list[tuple[str, str]] | None = None,
 ) -> str:
     """Return an HTML progress bar + label for experiment completion status.
 
@@ -203,6 +204,8 @@ def build_progress_html(
         per_agent: Optional list of (agent_name, n_completed, n_total, n_running).
                    When provided with > 1 entry, a per-agent breakdown is appended.
         exp_names: Names of selected experiment directories being monitored.
+        ray_dashboard_urls: Optional list of (exp_name, url). Each becomes a clickable
+                   link to the live Ray dashboard for that experiment.
     """
     header = ""
     if exp_names:
@@ -225,8 +228,10 @@ def build_progress_html(
         label += f", {n_running} running ⏳"
     label += "</div>"
 
+    links = _build_ray_dashboard_links_html(ray_dashboard_urls, multi=bool(exp_names and len(exp_names) > 1))
+
     if not per_agent or len(per_agent) <= 1:
-        return header + bar + label
+        return header + bar + label + links
 
     rows_html = ""
     for agent_name, agent_done, agent_total, agent_running in per_agent:
@@ -244,7 +249,26 @@ def build_progress_html(
             f'<div style="min-width:60px;text-align:right;white-space:nowrap;">{agent_done}/{agent_total}{running_str}</div>'
             f"</div>"
         )
-    return header + bar + label + rows_html
+    return header + bar + label + links + rows_html
+
+
+def _build_ray_dashboard_links_html(ray_dashboard_urls: list[tuple[str, str]] | None, *, multi: bool) -> str:
+    """Render clickable Ray-dashboard link(s). Empty string when no URLs are available.
+
+    ``multi`` prefixes each link with its experiment name (only useful when several
+    experiments are being monitored at once).
+    """
+    if not ray_dashboard_urls:
+        return ""
+    parts = []
+    for name, url in ray_dashboard_urls:
+        safe_url = html_lib.escape(url, quote=True)
+        prefix = f"{html_lib.escape(name)}: " if multi else ""
+        parts.append(
+            f'{prefix}<a href="{safe_url}" target="_blank" rel="noopener" '
+            f'style="color:#1d4ed8;text-decoration:none;">🔗 Ray dashboard</a>'
+        )
+    return '<div style="font-size:11px;margin-top:4px;">' + " &nbsp;·&nbsp; ".join(parts) + "</div>"
 
 
 def archive_experiment(results_dir: Path, exp_name: str) -> None:

@@ -1470,3 +1470,40 @@ class TestGetLogsTabMarkdownEpisodeStatus:
         traj = Trajectory(id="t", metadata={})
         result = xray_utils.get_logs_tab_markdown(traj, "")
         assert "Episode Status" not in result
+
+
+class TestBuildProgressHtml:
+    def test_progress_label_and_bar_width(self) -> None:
+        html = xray_utils.build_progress_html(3, 4, 1)
+        assert "3/4 episodes completed" in html
+        assert "1 running" in html
+        assert "width:75.0%" in html
+
+    def test_no_ray_link_when_url_absent(self) -> None:
+        html = xray_utils.build_progress_html(1, 2, 0)
+        assert "Ray dashboard" not in html
+
+    def test_ray_dashboard_link_is_clickable(self) -> None:
+        html = xray_utils.build_progress_html(1, 2, 1, ray_dashboard_urls=[("exp_a", "http://127.0.0.1:8265")])
+        assert '<a href="http://127.0.0.1:8265"' in html
+        assert 'target="_blank"' in html
+        assert "🔗 Ray dashboard" in html
+
+    def test_ray_dashboard_link_prefixes_name_for_multiple_experiments(self) -> None:
+        html = xray_utils.build_progress_html(
+            0,
+            2,
+            0,
+            exp_names=["exp_a", "exp_b"],
+            ray_dashboard_urls=[("exp_a", "http://a:8265"), ("exp_b", "http://b:8265")],
+        )
+        assert "exp_a: " in html
+        assert "exp_b: " in html
+        assert html.count("🔗 Ray dashboard") == 2
+
+    def test_ray_dashboard_url_is_escaped(self) -> None:
+        html = xray_utils.build_progress_html(
+            0, 1, 0, ray_dashboard_urls=[("e", 'http://x"><script>alert(1)</script>')]
+        )
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;" in html
