@@ -312,6 +312,17 @@ class Episode:
             ep_status.error_message = str(e)[:500]
             raise e
         finally:
+            # Persist summary_stats on terminal failure paths too (the success path sets it
+            # above). With it on the metadata stub, the XRay tables render correct
+            # step/token/cost stats without loading any steps — which is what makes the
+            # background bulk-loader unnecessary. Best-effort: never mask the real error,
+            # and save_trajectory is a safe re-save (the id is already in _saved_ids).
+            if trajectory is not None and not trajectory.summary_stats:
+                try:
+                    trajectory.summary_stats = _compute_summary_stats(trajectory)
+                    self.storage.save_trajectory(trajectory)
+                except Exception:
+                    logger.exception("Failed to persist summary_stats on terminal path")
             ep_status.ended_at = time.time()
             ep_status.last_heartbeat_at = ep_status.ended_at
             try:
