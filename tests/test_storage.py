@@ -1244,17 +1244,27 @@ class TestFailureTextInjection:
         loaded = storage.load_trajectory("task_1_ep0")
         assert loaded.metadata.get("_failure_text") == "crash trace"
 
-    def test_list_ids_with_mtime_uses_failure_txt_mtime(self, tmp_dir: Path) -> None:
-        """list_trajectory_ids_with_mtime returns failure.txt mtime when it's newer."""
+    def test_list_ids_with_mtime_advances_on_dir_writes(self, tmp_dir: Path) -> None:
+        """list_trajectory_ids_with_mtime keys off the episode-dir mtime, which advances on
+        any write inside the dir — including failure.txt and, crucially, a status.json
+        rewrite (how the live viewer detects status-only transitions like RUNNING→STALE)."""
         storage = FileStorage(tmp_dir)
         traj = Trajectory(id="task_1_ep0", metadata={"task_id": "task_1"})
         storage.save_trajectory(traj)
-        time.sleep(0.01)  # ensure different mtime
-        failure_path = storage._episode_dir("task_1_ep0") / "failure.txt"
-        failure_path.write_text("crash")
+        before = storage.list_trajectory_ids_with_mtime()["task_1_ep0"]
 
-        mtimes = storage.list_trajectory_ids_with_mtime()
-        assert mtimes["task_1_ep0"] >= failure_path.stat().st_mtime
+        time.sleep(0.01)
+        (storage._episode_dir("task_1_ep0") / "failure.txt").write_text("crash")
+        after_failure = storage.list_trajectory_ids_with_mtime()["task_1_ep0"]
+        assert after_failure > before
+
+        time.sleep(0.01)
+        storage.write_episode_status(
+            "task_1_ep0",
+            EpisodeStatus(status="STALE", task_id="task_1", episode_id=0, started_at=1.0),
+        )
+        after_status = storage.list_trajectory_ids_with_mtime()["task_1_ep0"]
+        assert after_status > after_failure
 
 
 class TestEpisodeResultAPI:

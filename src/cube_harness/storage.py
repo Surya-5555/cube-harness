@@ -383,17 +383,27 @@ class FileStorage:
         return result
 
     def _list_ids_with_mtime(self) -> dict[str, float]:
+        """Return ``{trajectory_id: episode-dir mtime}`` for every non-archived V2 episode dir.
+
+        Uses the directory's own mtime as the single change signal — one ``stat()`` per
+        episode rather than statting each inner file (summary/metadata/failure). This is
+        both cheaper (matters for 1000-episode runs polled once per second) and *more*
+        complete: a directory's mtime advances on any entry add/remove inside it, which
+        includes every atomic ``status.json`` write (tmp + ``os.replace``). Because the
+        run loop heartbeats ``status.json`` once per turn (``episode.py``), an active
+        episode's dir mtime advances each turn — so this one signal covers BOTH
+        trajectory-content changes and status-only transitions (STALE via ghost-sweep,
+        CANCELLED via the stall-killer), including QUEUED stubs that have no trajectory
+        file yet. The per-file approach missed the latter. See
+        ``XRayState.refresh_experiment``.
+        """
         result: dict[str, float] = {}
-        for ep_dir in self._episode_dirs():
-            traj_id = ep_dir.name
-            summary_path = ep_dir / "episode_summary.jsonl"
-            mtime = (
-                summary_path.stat().st_mtime if summary_path.exists() else (ep_dir / EPISODE_METADATA).stat().st_mtime
-            )
-            failure_path = ep_dir / "failure.txt"
-            if failure_path.exists():
-                mtime = max(mtime, failure_path.stat().st_mtime)
-            result[traj_id] = mtime
+        episodes_dir = self.output_dir / EPISODES_DIR
+        if not episodes_dir.exists():
+            return result
+        for ep_dir in episodes_dir.iterdir():
+            if ep_dir.is_dir() and ARCHIVED_MARKER not in ep_dir.name:
+                result[ep_dir.name] = ep_dir.stat().st_mtime
         return result
 
     def _v1_list_ids_with_mtime(self) -> dict[str, float]:

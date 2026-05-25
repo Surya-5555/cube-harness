@@ -27,6 +27,7 @@ from PIL import Image
 from cube_harness import EXP_DIR
 from cube_harness.analyze import inspect_results, xray_utils
 from cube_harness.core import AgentOutput, Trajectory, TrajectoryStep
+from cube_harness.experiment_status import EXPERIMENT_STATUS_FILENAME, ExperimentStatus
 from cube_harness.storage import FileStorage
 
 # ---------------------------------------------------------------------------
@@ -280,38 +281,85 @@ class XRayState:
                 prev_mtime = self._traj_mtimes.get(traj_id, 0.0)
                 if mtime <= prev_mtime and traj_id in known_ids:
                     continue
+                # Record the mtime up front: a metadata-less stub fails load_trajectory
+                # every tick otherwise, re-reading it forever.
+                self._traj_mtimes[traj_id] = mtime
                 try:
                     full = storage.load_trajectory(traj_id)
-                    self._apply_agent_name(full, storage)
-                    self._apply_exp_tag(full, storage)
-                    self._traj_mtimes[traj_id] = mtime
-                    changed = True
-                    # Find the existing slot owned by this storage (avoids ID collision)
-                    idx = next(
-                        (
-                            i
-                            for i, t in enumerate(self.trajectories)
-                            if t.id == traj_id and self._traj_storages[i] is storage
-                        ),
-                        None,
-                    )
-                    if idx is not None:
-                        self.trajectories[idx] = full
-                        self._traj_storages[idx] = storage
-                        if self.current_trajectory is not None and self.current_trajectory.id == traj_id:
-                            self.current_trajectory = full
-                            self._env_step_indices = self._build_env_indices()
-                    else:
-                        self.trajectories.append(full)
-                        self._traj_storages.append(storage)
-                        known_ids.add(traj_id)
-                    if full.end_time is not None:
-                        self._completed_ids.add(traj_id)
                 except Exception:
-                    pass
+                    # No trajectory file yet (e.g. a QUEUED stub whose status.json flipped
+                    # to STALE on driver death) or an unreadable file: fall back to a cheap
+                    # status-only refresh so the terminal flip still surfaces live.
+                    if self._reinject_episode_status(traj_id, storage):
+                        changed = True
+                    continue
+                self._apply_agent_name(full, storage)
+                self._apply_exp_tag(full, storage)
+                changed = True
+                # Find the existing slot owned by this storage (avoids ID collision)
+                idx = next(
+                    (
+                        i
+                        for i, t in enumerate(self.trajectories)
+                        if t.id == traj_id and self._traj_storages[i] is storage
+                    ),
+                    None,
+                )
+                if idx is not None:
+                    self.trajectories[idx] = full
+                    self._traj_storages[idx] = storage
+                    if self.current_trajectory is not None and self.current_trajectory.id == traj_id:
+                        self.current_trajectory = full
+                        self._env_step_indices = self._build_env_indices()
+                else:
+                    self.trajectories.append(full)
+                    self._traj_storages.append(storage)
+                    known_ids.add(traj_id)
+                if full.end_time is not None:
+                    self._completed_ids.add(traj_id)
         if changed:
             self._last_change_time = time.time()
         return changed
+
+    def _reinject_episode_status(self, traj_id: str, storage: FileStorage) -> bool:
+        """Re-inject ``_episode_status`` (+ retry/error fields) from status.json onto an
+        already-loaded trajectory/stub that has no (new) trajectory file to load.
+
+        The cheap counterpart to a full reload: one small JSON read, no step decode. Lets
+        a status-only transition (e.g. QUEUED→STALE) update the display in place. Returns
+        True if the displayed status actually changed.
+        """
+        status = storage.read_episode_status(traj_id)
+        if status is None:
+            return False
+        idx = next(
+            (i for i, t in enumerate(self.trajectories) if t.id == traj_id and self._traj_storages[i] is storage),
+            None,
+        )
+        if idx is None:
+            return False
+        meta = self.trajectories[idx].metadata
+        changed = meta.get("_episode_status") != status.status
+        meta["_episode_status"] = status.status
+        meta["_retry_count"] = status.retry_count
+        meta["_error_type"] = status.error_type
+        meta["_error_message"] = status.error_message
+        return changed
+
+    def ray_dashboard_links(self) -> list[tuple[str, str]]:
+        """Return ``[(exp_name, ray_dashboard_url)]`` for selected experiments whose
+        experiment_status.json records a Ray dashboard URL.
+
+        Populated only in Ray mode while the driver is up (the URL points at the live Ray
+        cluster); empty for sequential runs and usually dead once the run completes. One
+        small file read per selected experiment — not per-episode.
+        """
+        links: list[tuple[str, str]] = []
+        for storage in self._storages:
+            status = ExperimentStatus.read(storage.output_dir / EXPERIMENT_STATUS_FILENAME)
+            if status is not None and status.ray_dashboard_url:
+                links.append((storage.output_dir.name, status.ray_dashboard_url))
+        return links
 
     def is_experiment_complete(self) -> bool:
         """Return True when every known trajectory has reached a terminal status."""
@@ -928,7 +976,12 @@ def run_xray(
                     )
                 )
         progress_html = xray_utils.build_progress_html(
-            n_completed, n_total, n_running, per_agent, state._selected_exp_names or None
+            n_completed,
+            n_total,
+            n_running,
+            per_agent,
+            state._selected_exp_names or None,
+            ray_dashboard_urls=state.ray_dashboard_links() or None,
         )
 
         experiment_done = state.is_experiment_complete() or state.is_experiment_stale()
