@@ -13,7 +13,6 @@ import argparse
 import html as html_lib
 import json
 import re
-import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,11 +69,6 @@ class XRayState:
     # Per-storage timestamp tag (parsed from exp dir name); keyed by id(storage).
     # Always appended to agent_name so each trajectory is unambiguously identified.
     _exp_tags: dict[int, str] = field(default_factory=dict, repr=False)
-    # Set to True once the background bulk-loading thread has finished
-    _bg_loading_done: bool = field(default=True, repr=False)
-    # Incremented on each load_experiments call; background threads check this to self-abort
-    # when superseded by a newer load (prevents stale writes to self.trajectories).
-    _bg_gen: int = field(default=0, repr=False)
     # Per-storage backfill names for backwards-compat (agent class short name from config); keyed by id(storage).
     _backfill_names: dict[int, str | None] = field(default_factory=dict, repr=False)
     # Per-storage config JSON strings for the Config tabs; keyed by id(storage).
@@ -97,10 +91,12 @@ class XRayState:
         when multiple experiments share identical task/episode IDs.
 
         Returns True if at least one trajectory was loaded.
+
+        Stats (steps/tokens/cost/duration) come from each trajectory's persisted
+        ``summary_stats`` on the metadata stub, so the tables render without loading any
+        steps. Full steps are loaded lazily — by ``select_trajectory`` when you open a
+        trajectory, and by ``refresh_experiment`` for in-flight ones — never eagerly.
         """
-        # Increment generation FIRST so any running background thread sees the change
-        # immediately and aborts before it can write stale data into our new trajectory list.
-        self._bg_gen += 1
         self._storages = [FileStorage(d) for d in exp_dirs]
         self._selected_exp_names = [d.name for d in exp_dirs]
         self.trajectories = []
@@ -127,9 +123,12 @@ class XRayState:
         for storage in self._storages:
             self._traj_mtimes.update(storage.list_trajectory_ids_with_mtime())
         self._last_change_time = time.time()
-        self._bg_loading_done = False
-        self._start_background_loading()
         return len(self.trajectories) > 0
+
+    def should_poll(self) -> bool:
+        """Whether the live-refresh timer should run: an experiment is loaded and not yet
+        complete. (Historical/complete experiments need no polling.)"""
+        return bool(self.trajectories) and not self.is_experiment_complete()
 
     def load_experiment(self, exp_dir: Path) -> bool:
         """Convenience wrapper: load a single experiment directory."""
@@ -207,59 +206,6 @@ class XRayState:
                 agent_cfg, exp_cfg = self._storage_configs.get(id(storage), (None, None))
                 return agent_cfg or "", exp_cfg or ""
         return "", ""
-
-    def _start_background_loading(self) -> None:
-        """Spawn a daemon thread that loads all trajectory stubs into full trajectories.
-
-        Each trajectory is loaded and cached in-place in self.trajectories so that the
-        hierarchy tables (agent/task/seed) can display accurate step/token/cost stats
-        once loading completes.
-
-        NOTE: This background thread is a temporary workaround for the missing summary stats
-        on trajectory metadata stubs.  The long-term fix is to have the evaluation loop
-        persist per-episode stats (n_steps, tokens, cost, duration) directly into the
-        *.metadata.json file as it runs, making bulk loading unnecessary.
-        See: https://github.com/cube-harness/cube-harness/issues/TODO
-        """
-        if not self._storages:
-            self._bg_loading_done = True
-            return
-
-        # Capture a snapshot to avoid closure over mutable state
-        my_gen = self._bg_gen  # This thread's generation; abort if superseded
-        # Capture hard references to the owned lists so that load_experiments
-        # reassigning self.trajectories/self._traj_storages never redirects our writes.
-        my_trajs = self.trajectories
-        my_storages = list(self._traj_storages)  # index-parallel snapshot; no traj_id collision
-
-        def _load_all() -> None:
-            for i, traj in enumerate(my_trajs):
-                # Abort if a newer load_experiments call has started
-                if self._bg_gen != my_gen:
-                    return
-                # Skip if already fully loaded (e.g. user clicked it first)
-                if traj.steps:
-                    continue
-                # Skip missing stubs — they have no trajectory file to load
-                if traj.metadata.get("_missing"):
-                    continue
-                storage = my_storages[i]
-                try:
-                    full = storage.load_trajectory(traj.id)
-                    self._apply_agent_name(full, storage)
-                    self._apply_exp_tag(full, storage)
-                    if self._bg_gen == my_gen:
-                        my_trajs[i] = full
-                        if self.current_trajectory is not None and self.current_trajectory.id == traj.id:
-                            self.current_trajectory = full
-                            self._env_step_indices = self._build_env_indices()
-                except Exception:
-                    pass  # leave stub; table will show "-" for unavailable stats
-            if self._bg_gen == my_gen:
-                self._bg_loading_done = True
-
-        thread = threading.Thread(target=_load_all, daemon=True)
-        thread.start()
 
     def refresh_experiment(self) -> bool:
         """Incrementally reload new or changed trajectories from disk. Returns True if anything changed.
@@ -845,7 +791,6 @@ def run_xray(
         if set(selected_names) == set(state._selected_exp_names):
             return tuple(gr.skip() for _ in range(9))  # type: ignore[return-value]
         if not selected_names:
-            state._bg_gen += 1
             state._selected_exp_names = []
             state.trajectories = []
             state.selected_agent_key = None
@@ -853,14 +798,12 @@ def run_xray(
         exp_dirs = [state.results_dir / name for name in selected_names]
         state.load_experiments(exp_dirs)
         hierarchy = _load_and_build_hierarchy()
-        timer_active = not state._bg_loading_done
-        return (*hierarchy, gr.Timer(active=timer_active))
+        return (*hierarchy, gr.Timer(active=state.should_poll()))
 
     def on_archive_selected() -> tuple[Any, str, Any, Any, Any, StepId, gr.Tab, gr.Tab, gr.Tab, str, str, gr.Timer]:
         """Archive all currently selected experiments and reset state."""
         for name in list(state._selected_exp_names):
             xray_utils.archive_experiment(state.results_dir, name)
-        state._bg_gen += 1
         state._selected_exp_names = []
         state.trajectories = []
         state.selected_agent_key = None
@@ -929,16 +872,12 @@ def run_xray(
         return _rows_to_table(current_traj_rows, traj_id, "_traj_id"), StepId(step=0)
 
     def on_bg_load_tick() -> tuple[Any, Any, Any, Any, str, gr.Timer, gr.Tab, gr.Tab, gr.Tab]:
-        """Periodic refresh handler: bulk-loads stubs, then live-polls for new/changed trajectories.
+        """Periodic live-poll: pick up new/changed trajectory files from a running experiment.
 
-        Two phases share a single timer:
-        1. While _bg_loading_done is False: background thread is still bulk-loading stubs.
-        2. Once _bg_loading_done is True: calls refresh_experiment() to pick up new or
-           changed trajectory files written by a running experiment. Timer deactivates only
-           when is_experiment_complete() returns True (all trajectories have end_time set).
+        Deactivates the timer once the experiment is complete (all trajectories terminal)
+        or stale (no file changes for a long time — runner likely crashed).
         """
-        if state._bg_loading_done:
-            state.refresh_experiment()
+        state.refresh_experiment()
 
         exp_stats = xray_utils.compute_experiment_stats(state.trajectories)
         agent_rows = xray_utils.build_agent_table(state.trajectories)
@@ -985,8 +924,7 @@ def run_xray(
         )
 
         experiment_done = state.is_experiment_complete() or state.is_experiment_stale()
-        still_active = not state._bg_loading_done or not experiment_done
-        timer_update = gr.Timer(active=still_active)
+        timer_update = gr.Timer(active=not experiment_done)
         tab_labels = _make_tab_labels(agent_rows, traj_rows)
         return exp_stats, agent_table_data, traj_table_data, progress_html, timer_update, *tab_labels
 
@@ -1642,7 +1580,7 @@ def run_xray(
                 )
             state.load_experiments([state.results_dir / rows[0]["experiment"]])
             hierarchy = _load_and_build_hierarchy()
-            return (*hierarchy, gr.Timer(active=not state._bg_loading_done))
+            return (*hierarchy, gr.Timer(active=state.should_poll()))
 
         # Two independent demo.load calls: one populates the exp table,
         # the other pre-loads the first experiment so the viewer is immediately usable.

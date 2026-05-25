@@ -221,8 +221,7 @@ def main() -> int:
         # 2. Load it into XRayState and poll refresh_experiment like the dashboard timer does.
         print("[2] loading into XRayState, polling refresh like the 1s dashboard timer…")
         state = XRayState(results_dir=results_dir)
-        state.load_experiment(exp_dir)
-        _poll(lambda: state._bg_loading_done, timeout=5)
+        state.load_experiment(exp_dir)  # synchronous: stats come from the metadata stub, no bulk-loader
         for _ in range(3):
             time.sleep(0.8)
             state.refresh_experiment()

@@ -21,13 +21,6 @@ from cube_harness.episode_status import EpisodeStatus
 from cube_harness.storage import FileStorage
 
 
-def _wait_bg_done(state: XRayState, timeout: float = 5.0) -> None:
-    """Block until the background bulk-loader thread has finished."""
-    deadline = time.time() + timeout
-    while not state._bg_loading_done and time.time() < deadline:
-        time.sleep(0.01)
-
-
 def _bump_dir_mtime(ep_dir: Path) -> None:
     """Force the episode dir's mtime forward so refresh treats it as changed regardless
     of filesystem mtime granularity (writes within the same tick can otherwise tie)."""
@@ -64,8 +57,7 @@ def test_running_episode_to_stale_is_picked_up_live(tmp_path: Path) -> None:
     _write_status(storage, traj_id, task_id, "RUNNING", heartbeat=True)
 
     state = XRayState(results_dir=tmp_path)
-    assert state.load_experiment(exp_dir)
-    _wait_bg_done(state)
+    assert state.load_experiment(exp_dir)  # synchronous: no bulk-loader to wait for
     assert _status_of(state, traj_id) == "running"
 
     # Worker dies → ghost-sweep rewrites only status.json (trajectory file untouched).
@@ -88,8 +80,7 @@ def test_queued_stub_to_stale_is_picked_up_live(tmp_path: Path) -> None:
     _write_status(storage, traj_id, task_id, "QUEUED", heartbeat=False)
 
     state = XRayState(results_dir=tmp_path)
-    assert state.load_experiment(exp_dir)
-    _wait_bg_done(state)
+    assert state.load_experiment(exp_dir)  # synchronous: no bulk-loader to wait for
     assert _status_of(state, traj_id) == "queued"
 
     # Driver dies → ghost-sweep promotes the orphaned QUEUED episode to STALE.
@@ -109,7 +100,6 @@ def test_no_status_change_is_not_reported_as_changed(tmp_path: Path) -> None:
     _write_status(storage, traj_id, task_id, "RUNNING", heartbeat=True)
 
     state = XRayState(results_dir=tmp_path)
-    assert state.load_experiment(exp_dir)
-    _wait_bg_done(state)
+    assert state.load_experiment(exp_dir)  # synchronous: no bulk-loader to wait for
 
     assert state.refresh_experiment() is False

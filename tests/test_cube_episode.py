@@ -3,10 +3,31 @@
 import warnings
 
 import pytest
-from cube.core import EnvironmentOutput
+from cube.core import EnvironmentOutput, Observation
 
+from cube_harness.agent import Agent, AgentConfig
 from cube_harness.core import AgentOutput
 from cube_harness.episode import Episode
+from cube_harness.storage import FileStorage
+
+
+class _FailingAgentConfig(AgentConfig):
+    """Agent config whose agent raises on the first step — for failure-path tests."""
+
+    def make(self, action_set: object = None, **kwargs: object) -> "Agent":
+        _ = action_set, kwargs
+        return _FailingAgent(config=self)
+
+
+class _FailingAgent(Agent):
+    name = "FailingAgent"
+    description = "Raises on step()."
+    input_content_types = ["text"]
+    output_content_types = ["action"]
+
+    def step(self, obs: Observation) -> AgentOutput:
+        _ = obs
+        raise RuntimeError("boom")
 
 
 class TestCubeEpisode:
@@ -74,6 +95,29 @@ class TestCubeEpisode:
         assert "profiling" in trajectory.reward_info
         trajectory.reward_info.pop("profiling")  # ignore profiling info for this test
         assert trajectory.reward_info == {"reward": 1.0, "done": True, "success": True}
+
+    def test_failed_episode_persists_summary_stats(self, tmp_dir, mock_cube_task_config):
+        """A FAILED episode must persist summary_stats to its metadata stub, so the XRay
+        tables render correct stats without loading steps (no background bulk-loader)."""
+        episode = Episode(
+            id=0,
+            output_dir=tmp_dir,
+            agent_config=_FailingAgentConfig(),
+            task_config=mock_cube_task_config,
+            exp_name="cube_test",
+            max_steps=5,
+            storage=None,
+            runtime_context=None,
+        )
+        with pytest.raises(RuntimeError):
+            episode.run()
+
+        trajs = FileStorage(tmp_dir).load_all_trajectory_metadata()
+        assert len(trajs) == 1
+        # Metadata loaded with steps=[] — stats must come from persisted summary_stats.
+        assert not trajs[0].steps
+        assert trajs[0].summary_stats
+        assert "n_env_steps" in trajs[0].summary_stats
 
     def test_episode_load_from_config_round_trip(self, tmp_dir, mock_agent_config, mock_cube_task_config):
         """Save EpisodeConfig to disk; reload via load_episode_from_config() without benchmark arg."""
