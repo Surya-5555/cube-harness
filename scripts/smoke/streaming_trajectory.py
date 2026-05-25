@@ -32,8 +32,8 @@ from cube.tool import Tool, ToolConfig, tool_action
 
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.core import AgentOutput
-from cube_harness.exp_runner import run_sequentially
-from cube_harness.experiment import Experiment
+from cube_harness.exp_runner import run_sequentially, run_with_ray
+from cube_harness.experiment import Experiment, ExpResult
 from cube_harness.storage import FileStorage
 
 NAME = "streaming_trajectory"
@@ -110,47 +110,66 @@ def _fail(msg: str) -> int:
     return 1
 
 
+def _check(label: str, exp: Experiment, result: ExpResult) -> int:
+    """Assert the streaming contract for one runner's output. Returns 0 on success."""
+    storage = FileStorage(exp.output_dir)
+    if len(result.trajectories) != N_TASKS:
+        return _fail(f"[{label}] expected {N_TASKS} trajectories, got {len(result.trajectories)}")
+
+    for traj_id, traj in result.trajectories.items():
+        # 1. Returned trajectory is step-less but summarised (nothing accumulated in RAM).
+        if traj.steps:
+            return _fail(f"[{label}] {traj_id}: returned trajectory still holds {len(traj.steps)} steps in RAM")
+        if not traj.summary_stats:
+            return _fail(f"[{label}] {traj_id}: summary_stats missing on returned trajectory")
+        if (traj.reward_info or {}).get("reward") != 1.0:
+            return _fail(f"[{label}] {traj_id}: reward_info missing/wrong: {traj.reward_info}")
+
+        # 2. Steps are fully persisted and reload from disk.
+        loaded = storage.load_trajectory(traj_id)
+        if len(loaded.steps) < 2:
+            return _fail(f"[{label}] {traj_id}: expected >=2 persisted steps, got {len(loaded.steps)}")
+        if loaded.summary_stats != traj.summary_stats:
+            return _fail(f"[{label}] {traj_id}: summary_stats changed across disk round-trip")
+
+    # 3. Stats + eval-log export work off summary_stats (would raise/return 0 if broken).
+    exp.print_stats(result)
+    eval_log = exp.export_eval_log()
+    if len(eval_log.episodes) != N_TASKS:
+        return _fail(f"[{label}] eval-log has {len(eval_log.episodes)} episodes, expected {N_TASKS}")
+    if not all(ep.num_turns >= 2 and ep.score == 1.0 for ep in eval_log.episodes):
+        return _fail(f"[{label}] eval-log records have wrong num_turns/score (not derived from summary_stats)")
+
+    print(f"  ✓ [{label}] {N_TASKS} step-less returns; steps + summary on disk; eval-log derived from summary")
+    return 0
+
+
+def _experiment(output_dir: Path) -> Experiment:
+    return Experiment(
+        name="stream_smoke",
+        output_dir=output_dir,
+        agent_config=_MockAgentConfig(),
+        benchmark_config=_SmokeBenchmarkConfig(),
+        max_steps=2,
+    )
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="streaming_traj_")
     try:
-        exp = Experiment(
-            name="stream_smoke",
-            output_dir=Path(tmp) / "exp",
-            agent_config=_MockAgentConfig(),
-            benchmark_config=_SmokeBenchmarkConfig(),
-            max_steps=2,
-        )
-        result = run_sequentially(exp)
-        storage = FileStorage(exp.output_dir)
+        # Sequential: in-process runner (driver == worker).
+        exp_seq = _experiment(Path(tmp) / "seq")
+        rc = _check("sequential", exp_seq, run_sequentially(exp_seq))
+        if rc:
+            return rc
 
-        if len(result.trajectories) != N_TASKS:
-            return _fail(f"expected {N_TASKS} trajectories, got {len(result.trajectories)}")
+        # Ray: the parallel runner — the path where the ~20 GB driver accumulation
+        # manifested (workers return trajectories to the driver via the object store).
+        exp_ray = _experiment(Path(tmp) / "ray")
+        rc = _check("ray", exp_ray, run_with_ray(exp_ray, n_cpus=2))
+        if rc:
+            return rc
 
-        for traj_id, traj in result.trajectories.items():
-            # 1. Returned trajectory is step-less but summarised.
-            if traj.steps:
-                return _fail(f"{traj_id}: returned trajectory still holds {len(traj.steps)} steps in RAM")
-            if not traj.summary_stats:
-                return _fail(f"{traj_id}: summary_stats missing on returned trajectory")
-            if (traj.reward_info or {}).get("reward") != 1.0:
-                return _fail(f"{traj_id}: reward_info missing/wrong: {traj.reward_info}")
-
-            # 2. Steps are fully persisted and reload from disk.
-            loaded = storage.load_trajectory(traj_id)
-            if len(loaded.steps) < 2:
-                return _fail(f"{traj_id}: expected >=2 persisted steps, got {len(loaded.steps)}")
-            if loaded.summary_stats != traj.summary_stats:
-                return _fail(f"{traj_id}: summary_stats changed across disk round-trip")
-
-        # 3. Stats + eval-log export work off summary_stats (would raise/return 0 if broken).
-        exp.print_stats(result)
-        eval_log = exp.export_eval_log()
-        if len(eval_log.episodes) != N_TASKS:
-            return _fail(f"eval-log has {len(eval_log.episodes)} episodes, expected {N_TASKS}")
-        if not all(ep.num_turns >= 2 and ep.score == 1.0 for ep in eval_log.episodes):
-            return _fail("eval-log records have wrong num_turns/score (not derived from summary_stats)")
-
-        print(f"  ✓ {N_TASKS} trajectories returned step-less; steps + summary on disk; eval-log derived from summary")
         print(f"SMOKE OK: {NAME}")
         return 0
     finally:
