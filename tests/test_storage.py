@@ -776,6 +776,36 @@ class TestSummaryStats:
         assert summary["total_prompt_tokens"] == 3000
         assert summary["total_cost"] == pytest.approx(0.15)
 
+    def test_experiment_summary_marks_error_via_summary_stats(self, tmp_dir: Path) -> None:
+        """Post-stream refactor, ``trajectory.steps`` is empty when the runner calls into
+        ``update_experiment_summary``. Error detection must read
+        ``summary_stats['error_type']`` (captured incrementally by SummaryProcessor) —
+        walking the in-memory step list would silently always report no error."""
+        storage = FileStorage(tmp_dir)
+        errored = Trajectory(
+            id="task_2_ep0",
+            metadata={"task_id": "task_2", "agent_name": "A"},
+            summary_stats={
+                "n_env_steps": 1,
+                "n_agent_steps": 1,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cached_tokens": 0,
+                "cache_creation_tokens": 0,
+                "cost": 0.0,
+                "final_reward": 0.0,
+                "error_type": "RuntimeError",
+            },
+            reward_info={"reward": 0.0},
+        )
+        storage.update_experiment_summary(errored)
+
+        with open(tmp_dir / "experiment_summary.json") as f:
+            summary = json.load(f)
+        assert summary["n_episodes"] == 1
+        assert summary["n_errored"] == 1
+        assert summary["n_completed"] == 0
+
 
 class TestNonNativeMetadataSerialization:
     """Regression guard for the Decimal serialization fix.
