@@ -10,10 +10,8 @@ from cube.task import TaskConfig
 
 from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.rl.events import AcceptedEvent, EventContext, TerminalEvent
-from cube_harness.rl.executor import RayRolloutExecutor
-from cube_harness.rl.ray_runtime import RayEventSink, ensure_ray_initialized, ray
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
-from cube_harness.rl.sink import EventSinkConfig
+from cube_harness.rl.sink import EventSink, EventSinkConfig
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +22,7 @@ class RolloutEngine:
     def __init__(
         self,
         *,
-        sink: RayEventSink | None = None,
+        sink: Any | None = None,
         sink_config: EventSinkConfig | None = None,
         config: RolloutConfig | dict[str, Any],
         owns_sink: bool = False,
@@ -34,20 +32,81 @@ class RolloutEngine:
         else:
             self.config = RolloutConfig.model_validate(config)
 
-        self._owns_ray = ensure_ray_initialized(self._ray_init_kwargs())
-        self.sink = sink or RayEventSink.create(sink_config, ray_options=self.config.ray.sink_options)
+        self._owns_ray = False
+        self.sink = sink or self._make_sink(sink_config)
         self._owns_sink = owns_sink or sink is None
         self._closed = False
         self._benchmark: Benchmark | None = None
         self._task_configs: dict[str, TaskConfig] = {}
         self._setup_runtime()
-        self.executor = RayRolloutExecutor(
+        self.executor = self._make_executor()
+
+    def _make_sink(self, sink_config: EventSinkConfig | None) -> Any:
+        if self.config.execution_mode == "local":
+            return EventSink(sink_config)
+        from cube_harness.rl.ray_runtime import RayEventSink, ensure_ray_initialized
+
+        self._owns_ray = ensure_ray_initialized(self._ray_init_kwargs())
+        return RayEventSink.create(sink_config, ray_options=self.config.ray.sink_options)
+
+    def _make_executor(self) -> Any:
+        if self.config.execution_mode == "local":
+            from cube_harness.rl.executor import LocalRolloutExecutor
+
+            return LocalRolloutExecutor(
+                payload_builder=self._rollout_payload,
+                publisher_handle=self.sink,
+                has_terminal=self.sink.has_terminal,
+                publish_terminal=self.publish_terminal,
+            )
+
+        from cube_harness.rl.executor import RayRolloutExecutor
+
+        return RayRolloutExecutor(
             ray_config=self.config.ray,
             payload_builder=self._rollout_payload,
             publisher_handle=self.sink.publisher_handle,
             has_terminal=self.sink.has_terminal,
             publish_terminal=self.publish_terminal,
         )
+
+    def _ray_stats(self) -> dict[str, Any]:
+        if self.config.execution_mode == "local":
+            return {
+                "initialized": False,
+                "configured_num_workers": self.config.ray.num_workers,
+                "task_num_cpus": self.config.ray.task_num_cpus,
+                "poll_interval_s": self.config.ray.poll_interval_s,
+                "cluster_resources": {},
+                "available_resources": {},
+                "cluster_cpus": 0.0,
+                "available_cpus": 0.0,
+                "estimated_rollout_slots": 0,
+                "estimated_available_rollout_slots": 0,
+            }
+
+        from cube_harness.rl.ray_runtime import ray
+
+        ray_initialized = ray.is_initialized()
+        resources = ray.cluster_resources() if ray_initialized else {}
+        available = ray.available_resources() if ray_initialized else {}
+        cluster_cpus = float(resources.get("CPU", 0.0) or 0.0)
+        available_cpus = float(available.get("CPU", 0.0) or 0.0)
+        task_num_cpus = self.config.ray.task_num_cpus
+        estimated_slots = int(cluster_cpus / task_num_cpus) if task_num_cpus > 0 else 0
+        estimated_available_slots = int(available_cpus / task_num_cpus) if task_num_cpus > 0 else 0
+        return {
+            "initialized": ray_initialized,
+            "configured_num_workers": self.config.ray.num_workers,
+            "task_num_cpus": task_num_cpus,
+            "poll_interval_s": self.config.ray.poll_interval_s,
+            "cluster_resources": resources,
+            "available_resources": available,
+            "cluster_cpus": cluster_cpus,
+            "available_cpus": available_cpus,
+            "estimated_rollout_slots": estimated_slots,
+            "estimated_available_rollout_slots": estimated_available_slots,
+        }
 
     @property
     def ready(self) -> bool:
@@ -120,34 +179,16 @@ class RolloutEngine:
             raise KeyError(f"unknown task_id {request.task_id!r}; available tasks: {sorted(self._task_configs)[:20]}")
 
     def stats(self) -> dict[str, Any]:
-        ray_initialized = ray.is_initialized()
-        resources = ray.cluster_resources() if ray_initialized else {}
-        available = ray.available_resources() if ray_initialized else {}
-        cluster_cpus = float(resources.get("CPU", 0.0) or 0.0)
-        available_cpus = float(available.get("CPU", 0.0) or 0.0)
-        task_num_cpus = self.config.ray.task_num_cpus
-        estimated_slots = int(cluster_cpus / task_num_cpus) if task_num_cpus > 0 else 0
-        estimated_available_slots = int(available_cpus / task_num_cpus) if task_num_cpus > 0 else 0
         return {
             "ready": self.ready,
             "name": self.config.name,
+            "execution_mode": self.config.execution_mode,
             "benchmark": {
                 "name": self.benchmark_name,
                 "task_count": len(self._task_configs),
                 "task_ids": sorted(self._task_configs),
             },
-            "ray": {
-                "initialized": ray_initialized,
-                "configured_num_workers": self.config.ray.num_workers,
-                "task_num_cpus": task_num_cpus,
-                "poll_interval_s": self.config.ray.poll_interval_s,
-                "cluster_resources": resources,
-                "available_resources": available,
-                "cluster_cpus": cluster_cpus,
-                "available_cpus": available_cpus,
-                "estimated_rollout_slots": estimated_slots,
-                "estimated_available_rollout_slots": estimated_available_slots,
-            },
+            "ray": self._ray_stats(),
             "executor": self.executor.stats(),
             "sink": self.sink.health(),
         }
@@ -207,7 +248,7 @@ class RolloutEngine:
             self.benchmark_name,
             len(self._task_configs),
             self.config.output_dir,
-            self.config.ray.num_workers,
+            self.config.ray.num_workers if self.config.execution_mode == "ray" else 0,
         )
 
     def _save_config(self) -> None:
@@ -248,4 +289,6 @@ class RolloutEngine:
             except Exception:
                 logger.debug("Ray event sink already stopped", exc_info=True)
         if self._owns_ray:
+            from cube_harness.rl.ray_runtime import ray
+
             ray.shutdown()

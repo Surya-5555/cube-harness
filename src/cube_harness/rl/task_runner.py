@@ -4,8 +4,8 @@ import copy
 from pathlib import Path
 from typing import Any
 
-from cube_harness.episode_loop import EpisodeLoop
 from cube_harness.episode_logs import LOG_FORMAT, get_log_path, redirect_output_to_log, trajectory_log_id
+from cube_harness.episode_loop import EpisodeLoop
 from cube_harness.episode_recorders import RolloutEventRecorder
 from cube_harness.rl.llm import RolloutLLMConfig, apply_rollout_llm_config
 
@@ -47,6 +47,11 @@ class RolloutTaskRunner:
         return {"ok": True, "request_id": self.request_id}
 
     def publish_event(self, event: Any) -> dict:
+        payload = event.model_dump(mode="json")
+        publish_payload = self.publisher_handle.publish_payload
+        if callable(publish_payload):
+            return publish_payload(payload)
+
         from cube_harness.rl.ray_runtime import ray
 
-        return ray.get(self.publisher_handle.publish_payload.remote(event.model_dump(mode="json")))
+        return ray.get(publish_payload.remote(payload))

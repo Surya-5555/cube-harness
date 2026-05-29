@@ -12,7 +12,6 @@ from fastapi.responses import StreamingResponse
 from cube_harness.episode_logs import LOG_FORMAT
 from cube_harness.rl.engine import RolloutEngine
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
-from cube_harness.rl.ray_runtime import RayEventSink
 from cube_harness.rl.sink import EventSinkConfig
 
 
@@ -58,7 +57,7 @@ def _sse_frame(event: dict) -> str:
 def serve(
     *,
     config: RolloutConfig | dict[str, Any],
-    sink: RayEventSink | None = None,
+    sink: Any | None = None,
     sink_config: EventSinkConfig | None = None,
 ) -> FastAPI:
     service_config = config if isinstance(config, RolloutConfig) else RolloutConfig.model_validate(config)

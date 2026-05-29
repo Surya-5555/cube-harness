@@ -49,12 +49,12 @@ from uuid import uuid4
 
 import uvicorn
 
-from cube_harness.agents.genny_configs import GENNY_CONFIGS
+from cube_harness.agents.react_configs import REACT_CONFIGS
 from cube_harness.llm import LLMConfig
-from cube_harness.rl import AckRequest, RolloutConfig, RolloutEngine, RolloutRequest, configure_terminal_logging, serve
+from cube_harness.rl import AckRequest, RolloutConfig, RolloutEngine, RolloutRequest, configure_terminal_logging, serve, RolloutTaskRunner
 from cube_harness.rl.sink import EventSinkConfig
 
-DEFAULT_MODE = os.getenv("CUBE_HARNESS_ROLLOUT_MODE", "http").strip().lower()
+DEFAULT_MODE = os.getenv("CUBE_HARNESS_ROLLOUT_MODE", "local").strip().lower()
 HOST = os.getenv("CUBE_HARNESS_ROLLOUT_HOST", "127.0.0.1")
 PORT = int(os.getenv("CUBE_HARNESS_ROLLOUT_PORT", "8765"))
 BASE_URL = f"http://{HOST}:{PORT}"
@@ -103,6 +103,7 @@ def _rollout_config(name: str) -> RolloutConfig:
         benchmark_config=_miniwob_benchmark_cfg(),
         agent_config=_agent_cfg(),
         max_steps=MAX_STEPS,
+        execution_mode='local' if DEFAULT_MODE == "local" else "ray",
     )
 
 
@@ -136,18 +137,14 @@ def _miniwob_benchmark_cfg() -> dict:
 
 
 def _agent_cfg() -> dict:
-    agent = GENNY_CONFIGS["default"]
+    agent = REACT_CONFIGS["default"]
     agent.llm_config = LLMConfig(
         model_name=MODEL,
         temperature=1.0,
         timeout=3600.0,
         num_retries=1,
     )
-    agent.flat_history = True
-    agent.step_prompt = ""
-    agent.max_format_errors = 2
-    agent.budget.max_actions = MAX_STEPS
-    agent.budget.cost_limit = 1.0
+    agent.max_actions = MAX_STEPS
     return agent.model_dump(mode="json", serialize_as_any=True)
 
 
@@ -164,7 +161,7 @@ def _llm_payload() -> dict:
     }
 
 
-def _rollout_payload(mode: str) -> dict:
+def _request_payload(mode: str) -> dict:
     request_id = f"hello-miniwob-{uuid4().hex}"
     return {
         "request_id": request_id,
@@ -277,7 +274,6 @@ async def _run_local_mode_async(payload: dict) -> None:
 def _run_local_mode(payload: dict) -> None:
     asyncio.run(_run_local_mode_async(payload))
 
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a MiniWoB rollout through Cube-harness.")
     parser.add_argument(
@@ -293,7 +289,7 @@ def main() -> None:
     configure_terminal_logging(LOG_LEVEL, force=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     args = _parse_args()
-    payload = _rollout_payload(args.mode)
+    payload = _request_payload(args.mode)
     if args.mode == "http":
         _run_http_mode(payload)
     elif args.mode == "local":

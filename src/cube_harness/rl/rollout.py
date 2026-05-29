@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from cube.benchmark import BenchmarkConfig
 from cube.resource import InfraConfig
@@ -55,4 +55,5 @@ class RolloutConfig(BaseModel):
     agent_config: SerializeAsAny[AgentConfig]
     infra: SerializeAsAny[InfraConfig] | None = None
     max_steps: int = MAX_STEPS
+    execution_mode: Literal["ray", "local"] = "ray"
     ray: RayConfig = Field(default_factory=RayConfig)

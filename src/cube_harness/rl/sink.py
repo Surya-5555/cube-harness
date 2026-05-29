@@ -145,3 +145,6 @@ class EventSink:
                 "dropped_event_count": self._dropped_event_count,
                 "event_publish_timeout_s": self.config.event_publish_timeout_s,
             }
+
+    def close(self) -> None:
+        return None
