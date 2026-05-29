@@ -151,14 +151,6 @@ def _extract_tool_names(tools: list[dict]) -> list[str]:
     return names
 
 
-def _extract_error_type(trajectory: Trajectory) -> str | None:
-    """Return the error_type of the first StepError in the trajectory, or None."""
-    for step in trajectory.steps:
-        if hasattr(step.output, "error") and step.output.error is not None:
-            return step.output.error.error_type
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Public models
 # ---------------------------------------------------------------------------

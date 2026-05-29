@@ -12,7 +12,7 @@ import zstandard
 from cube.core import EnvironmentOutput
 from pydantic import BaseModel
 
-from cube_harness.core import AgentOutput, Trajectory, TrajectoryStep
+from cube_harness.core import Trajectory, TrajectoryStep
 from cube_harness.episode_logs import get_log_path as get_episode_log_path
 from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.episode_status import STATUS_FILENAME, EpisodeStatus
@@ -478,11 +478,11 @@ class FileStorage:
                     summary = ExperimentSummary()
 
                 stats = trajectory.summary_stats or {}
-                has_error = any(
-                    hasattr(step.output, "error") and step.output.error is not None
-                    for step in trajectory.steps
-                    if isinstance(step.output, AgentOutput)
-                )
+                # trajectory.steps is empty post-stream refactor; the first step-level
+                # error_type is captured incrementally by SummaryProcessor and lives in
+                # summary_stats. Walking the (empty) step list here would have silently
+                # always reported no error.
+                has_error = bool(stats.get("error_type"))
 
                 summary.n_episodes += 1
                 if has_error:
