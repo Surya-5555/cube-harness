@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+def _openai_model_name(model_name: str) -> str:
+    return model_name if model_name.startswith("openai/") else f"openai/{model_name}"
+
+
+class RolloutLLMConfig(BaseModel):
+    """Per-rollout LLM override accepted from rollout clients.
+
+    This is intentionally narrower than cube_harness.llm.LLMConfig. It is the
+    trainer-facing API for selecting an OpenAI/vLLM-compatible endpoint and a
+    small set of generation/logprob controls needed for RL data capture.
+    """
+
+    api_base: str | None = None
+    model_name: str | None = None
+    api_key: str | None = "EMPTY"
+    tokenizer_name: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    max_completion_tokens: int | None = None
+    timeout: float | None = None
+    logprobs: bool | None = True
+    include_stop_str_in_output: bool | None = True
+    skip_special_tokens: bool | None = False
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+    overrides: dict[str, Any] = Field(default_factory=dict)
+
+
+def apply_rollout_llm_config(agent_config: Any, rollout_llm: RolloutLLMConfig) -> None:
+    """Apply trainer-supplied rollout LLM overrides to an agent config in-place."""
+    llm_config = getattr(agent_config, "llm_config", None)
+    if llm_config is None:
+        return
+
+    if rollout_llm.api_base:
+        api_base = str(rollout_llm.api_base).rstrip("/")
+        if not api_base.endswith("/v1"):
+            api_base += "/v1"
+        llm_config.api_base = api_base
+    if rollout_llm.api_key is not None:
+        llm_config.api_key = rollout_llm.api_key
+    if rollout_llm.model_name:
+        llm_config.model_name = _openai_model_name(str(rollout_llm.model_name))
+    if hasattr(llm_config, "tokenizer_name") and rollout_llm.tokenizer_name:
+        llm_config.tokenizer_name = rollout_llm.tokenizer_name
+
+    for field_name in (
+        "temperature",
+        "top_p",
+        "top_k",
+        "max_completion_tokens",
+        "timeout",
+        "logprobs",
+        "include_stop_str_in_output",
+        "skip_special_tokens",
+    ):
+        value = getattr(rollout_llm, field_name)
+        if value is not None and hasattr(llm_config, field_name):
+            setattr(llm_config, field_name, value)
+
+    if rollout_llm.extra_body and hasattr(llm_config, "extra_body"):
+        llm_config.extra_body = {**getattr(llm_config, "extra_body", {}), **rollout_llm.extra_body}
+
+    for name, value in rollout_llm.overrides.items():
+        if hasattr(llm_config, name):
+            setattr(llm_config, name, value)

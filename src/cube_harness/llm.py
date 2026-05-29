@@ -95,6 +95,8 @@ class LLMConfig(ValidatedConfig):
     """Thin LLM wrapper around LiteLLM completion API."""
 
     model_name: str
+    api_base: str | None = None
+    api_key: str | None = None
     temperature: float = 1.0
     max_tokens: int = 128000
     max_completion_tokens: int = 8192
@@ -131,6 +133,12 @@ class LLMConfig(ValidatedConfig):
     num_retries: int = 5
     retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry"
     timeout: float | None = 120.0  # seconds per attempt; None = no timeout
+    logprobs: bool = False
+    include_stop_str_in_output: bool | None = None
+    skip_special_tokens: bool | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    extra_body: dict[str, Any] = Field(default_factory=dict)
     # Anthropic prompt caching. "auto" places ephemeral cache_control breakpoints at the
     # system message and the last assistant message, plus the last tool definition. This
     # gives a stable anchor (system + tools) and a rolling boundary (last assistant) that
@@ -218,6 +226,10 @@ class LLMResponse(TypedBaseModel):
 
     message: Message
     usage: Usage
+    logprobs: list[float] | None = None
+    completion_token_ids: list[int] | None = None
+    finish_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def reasoning_text(self) -> str:
@@ -264,6 +276,11 @@ def _msg_role(msg: Any) -> str | None:
     if isinstance(msg, dict):
         return msg.get("role")
     return getattr(msg, "role", None)
+
+
+def _safe_finish_reason(choice: Any) -> str | None:
+    value = getattr(choice, "finish_reason", None)
+    return value if isinstance(value, str) else None
 
 
 def _build_cache_injection_points(messages: list) -> list[dict]:
@@ -382,6 +399,10 @@ class LLM:
             "messages": prompt.messages,
             "timeout": self.config.timeout,
         }
+        if self.config.api_base is not None:
+            kwargs["api_base"] = self.config.api_base
+        if self.config.api_key is not None:
+            kwargs["api_key"] = self.config.api_key
         if self.config.reasoning_effort is not None:
             kwargs["reasoning_effort"] = self.config.reasoning_effort
             # auto-fix(412)↓ Anthropic only emits a thinking block AFTER a
@@ -405,6 +426,18 @@ class LLM:
             tools = _mark_last_tool_for_cache(tools)
         if tools:
             kwargs["tools"] = tools
+        if self.config.logprobs:
+            kwargs["logprobs"] = True
+        if self.config.include_stop_str_in_output is not None:
+            kwargs["include_stop_str_in_output"] = self.config.include_stop_str_in_output
+        if self.config.skip_special_tokens is not None:
+            kwargs["skip_special_tokens"] = self.config.skip_special_tokens
+        if self.config.top_p is not None:
+            kwargs["top_p"] = self.config.top_p
+        if self.config.top_k is not None:
+            kwargs["top_k"] = self.config.top_k
+        if self.config.extra_body:
+            kwargs["extra_body"] = self.config.extra_body
         if not tools or self.config.tool_choice is None:
             # Drop tool_choice / parallel_tool_calls when there are no tools (some providers
             # reject tool_choice without a tools list) or when the caller opted out (None).
@@ -412,7 +445,14 @@ class LLM:
             kwargs.pop("parallel_tool_calls", None)
         response = self._completion_with_retry(**kwargs)
         usage = self._extract_usage(response)
-        return LLMResponse(message=response.choices[0].message, usage=usage)
+        completion_logprobs = self._extract_completion_logprobs(response)
+        return LLMResponse(
+            message=response.choices[0].message,
+            usage=usage,
+            logprobs=[entry["logprob"] for entry in completion_logprobs] if completion_logprobs else None,
+            completion_token_ids=[entry["token_id"] for entry in completion_logprobs] if completion_logprobs else None,
+            finish_reason=_safe_finish_reason(response.choices[0]),
+        )
 
     def _completion_with_retry(self, **kwargs: Any) -> Any:
         """Call litellm.completion with exponential backoff on transient errors.
@@ -493,6 +533,29 @@ class LLM:
             cost=cost,
         )
 
+    def _extract_completion_logprobs(self, response: Any) -> list[dict[str, int | float]]:
+        """Extract vLLM/OpenAI-compatible completion token IDs and logprobs."""
+        result: list[dict[str, int | float]] = []
+        choice = response.choices[0]
+        logprobs = getattr(choice, "logprobs", None)
+        if logprobs is None:
+            return result
+        content = getattr(logprobs, "content", None)
+        if content is None:
+            return result
+        for entry in content:
+            token_id = getattr(entry, "token_id", None)
+            token_str = getattr(entry, "token", None)
+            if token_id is None and isinstance(token_str, str) and token_str.startswith("token_id:"):
+                try:
+                    token_id = int(token_str.split(":", 1)[1])
+                except ValueError:
+                    token_id = None
+            logprob = getattr(entry, "logprob", None)
+            if isinstance(token_id, int) and isinstance(logprob, (int, float)):
+                result.append({"token_id": token_id, "logprob": float(logprob)})
+        return result
+
 
 class LLMCall(TypedBaseModel):
     """Represents a call to an LLM model."""
@@ -504,6 +567,20 @@ class LLMCall(TypedBaseModel):
     prompt: Prompt
     output: Message
     usage: Usage = Field(default_factory=Usage)
+    prompt_tokens: int = -1
+    output_tokens: int = -1
+    logprobs: list[float] | None = None
+    completion_token_ids: list[int] | None = None
+    finish_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _fill_token_counts(self) -> "LLMCall":
+        if self.prompt_tokens < 0:
+            self.prompt_tokens = self.usage.prompt_tokens
+        if self.output_tokens < 0:
+            self.output_tokens = self.usage.completion_tokens
+        return self
 
 
 # === auto-fix notes ===
