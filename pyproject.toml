@@ -32,6 +32,8 @@ dependencies = [
     "msgpack>=1.0.0",
     "zstandard>=0.20.0",
     "docker>=7.1.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.29.0",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +76,7 @@ ch-trace = "cube_harness.analyze.trace:main"
 ch-investigate = "cube_harness.analyze.investigator:main"
 ch-investigation-report = "cube_harness.analyze.investigation_report:main"
 ch-reset-episodes = "cube_harness.analyze.reset_episodes:main"
+ch-rollout = "cube_harness.rl.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -88,6 +91,7 @@ dev = [
 [tool.pytest.ini_options]
 markers = [
     "slow: tests taking >5s but no external deps (Ray retry, xray e2e). CI runs them; deselect locally for fast feedback ('-m \"not slow\"').",
+    "perf: performance/throughput tests; skipped unless --run-perf is provided.",
     "serial: mark test to be run sequentially (deselect with '-m \"not serial\"').",
     "integration: requires a live browser (headless Chromium via Playwright). CI runs them after `playwright install`.",
     "live_api: hits a real LLM provider — costs money, needs API key (e.g. ANTHROPIC_API_KEY). Auto-skipped without the key; never run by default CI. Run locally to validate cache-control / streaming / etc. against a real model.",
@@ -95,3 +99,6 @@ markers = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+cube-standard = { path = "../cube-standard" }
