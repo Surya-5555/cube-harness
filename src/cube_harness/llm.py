@@ -25,7 +25,7 @@ from litellm.exceptions import (
     Timeout,
 )
 from litellm.utils import token_counter
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SerializeAsAny, field_validator, model_validator
 
 # NOTE: Do not set litellm.callbacks = ["otel"] here at module level.
 # When no TracerProvider is configured, litellm falls back to ConsoleSpanExporter
@@ -45,6 +45,97 @@ _PERMANENT_LLM_ERRORS: tuple[type[BaseException], ...] = (
     BadRequestError,  # 400/422 — incl. ContextWindowExceeded, ContentPolicyViolation
 )
 _PERMANENT_HTTP_STATUS = frozenset({400, 401, 403, 404, 422})
+
+
+class Usage(TypedBaseModel):
+    """Token usage information from LLM response."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cached_tokens: int = 0  # tokens read from cache (cache hit)
+    cache_creation_tokens: int = 0  # tokens written to cache (Anthropic)
+    # Reasoning/thinking tokens. LiteLLM surfaces these via
+    # completion_tokens_details.reasoning_tokens for both OpenAI o-series/gpt-5
+    # (native field) and Anthropic (normalized from thinking_blocks). They are
+    # ALREADY counted within completion_tokens — do not add separately to a
+    # budget tally or you will double-count.
+    reasoning_tokens: int = 0
+    cost: float = 0.0  # cost in USD from LiteLLM pricing
+
+
+def _completion_with_retry(num_retries: int, **kwargs: Any) -> Any:
+    """Call litellm.completion with exponential backoff on transient errors.
+
+    litellm's completion_with_retries caps its backoff at 10 s, which is too
+    short for Anthropic overloaded_error responses under heavy load. We own the
+    retry loop here to get a proper 120 s ceiling.
+    """
+    _RETRIABLE = (
+        InternalServerError,
+        ServiceUnavailableError,
+        RateLimitError,
+        Timeout,
+        APIConnectionError,
+    )
+    retryer = tenacity.Retrying(
+        wait=tenacity.wait_exponential(multiplier=2, max=120),
+        stop=tenacity.stop_after_attempt(num_retries),
+        retry=tenacity.retry_if_exception_type(_RETRIABLE),
+        reraise=True,
+    )
+    return retryer(litellm.completion, **kwargs)
+
+
+def _extract_usage(response) -> Usage:
+    """Extract usage info from LiteLLM response."""
+    usage_data = getattr(response, "usage", None)
+    if usage_data is None:
+        return Usage()
+
+    def safe_int(value: object) -> int:
+        """Safely convert a value to int, returning 0 for non-numeric types."""
+        if isinstance(value, int):
+            return value
+        return 0
+
+    def safe_float(value: object) -> float:
+        """Safely convert a value to float, returning 0.0 for non-numeric types."""
+        if isinstance(value, (int, float)):
+            return float(value)
+        return 0.0
+
+    cached_tokens = 0
+    cache_creation_tokens = 0
+
+    prompt_details = getattr(usage_data, "prompt_tokens_details", None)
+    if prompt_details:
+        cached_tokens = safe_int(getattr(prompt_details, "cached_tokens", 0))
+
+    cache_creation_tokens = safe_int(getattr(usage_data, "cache_creation_input_tokens", 0))
+    cache_read = safe_int(getattr(usage_data, "cache_read_input_tokens", 0))
+    if cache_read > 0:
+        cached_tokens = cache_read
+
+    cost = 0.0
+    hidden_params = getattr(response, "_hidden_params", {})
+    if isinstance(hidden_params, dict):
+        cost = safe_float(hidden_params.get("response_cost", 0.0))
+
+    reasoning_tokens = 0
+    completion_details = getattr(usage_data, "completion_tokens_details", None)
+    if completion_details:
+        reasoning_tokens = safe_int(getattr(completion_details, "reasoning_tokens", 0))
+
+    return Usage(
+        prompt_tokens=safe_int(getattr(usage_data, "prompt_tokens", 0)),
+        completion_tokens=safe_int(getattr(usage_data, "completion_tokens", 0)),
+        total_tokens=safe_int(getattr(usage_data, "total_tokens", 0)),
+        cached_tokens=cached_tokens,
+        cache_creation_tokens=cache_creation_tokens,
+        reasoning_tokens=reasoning_tokens,
+        cost=cost,
+    )
 
 
 def is_permanent_llm_error(exc: BaseException) -> bool:
@@ -91,12 +182,21 @@ class Prompt(TypedBaseModel):
         return f"Tools:\n{tools}\nMessages[{len(self.messages)}]:\n{messages}"
 
 
-class LLMConfig(ValidatedConfig):
-    """Thin LLM wrapper around LiteLLM completion API."""
+class BaseLLMConfig(ValidatedConfig):
+    """Shared LiteLLM configuration fields used by harness LLM wrappers."""
+
+    model_name: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    max_completion_tokens: int | None = None
+    timeout: float | None = 120.0
+    num_retries: int = 5
+
+
+class LLMConfig(BaseLLMConfig):
+    """Thin benchmark LLM wrapper around LiteLLM completion API."""
 
     model_name: str
-    api_base: str | None = None
-    api_key: str | None = None
     temperature: float = 1.0
     max_tokens: int = 128000
     max_completion_tokens: int = 8192
@@ -115,7 +215,7 @@ class LLMConfig(ValidatedConfig):
     #      the model to emit multiple `tool_calls` in one assistant
     #      message when it wants to.
     #   2. The cube-harness dispatch contract: when True, the framework
-    #      (specifically `Genny[parallel_actions=True]._arun`) fans the emitted tool
+    #      (specifically `GennyParallel.run`) fans the emitted tool
     #      calls out via `asyncio.gather` — they execute concurrently,
     #      results are merged into the next obs.
     #
@@ -130,15 +230,7 @@ class LLMConfig(ValidatedConfig):
     # the framework will then dispatch sequentially. Default is False
     # — conservative.
     parallel_tool_calls: bool = False
-    num_retries: int = 5
     retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry"
-    timeout: float | None = 120.0  # seconds per attempt; None = no timeout
-    logprobs: bool = False
-    include_stop_str_in_output: bool | None = None
-    skip_special_tokens: bool | None = None
-    top_p: float | None = None
-    top_k: int | None = None
-    extra_body: dict[str, Any] = Field(default_factory=dict)
     # Anthropic prompt caching. "auto" places ephemeral cache_control breakpoints at the
     # system message and the last assistant message, plus the last tool definition. This
     # gives a stable anchor (system + tools) and a rolling boundary (last assistant) that
@@ -185,23 +277,6 @@ class LLMConfig(ValidatedConfig):
         return partial(token_counter, model=self.model_name)
 
 
-class Usage(TypedBaseModel):
-    """Token usage information from LLM response."""
-
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-    cached_tokens: int = 0  # tokens read from cache (cache hit)
-    cache_creation_tokens: int = 0  # tokens written to cache (Anthropic)
-    # Reasoning/thinking tokens. LiteLLM surfaces these via
-    # completion_tokens_details.reasoning_tokens for both OpenAI o-series/gpt-5
-    # (native field) and Anthropic (normalized from thinking_blocks). They are
-    # ALREADY counted within completion_tokens — do not add separately to a
-    # budget tally or you will double-count.
-    reasoning_tokens: int = 0
-    cost: float = 0.0  # cost in USD from LiteLLM pricing
-
-
 def get_reasoning(msg: Message) -> str:
     """Provider-agnostic reasoning text extractor — returns "" when no reasoning emitted.
 
@@ -227,6 +302,7 @@ class LLMResponse(TypedBaseModel):
     message: Message
     usage: Usage
     logprobs: list[float] | None = None
+    prompt_token_ids: list[int] | None = None
     completion_token_ids: list[int] | None = None
     finish_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -278,11 +354,6 @@ def _msg_role(msg: Any) -> str | None:
     return getattr(msg, "role", None)
 
 
-def _safe_finish_reason(choice: Any) -> str | None:
-    value = getattr(choice, "finish_reason", None)
-    return value if isinstance(value, str) else None
-
-
 def _build_cache_injection_points(messages: list) -> list[dict]:
     """Return ephemeral cache_control breakpoints: second message + last assistant.
 
@@ -330,8 +401,8 @@ def _mark_last_tool_for_cache(tools: list[dict]) -> list[dict]:
     return result
 
 
-class LLM:
-    def __init__(self, config: LLMConfig):
+class BaseLLM:
+    def __init__(self, config: BaseLLMConfig):
         self.config = config
         # Optional recorder for auto-emit of LLMCallEvent. Set via
         # `attach_recorder(recorder)` from the agent's `attach_recorder`
@@ -383,10 +454,25 @@ class LLM:
             prompt=prompt,
             output=response.message,
             usage=response.usage,
+            logprobs=response.logprobs,
+            prompt_token_ids=response.prompt_token_ids,
+            completion_token_ids=response.completion_token_ids,
+            finish_reason=response.finish_reason,
+            metadata=response.metadata,
         )
         if self._recorder is not None:
             self._recorder.on_llm_call(call, profiling={"llm": (start, end)})
         return call
+
+    def __call__(self, prompt: Prompt) -> LLMResponse:
+        raise NotImplementedError
+
+
+class LLM(BaseLLM):
+    config: LLMConfig
+
+    def __init__(self, config: LLMConfig):
+        super().__init__(config)
 
     def __call__(self, prompt: Prompt) -> LLMResponse:
         tools = prompt.tools
@@ -399,10 +485,6 @@ class LLM:
             "messages": prompt.messages,
             "timeout": self.config.timeout,
         }
-        if self.config.api_base is not None:
-            kwargs["api_base"] = self.config.api_base
-        if self.config.api_key is not None:
-            kwargs["api_key"] = self.config.api_key
         if self.config.reasoning_effort is not None:
             kwargs["reasoning_effort"] = self.config.reasoning_effort
             # auto-fix(412)↓ Anthropic only emits a thinking block AFTER a
@@ -426,135 +508,14 @@ class LLM:
             tools = _mark_last_tool_for_cache(tools)
         if tools:
             kwargs["tools"] = tools
-        if self.config.logprobs:
-            kwargs["logprobs"] = True
-        if self.config.include_stop_str_in_output is not None:
-            kwargs["include_stop_str_in_output"] = self.config.include_stop_str_in_output
-        if self.config.skip_special_tokens is not None:
-            kwargs["skip_special_tokens"] = self.config.skip_special_tokens
-        if self.config.top_p is not None:
-            kwargs["top_p"] = self.config.top_p
-        if self.config.top_k is not None:
-            kwargs["top_k"] = self.config.top_k
-        if self.config.extra_body:
-            kwargs["extra_body"] = self.config.extra_body
         if not tools or self.config.tool_choice is None:
             # Drop tool_choice / parallel_tool_calls when there are no tools (some providers
             # reject tool_choice without a tools list) or when the caller opted out (None).
             kwargs.pop("tool_choice", None)
             kwargs.pop("parallel_tool_calls", None)
-        response = self._completion_with_retry(**kwargs)
-        usage = self._extract_usage(response)
-        completion_logprobs = self._extract_completion_logprobs(response)
-        return LLMResponse(
-            message=response.choices[0].message,
-            usage=usage,
-            logprobs=[entry["logprob"] for entry in completion_logprobs] if completion_logprobs else None,
-            completion_token_ids=[entry["token_id"] for entry in completion_logprobs] if completion_logprobs else None,
-            finish_reason=_safe_finish_reason(response.choices[0]),
-        )
-
-    def _completion_with_retry(self, **kwargs: Any) -> Any:
-        """Call litellm.completion with exponential backoff on transient errors.
-
-        litellm's completion_with_retries caps its backoff at 10 s, which is too
-        short for Anthropic overloaded_error responses under heavy load. We own the
-        retry loop here to get a proper 120 s ceiling.
-        """
-        _RETRIABLE = (
-            InternalServerError,
-            ServiceUnavailableError,
-            RateLimitError,
-            Timeout,
-            APIConnectionError,
-        )
-        retryer = tenacity.Retrying(
-            wait=tenacity.wait_exponential(multiplier=2, max=120),
-            stop=tenacity.stop_after_attempt(self.config.num_retries),
-            retry=tenacity.retry_if_exception_type(_RETRIABLE),
-            reraise=True,
-        )
-        return retryer(litellm.completion, **kwargs)
-
-    def _extract_usage(self, response) -> Usage:
-        """Extract usage info from LiteLLM response."""
-        usage_data = getattr(response, "usage", None)
-        if usage_data is None:
-            return Usage()
-
-        def safe_int(value: object) -> int:
-            """Safely convert a value to int, returning 0 for non-numeric types."""
-            if isinstance(value, int):
-                return value
-            return 0
-
-        def safe_float(value: object) -> float:
-            """Safely convert a value to float, returning 0.0 for non-numeric types."""
-            if isinstance(value, (int, float)):
-                return float(value)
-            return 0.0
-
-        cached_tokens = 0
-        cache_creation_tokens = 0
-
-        # Check prompt_tokens_details for cached_tokens (OpenAI/Anthropic)
-        prompt_details = getattr(usage_data, "prompt_tokens_details", None)
-        if prompt_details:
-            cached_tokens = safe_int(getattr(prompt_details, "cached_tokens", 0))
-
-        # Anthropic-specific fields
-        cache_creation_tokens = safe_int(getattr(usage_data, "cache_creation_input_tokens", 0))
-        cache_read = safe_int(getattr(usage_data, "cache_read_input_tokens", 0))
-        if cache_read > 0:
-            cached_tokens = cache_read  # Anthropic uses this field name
-
-        # Extract cost from LiteLLM's hidden params
-        cost = 0.0
-        hidden_params = getattr(response, "_hidden_params", {})
-        if isinstance(hidden_params, dict):
-            cost = safe_float(hidden_params.get("response_cost", 0.0))
-
-        # Reasoning tokens — LiteLLM normalizes both OpenAI (native field) and
-        # Anthropic (computed from thinking_blocks) into completion_tokens_details.
-        # These are already part of completion_tokens; the separate field is for
-        # telemetry, not for budgeting.
-        reasoning_tokens = 0
-        completion_details = getattr(usage_data, "completion_tokens_details", None)
-        if completion_details:
-            reasoning_tokens = safe_int(getattr(completion_details, "reasoning_tokens", 0))
-
-        return Usage(
-            prompt_tokens=safe_int(getattr(usage_data, "prompt_tokens", 0)),
-            completion_tokens=safe_int(getattr(usage_data, "completion_tokens", 0)),
-            total_tokens=safe_int(getattr(usage_data, "total_tokens", 0)),
-            cached_tokens=cached_tokens,
-            cache_creation_tokens=cache_creation_tokens,
-            reasoning_tokens=reasoning_tokens,
-            cost=cost,
-        )
-
-    def _extract_completion_logprobs(self, response: Any) -> list[dict[str, int | float]]:
-        """Extract vLLM/OpenAI-compatible completion token IDs and logprobs."""
-        result: list[dict[str, int | float]] = []
-        choice = response.choices[0]
-        logprobs = getattr(choice, "logprobs", None)
-        if logprobs is None:
-            return result
-        content = getattr(logprobs, "content", None)
-        if content is None:
-            return result
-        for entry in content:
-            token_id = getattr(entry, "token_id", None)
-            token_str = getattr(entry, "token", None)
-            if token_id is None and isinstance(token_str, str) and token_str.startswith("token_id:"):
-                try:
-                    token_id = int(token_str.split(":", 1)[1])
-                except ValueError:
-                    token_id = None
-            logprob = getattr(entry, "logprob", None)
-            if isinstance(token_id, int) and isinstance(logprob, (int, float)):
-                result.append({"token_id": token_id, "logprob": float(logprob)})
-        return result
+        response = _completion_with_retry(self.config.num_retries, **kwargs)
+        usage = _extract_usage(response)
+        return LLMResponse(message=response.choices[0].message, usage=usage)
 
 
 class LLMCall(TypedBaseModel):
@@ -563,13 +524,14 @@ class LLMCall(TypedBaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)  # unique storage key
     tag: str = ""  # optional label shown as tab name in viewers (e.g. "act", "summary")
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-    llm_config: LLMConfig
+    llm_config: SerializeAsAny[BaseLLMConfig]
     prompt: Prompt
     output: Message
     usage: Usage = Field(default_factory=Usage)
     prompt_tokens: int = -1
     output_tokens: int = -1
     logprobs: list[float] | None = None
+    prompt_token_ids: list[int] | None = None
     completion_token_ids: list[int] | None = None
     finish_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

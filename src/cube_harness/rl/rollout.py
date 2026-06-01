@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, SerializeAsAny
 
 from cube_harness.agent import AgentConfig
 from cube_harness.episode import MAX_STEPS
-from cube_harness.rl.llm import RolloutLLMConfig
+from cube_harness.llm import RolloutLLMConfig
 
 
 class RolloutRequest(BaseModel):

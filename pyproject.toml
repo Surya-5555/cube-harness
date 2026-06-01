@@ -32,8 +32,6 @@ dependencies = [
     "msgpack>=1.0.0",
     "zstandard>=0.20.0",
     "docker>=7.1.0",
-    "fastapi>=0.115.0",
-    "uvicorn>=0.29.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +43,12 @@ analyze = [
 # Trajectory investigator — post-hoc LLM analysis via Claude Code
 investigator = [
     "claude-agent-sdk>=0.1.6",
+]
+# Rollout generation
+rl = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.29.0",
+    "transformers~=4.57.0"
 ]
 
 [build-system]

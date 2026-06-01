@@ -44,6 +44,7 @@ from termcolor import colored
 from cube_harness.agent import Agent, AgentConfig, apply_description_overrides
 from cube_harness.core import AgentOutput
 from cube_harness.llm import LLM, LLMCall, LLMConfig, Prompt, get_reasoning
+from cube_harness.rl.llm import RolloutLLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ def _truncate_message(msg: dict, max_chars: int) -> dict:
 
 class GennyConfig(AgentConfig):
     # Core
-    llm_config: LLMConfig
+    llm_config: LLMConfig | RolloutLLMConfig
     system_prompt: str = _DEFAULT_SYSTEM_PROMPT
     # react_prompt: reason-then-act, used when enable_summarize=False and flat_history=False
     react_prompt: str = _DEFAULT_REACT_PROMPT
@@ -153,7 +154,7 @@ class GennyConfig(AgentConfig):
 
     # Summarize pass
     enable_summarize: bool = False  # False = raw history mode; True = rolling summaries mode
-    summarize_llm_config: LLMConfig | None = None  # None = reuse llm_config
+    summarize_llm_config: LLMConfig | RolloutLLMConfig | None = None  # None = reuse llm_config
     # Instruction sent to the summarize LLM. Swap to _DEFAULT_SUMMARIZE_COT_PROMPT for a
     # lighter CoT-style summary instead of the default verbose + Key Facts format.
     summarize_prompt: str = _DEFAULT_SUMMARIZE_VERBOSE_PROMPT
@@ -228,20 +229,6 @@ class GennyConfig(AgentConfig):
         )
 
     def make(self, action_set: list[ActionSchema] | None = None, task_id: str | None = None, **kwargs) -> "Genny":
-        # If the agent opted into parallel action dispatch, force the LLM to
-        # actually emit multiple tool calls per turn. Otherwise the agent's
-        # `_arun` body fans out over a one-element list — same wall-clock as
-        # sequential, no win. Caught by the agent-owns-loop reference
-        # baseline (gpt-5.4-mini on TerminalBench-2): parity with sequential
-        # because nothing flipped the flag. Force it here on the config
-        # that needs it, not the caller.
-        if self.parallel_actions and not self.llm_config.parallel_tool_calls:
-            logger.info(
-                "GennyConfig.parallel_actions=True: forcing llm_config.parallel_tool_calls=True "
-                "(was False — without it the LLM emits one tool call per turn and parallel "
-                "dispatch would be a no-op)."
-            )
-            self.llm_config = self.llm_config.model_copy(update={"parallel_tool_calls": True})
         return Genny(config=self, action_schemas=action_set or [], task_id=task_id)
 
 

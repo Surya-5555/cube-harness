@@ -9,6 +9,7 @@ from termcolor import colored
 from cube_harness.agent import Agent, AgentConfig, apply_description_overrides
 from cube_harness.core import AgentOutput
 from cube_harness.llm import LLMConfig, Prompt
+from cube_harness.rl.llm import RolloutLLMConfig
 from cube_harness.utils import parse_actions
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReactAgentConfig(AgentConfig):
-    llm_config: LLMConfig
+    llm_config: LLMConfig | RolloutLLMConfig
     can_finish: bool = True
     max_actions: int = 10
     max_obs_chars: int = 100000  # truncate long observations to M chars
