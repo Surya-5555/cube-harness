@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, SerializeAsAny
 
 from cube_harness.agent import AgentConfig
 from cube_harness.episode import MAX_STEPS
-from cube_harness.llm import RolloutLLMConfig
+from cube_harness.rl.llm import RolloutLLMConfig
 
 
 class RolloutRequest(BaseModel):
@@ -50,7 +50,11 @@ class RolloutConfig(BaseModel):
     """Pydantic config for one benchmark-scoped rollout engine."""
 
     name: str = "rollout"
-    output_dir: Path = Field(description="Root directory for rollout episode artifacts, logs, and rollout config.")
+    output_dir: Path = Field(description="Root directory for optional rollout debug artifacts.")
+    persist_rollout: bool = Field(
+        default=False,
+        description="When true, write rollout config and per-episode logs to output_dir.",
+    )
     benchmark_config: SerializeAsAny[BenchmarkConfig]
     agent_config: SerializeAsAny[AgentConfig]
     infra: SerializeAsAny[InfraConfig] | None = None

@@ -13,10 +13,10 @@ def _configure_ray_environment() -> None:
 
 _configure_ray_environment()
 
-import ray
+import ray  # noqa: E402
 
-from cube_harness.rl.sink import EventSink, EventSinkConfig
-from cube_harness.rl.task_runner import RolloutTaskRunner
+from cube_harness.rl.sink import EventSink, EventSinkConfig  # noqa: E402
+from cube_harness.rl.task_runner import RolloutTaskRunner  # noqa: E402
 
 
 class _RayEventSinkActor:
@@ -101,7 +101,7 @@ class RayEventSink:
 def ensure_ray_initialized(init_kwargs: dict[str, Any] | None = None) -> bool:
     if ray.is_initialized():
         return False
-    kwargs = {"include_dashboard": False, "log_to_driver": True, "ignore_reinit_error": True}
+    kwargs = {"include_dashboard": False, "log_to_driver": False, "ignore_reinit_error": True}
     kwargs.update(init_kwargs or {})
     ray.init(**kwargs)
     return True

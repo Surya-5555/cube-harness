@@ -7,7 +7,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import msgpack
 import zstandard
@@ -72,6 +72,112 @@ class Storage(Protocol):
     def read_episode_status(self, trajectory_id: str) -> EpisodeStatus | None: ...
 
     def archive_episode(self, trajectory_id: str) -> None: ...
+
+
+class InMemoryTrajectoryView:
+    """Minimal TrajectoryView-compatible object for streaming-only episodes."""
+
+    def __init__(self, meta: TrajectoryMetadata, events: list[TrajectoryEvent] | None = None) -> None:
+        self.id = meta.id
+        self._meta = meta
+        self._events = list(events or [])
+
+    @property
+    def metadata(self) -> dict:
+        return self._meta.metadata
+
+    @property
+    def start_time(self) -> float | None:
+        return self._meta.start_time
+
+    @property
+    def end_time(self) -> float | None:
+        return self._meta.end_time
+
+    @property
+    def episode_metadata(self) -> TrajectoryMetadata:
+        return self._meta
+
+    @property
+    def summary_stats(self) -> dict | None:
+        return self._meta.summary_stats
+
+    @property
+    def reward_info(self) -> dict:
+        return self._meta.reward_info
+
+    @property
+    def is_complete(self) -> bool:
+        return self._meta.is_complete
+
+    def __len__(self) -> int:
+        return len(self._events)
+
+    def __getitem__(self, i: int) -> TrajectoryEvent:
+        return self._events[i]
+
+    def __iter__(self) -> Iterator[TrajectoryEvent]:
+        return iter(self._events)
+
+    def iter_events(self) -> Iterator[TrajectoryEvent]:
+        return iter(self)
+
+
+class InMemoryStorage:
+    """Storage implementation for streaming-only episodes.
+
+    It preserves Episode's metadata/status contract without writing trajectory
+    artifacts to disk. Event persistence is intentionally in-memory and is only
+    used if the storage is registered as an EventStreamer sink.
+    """
+
+    def __init__(self, output_dir: str | Path | None = None) -> None:
+        self.output_dir = Path(output_dir) if output_dir is not None else Path(".")
+        self._metadata: dict[str, TrajectoryMetadata] = {}
+        self._events: dict[str, list[TrajectoryEvent]] = {}
+        self._statuses: dict[str, EpisodeStatus] = {}
+        self._episode_configs: dict[str, Any] = {}
+
+    def save_metadata(self, meta: TrajectoryMetadata, allow_overwrite: bool = False) -> None:
+        if not allow_overwrite and meta.id in self._metadata and self._metadata[meta.id].end_time is not None:
+            raise FileExistsError(f"Episode '{meta.id}' already exists in memory")
+        self._metadata[meta.id] = meta
+
+    def finalize_episode(self, meta: TrajectoryMetadata) -> None:
+        self._metadata[meta.id] = meta
+
+    def save_event(self, event: TrajectoryEvent, trajectory_id: str) -> int:
+        events = self._events.setdefault(trajectory_id, [])
+        events.append(event)
+        return len(events) - 1
+
+    def load_episode(self, trajectory_id: str) -> InMemoryTrajectoryView:
+        meta = self._metadata.get(trajectory_id)
+        if meta is None:
+            meta = TrajectoryMetadata(id=trajectory_id)
+        return InMemoryTrajectoryView(meta, self._events.get(trajectory_id, []))
+
+    def list_episodes(self) -> list[TrajectoryMetadata]:
+        return list(self._metadata.values())
+
+    def save_episode_config(self, episode_config: "EpisodeConfig") -> None:
+        traj_id = trajectory_log_id(episode_config.task_config.task_id, episode_config.id)
+        self._episode_configs[traj_id] = episode_config
+
+    def update_experiment_summary(self, meta: TrajectoryMetadata) -> None:
+        return None
+
+    def write_episode_status(self, trajectory_id: str, status: EpisodeStatus) -> None:
+        self._statuses[trajectory_id] = status
+
+    def read_episode_status(self, trajectory_id: str) -> EpisodeStatus | None:
+        return self._statuses.get(trajectory_id)
+
+    def archive_episode(self, trajectory_id: str) -> None:
+        self._metadata.pop(trajectory_id, None)
+        self._events.pop(trajectory_id, None)
+        self._statuses.pop(trajectory_id, None)
+        self._episode_configs.pop(trajectory_id, None)
 
 
 _thread_local = threading.local()
@@ -364,6 +470,10 @@ class TrajectoryView:
         """Alias for `iter(view)` — explicit-method form for readability."""
         return iter(self)
 
+    def events_of_turn(self, turn_id: str) -> list[TrajectoryEvent]:
+        """All `ToolCallEvent`s sharing a `turn_id`. Decodes one pass."""
+        return [e for e in self if isinstance(e.output, ToolCallEvent) and e.output.turn_id == turn_id]
+
     def last_env_output(self) -> EnvironmentOutput | None:
         """Most recent `ToolCallEvent` as an `EnvironmentOutput`-shaped
         record, or None if no tool call ran.
@@ -445,6 +555,7 @@ class TrajectoryView:
                 action_id=action.id if action is not None else None,
                 obs=step.output.obs,
                 error=step.output.error,
+                turn_id=parent_id,
             )
             return TrajectoryEvent(output=tool_event, start_time=step.start_time, end_time=step.end_time)
         raise TypeError(f"Unexpected legacy step output type: {type(step.output).__name__}")
@@ -833,7 +944,7 @@ class FileStorage:
         lazily on first save. Numbering is owned by the storage —
         callers don't pass an event_num and don't coordinate. Safe
         under concurrent writes from `asyncio.to_thread` workers
-        (e.g. Genny[parallel_actions=True]'s parallel tool dispatch)."""
+        (e.g. GennyParallel's parallel tool dispatch)."""
         ep_dir = self._episode_dir(trajectory_id)
         if not ep_dir.exists():
             raise ValueError(f"Episode directory does not exist: {ep_dir}. Call save_metadata first.")

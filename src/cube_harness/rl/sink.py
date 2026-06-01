@@ -27,6 +27,7 @@ class EventSink:
         self._next_offset = 0
         self._acks: dict[str, int] = defaultdict(lambda: -1)
         self._terminal_events: dict[str, dict] = {}
+        self._request_next_event_index: dict[str, int] = defaultdict(int)
         self._spilled_event_count = 0
         self._dropped_event_count = 0
         self._condition = threading.Condition()
@@ -66,6 +67,13 @@ class EventSink:
                 if request_id and request_id in self._terminal_events:
                     return self._terminal_events[request_id]
             payload = dict(payload)
+            request_id = str(payload.get("request_id") or "")
+            if request_id:
+                proposed_index = int(payload.get("event_index", -1))
+                next_index = self._request_next_event_index[request_id]
+                event_index = proposed_index if proposed_index >= next_index else next_index
+                payload["event_index"] = event_index
+                self._request_next_event_index[request_id] = event_index + 1
             payload["offset"] = self._next_offset
             self._next_offset += 1
             self._events.append(payload)
@@ -137,6 +145,7 @@ class EventSink:
                 "max_hot_events": self.config.max_hot_events,
                 "hot_capacity_remaining": max(self.config.max_hot_events - len(self._events), 0),
                 "terminal_count": len(self._terminal_events),
+                "tracked_request_count": len(self._request_next_event_index),
                 "acks": dict(self._acks),
                 "min_ack": min_ack,
                 "spill_enabled": self.config.persist_events_dir is not None,

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from cube_harness.episode import Episode
 from cube_harness.episode_logs import LOG_FORMAT, get_log_path, redirect_output_to_log, trajectory_log_id
-from cube_harness.episode_loop import EpisodeLoop
-from cube_harness.episode_recorders import RolloutEventRecorder
-from cube_harness.rl.llm import RolloutLLMConfig, apply_rollout_llm_config
+from cube_harness.rl.llm import RolloutLLMConfig
+from cube_harness.rl.trajectory_sink import RLEventSink
+from cube_harness.rl.utils import apply_rollout_llm_config
+from cube_harness.storage import FileStorage, InMemoryStorage
+from cube_harness.streamer import EventStreamerConfig
 
 
 class RolloutTaskRunner:
@@ -27,31 +31,34 @@ class RolloutTaskRunner:
 
     def run(self) -> dict[str, Any]:
         apply_rollout_llm_config(self.agent_config, RolloutLLMConfig.model_validate(self.request["llm_config"]))
-        recorder = RolloutEventRecorder(
+        persist_rollout = bool(self.payload.get("persist_rollout"))
+        run_output_dir = self.output_dir
+        storage = FileStorage(run_output_dir) if persist_rollout else InMemoryStorage(run_output_dir)
+        rl_sink = RLEventSink(
             event_context=self.payload["event_context"],
-            event_publisher=self.publish_event,
+            event_publisher=self.publisher_handle,
         )
-        loop = EpisodeLoop(
+        recorder_config = EventStreamerConfig(
+            event_sinks=[rl_sink],
+            include_storage_sink=persist_rollout,
+        )
+        episode = Episode(
             id=self.episode_id,
-            output_dir=self.output_dir,
+            output_dir=run_output_dir,
             agent_config=self.agent_config,
             task_config=self.task_config,
             exp_name=str(self.payload["service_name"]),
             max_steps=int(self.request.get("max_steps") or self.payload["max_steps"]),
+            storage=storage,
             runtime_context=self.payload.get("runtime_context"),
-            recorder=recorder,
+            recorder_config=recorder_config,
+            write_eval_log=persist_rollout,
         )
-        log_file = get_log_path(self.output_dir, self.trajectory_id)
-        with redirect_output_to_log(log_file, append=True, tee=False, log_format=LOG_FORMAT):
-            loop.run()
+        if persist_rollout:
+            log_file = get_log_path(self.output_dir, self.trajectory_id)
+            context = redirect_output_to_log(log_file, append=True, tee=True, log_format=LOG_FORMAT)
+        else:
+            context = nullcontext()
+        with context:
+            episode.run()
         return {"ok": True, "request_id": self.request_id}
-
-    def publish_event(self, event: Any) -> dict:
-        payload = event.model_dump(mode="json")
-        publish_payload = self.publisher_handle.publish_payload
-        if callable(publish_payload):
-            return publish_payload(payload)
-
-        from cube_harness.rl.ray_runtime import ray
-
-        return ray.get(publish_payload.remote(payload))

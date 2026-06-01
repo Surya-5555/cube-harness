@@ -100,8 +100,16 @@ class RayRolloutExecutor:
 
     def stats(self) -> dict[str, Any]:
         active_request_ids = sorted(self._request_to_ref)
+        estimated_slots = max(int(self.ray_config.num_workers / self.ray_config.task_num_cpus), 1)
+        if ray.is_initialized():
+            cpus = float(ray.cluster_resources().get("CPU", 0.0) or 0.0)
+            estimated_slots = max(int(cpus / self.ray_config.task_num_cpus), 1)
+        estimated_running = min(len(self._ref_to_request), estimated_slots)
+        estimated_queued = max(len(self._ref_to_request) - estimated_running, 0)
         return {
             "inflight_rollouts": len(self._ref_to_request),
+            "estimated_running_rollouts": estimated_running,
+            "estimated_queued_rollouts": estimated_queued,
             "accepted_rollouts": len(self._accepted_requests),
             "terminal_rollouts": len(self._terminal),
             "cancelled_rollouts": len(self._cancelled),
@@ -183,7 +191,7 @@ class RayRolloutExecutor:
                 self._synthesized_terminal_events += 1
                 await self._publish_terminal_status(
                     request,
-                    "agent_error",
+                    "ray_error",
                     None,
                     False,
                     False,
@@ -196,7 +204,7 @@ class RayRolloutExecutor:
             self._synthesized_terminal_events += 1
             await self._publish_terminal_status(
                 request,
-                "agent_error",
+                "event_error",
                 None,
                 False,
                 False,
@@ -366,7 +374,7 @@ class LocalRolloutExecutor:
             self._synthesized_terminal_events += 1
             self._publish_terminal_status(
                 request,
-                "agent_error",
+                "event_error",
                 None,
                 False,
                 False,

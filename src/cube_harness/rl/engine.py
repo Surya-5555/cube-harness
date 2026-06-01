@@ -38,6 +38,8 @@ class RolloutEngine:
         self._closed = False
         self._benchmark: Benchmark | None = None
         self._task_configs: dict[str, TaskConfig] = {}
+        self._accepted_request_ids: set[str] = set()
+        self._submit_lock = asyncio.Lock()
         self._setup_runtime()
         self.executor = self._make_executor()
 
@@ -118,8 +120,24 @@ class RolloutEngine:
 
     async def submit(self, request: RolloutRequest) -> dict[str, Any]:
         self.validate_request(request)
-        await asyncio.to_thread(self.publish_accepted, request)
-        return await self.executor.submit(request)
+        async with self._submit_lock:
+            if request.request_id in self._accepted_request_ids:
+                raise ValueError(f"request_id already accepted: {request.request_id}")
+            self._accepted_request_ids.add(request.request_id)
+            await asyncio.to_thread(self.publish_accepted, request)
+            try:
+                return await self.executor.submit(request)
+            except Exception as exc:
+                await asyncio.to_thread(
+                    self.publish_terminal,
+                    request,
+                    "ray_error",
+                    None,
+                    False,
+                    False,
+                    {"type": type(exc).__name__, "message": str(exc)[:500]},
+                )
+                raise
 
     async def cancel(self, request: CancelRequest) -> dict[str, Any]:
         return await self.executor.cancel(request)
@@ -178,11 +196,27 @@ class RolloutEngine:
         if request.task_id not in self._task_configs:
             raise KeyError(f"unknown task_id {request.task_id!r}; available tasks: {sorted(self._task_configs)[:20]}")
 
+    def task_configs(self) -> dict[str, Any]:
+        return {
+            "benchmark": {
+                "name": self.benchmark_name,
+                "task_count": len(self._task_configs),
+            },
+            "task_configs": [
+                {
+                    "task_id": task_id,
+                    "config": task_config.model_dump(mode="json", serialize_as_any=True),
+                }
+                for task_id, task_config in sorted(self._task_configs.items())
+            ],
+        }
+
     def stats(self) -> dict[str, Any]:
         return {
             "ready": self.ready,
             "name": self.config.name,
             "execution_mode": self.config.execution_mode,
+            "persist_rollout": self.config.persist_rollout,
             "benchmark": {
                 "name": self.benchmark_name,
                 "task_count": len(self._task_configs),
@@ -209,7 +243,7 @@ class RolloutEngine:
             return
         self.sink.publish(
             TerminalEvent(
-                event_index=0,
+                event_index=-1,
                 **self.event_context(request).model_dump(),
                 rollout_status=status,  # type: ignore[arg-type]
                 outcome_success=bool(final_reward),
@@ -237,7 +271,8 @@ class RolloutEngine:
         return kwargs
 
     def _setup_runtime(self) -> None:
-        self._save_config()
+        if self.config.persist_rollout:
+            self._save_config()
         self.config.benchmark_config.install()
         self._benchmark = self.config.benchmark_config.make(self.config.infra)
         self._task_configs = {
@@ -268,6 +303,7 @@ class RolloutEngine:
             "agent_config": self.config.agent_config.model_copy(deep=True),
             "runtime_context": getattr(self._benchmark, "_runtime_context", None),
             "output_dir": str(output_dir),
+            "persist_rollout": self.config.persist_rollout,
             "service_name": self.config.name,
             "benchmark_name": self.benchmark_name,
             "max_steps": self.config.max_steps,

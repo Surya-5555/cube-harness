@@ -46,6 +46,9 @@ class RolloutService:
     def health(self) -> dict[str, Any]:
         return self.rollout.stats()
 
+    def task_configs(self) -> dict[str, Any]:
+        return self.rollout.task_configs()
+
     def close(self) -> None:
         self.rollout.close()
 
@@ -80,6 +83,10 @@ def serve(
     @app.get("/health")
     async def health() -> dict[str, Any]:
         return await asyncio.to_thread(service.health)
+
+    @app.get("/task-configs")
+    async def task_configs() -> dict[str, Any]:
+        return await asyncio.to_thread(service.task_configs)
 
     @app.post("/rollouts")
     async def rollouts(request: RolloutRequest) -> dict[str, Any]:
