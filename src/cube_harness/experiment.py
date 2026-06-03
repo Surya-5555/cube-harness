@@ -22,6 +22,15 @@ from cube_harness.storage import FileStorage
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ORPHAN_THRESHOLD_S: float = 3600.0
+"""How long a QUEUED episode can sit before sweep marks it STALE.
+
+Co-located with :func:`sweep_stale_statuses` so the runner (``exp_runner``)
+and the offline scan script (``cube_harness.reproducibility.scan``) share
+one source of truth. The sister timeouts (``DEFAULT_STEP_TIMEOUT_S``,
+``DEFAULT_CANCEL_GRACE_S``) live in ``exp_runner`` because they govern
+the runner's wall-clock behavior outside the sweep predicate."""
+
 EXP_DIR = Path(os.environ.get("CH_EXP_DIR", "~/cube_harness_results")).expanduser().resolve()
 _UUID_SUFFIX_RE = re.compile(r"_[0-9a-f]{8}$")
 
@@ -68,6 +77,16 @@ class Experiment(TypedBaseModel):
     max_steps: int = MAX_STEPS
     max_retries: int = 3
     git_cwd: str | None = None
+    debug_limit: int | None = None
+    """If set, the runner truncates the task list to the first N entries.
+
+    Surfaced into ExperimentRecord so the reproducibility-journal scan script
+    can distinguish debug runs from real evaluations without re-reading the
+    full ExperimentConfig. Recipes that set this on the Experiment object get
+    it captured automatically; recipes that pass it directly to
+    ``run_sequentially`` / ``run_with_ray`` need the runner to propagate it
+    here before ``save_config()`` if they want the same coverage.
+    """
 
     @model_validator(mode="after")
     def _ensure_unique_output_dir(self) -> "Experiment":
@@ -95,7 +114,7 @@ class Experiment(TypedBaseModel):
         *,
         step_timeout_s: float = 1800.0,
         cancel_grace_s: float = 120.0,
-        orphan_threshold_s: float = 3600.0,
+        orphan_threshold_s: float = DEFAULT_ORPHAN_THRESHOLD_S,
         process_start_s: float | None = None,
     ) -> list[Episode]:
         """Return episodes to run based on `resume`.
@@ -199,6 +218,7 @@ class Experiment(TypedBaseModel):
             agent_config=self.agent_config,
             benchmark_config=self.benchmark_config,
             git_cwd=self.git_cwd,
+            debug_limit=self.debug_limit,
         )
         exp_record.write(output_path)
 

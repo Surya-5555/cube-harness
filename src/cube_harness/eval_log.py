@@ -30,6 +30,7 @@ import json
 import logging
 import re
 import subprocess
+import sys
 import time
 from enum import Enum
 from pathlib import Path
@@ -48,17 +49,113 @@ logger = logging.getLogger(__name__)
 EPISODE_RECORD_FILENAME = "episode_record.json"
 EXPERIMENT_RECORD_FILENAME = "experiment_record.json"
 
-_TRACKED_PACKAGES: list[str] = [
-    "cube-harness",
-    "cube",
-    "litellm",
-    "anthropic",
-    "openai",
-    "browsergym-core",
-    "playwright",
-    "pydantic",
-    "ray",
-]
+# Distributions that are always recorded when present, even if the sys.modules
+# walk in _imported_distributions() misses them. The walker is the primary
+# capture mechanism — this list is a small backstop for the harness invariants
+# every run must surface.
+# The installed distribution name for cube-standard is "cube-standard", NOT
+# "cube" (the import is `import cube` but `importlib.metadata.version("cube")`
+# raises PackageNotFoundError). Using the wrong name silently dropped
+# cube-standard from every recorded `dependency_versions` — direct PS-001
+# violation, since cube-standard's contracts are the most consequential
+# dependency in the whole system.
+_ALWAYS_INCLUDE_DEPENDENCIES: frozenset[str] = frozenset({"cube-harness", "cube-standard"})
+
+# Distributions whose version drift is most likely to swing scores — surfaced
+# prominently by downstream UIs (journal, EEE) instead of being buried in the
+# full list. Subset of what gets recorded; never used for filtering.
+_PRIMARY_DEPENDENCIES: frozenset[str] = frozenset(
+    {
+        # Core (note: distribution is "cube-standard", not "cube" — see
+        # _ALWAYS_INCLUDE_DEPENDENCIES above).
+        "cube-harness",
+        "cube-standard",
+        "pydantic",
+        # LLM gateway + provider SDKs — silent retry/streaming changes here
+        # swing benchmark scores even at fixed prompts.
+        "litellm",
+        "openai",
+        "anthropic",
+        # HTTP stack — version drift in retry/timeout/connection-pool behavior
+        # changes LLM-call success rates under flaky upstreams (well-documented
+        # in cube-harness's own session notes, e.g. tbench2-daytona-r0).
+        "httpx",
+        "urllib3",
+        "tenacity",
+        # Tokenization (affects context-window decisions, sometimes scoring).
+        "tiktoken",
+        "tokenizers",
+        # Env runtimes — these only land in primary for the cubes that
+        # actually import them (set intersection with the recorded versions),
+        # so no false positives for non-browser/non-gym runs.
+        "playwright",
+        "browsergym-core",
+        "gymnasium",
+    }
+)
+
+# Behaviorally-inert plumbing imported by ~half the Python ecosystem. Dropped
+# from the dep capture so the recorded set stays roughly 45 packages instead
+# of 80 — and so manual readers can find the deps that actually matter. Each
+# category-comment justifies why dropping is safe; revisit if a future
+# reproducibility failure points back at one of these.
+#
+# Public alias `AUTO_DROP_DEPENDENCIES` is exported below so cube authors can
+# guard their critical deps in a smoke test, e.g.:
+#
+#     from cube_harness.eval_log import AUTO_DROP_DEPENDENCIES
+#     assert "filelock" not in AUTO_DROP_DEPENDENCIES, "my cube needs filelock"
+#
+_AUTO_DROP_DEPENDENCIES: frozenset[str] = frozenset(
+    {
+        # typing & data-structure helpers — API stable, no runtime behavior
+        "annotated-types",
+        "attrs",
+        "frozenlist",
+        "multidict",
+        "propcache",
+        "rpds-py",
+        "typing_extensions",
+        "typing-inspection",
+        # terminal display only — irrelevant to recorded scores
+        "rich",
+        "Pygments",
+        "termcolor",
+        "MarkupSafe",
+        "click",
+        "tqdm",
+        # encoding / file plumbing — deterministic, version-stable
+        "certifi",
+        "charset-normalizer",
+        "idna",
+        "brotli",
+        "zstandard",
+        "zipp",
+        "filelock",
+        "distro",
+        # tiny utilities, no behavioral surface
+        "aiohappyeyeballs",
+        "aiosignal",
+        "sniffio",
+        "importlib_metadata",
+        "packaging",
+        # identity / parsing helpers
+        "pyparsing",
+        "docstring_parser",
+        "fastuuid",
+        "yarl",
+        "Farama-Notifications",
+        # duplicates a primary signal / no critical-path use
+        "pydantic_core",
+        "msgpack",
+        "python-dotenv",
+    }
+)
+
+# Public alias for cube-author introspection. Keep the underscore-prefixed
+# name as the load-bearing identifier inside this module (every existing
+# call site uses it); the public name is a thin re-export.
+AUTO_DROP_DEPENDENCIES = _AUTO_DROP_DEPENDENCIES
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +170,43 @@ def _get_package_version(name: str) -> str | None:
         return None
 
 
-def _collect_dependency_versions() -> dict[str, str]:
-    """Return installed versions for all tracked packages that are present."""
-    return {pkg: v for pkg in _TRACKED_PACKAGES if (v := _get_package_version(pkg)) is not None}
+def _imported_distributions() -> set[str]:
+    """Distributions whose top-level module is currently in ``sys.modules``.
+
+    The idea: a package whose code was never imported into the experiment's
+    process cannot have affected the recorded score, so it's not worth
+    capturing. The dep capture happens at ``Experiment.save_config()`` time,
+    *after* the recipe has imported its agent / benchmark / tools at module
+    level — so the typical set is ~80 distributions.
+
+    Returns an empty set on any introspection failure rather than raising —
+    losing the dep capture is non-fatal.
+    """
+    try:
+        top_level = {name.split(".", 1)[0] for name in sys.modules if not name.startswith("_")}
+        pkg_to_dist = importlib.metadata.packages_distributions()
+        return {dist for mod in top_level for dist in pkg_to_dist.get(mod, [])}
+    except Exception:
+        return set()
+
+
+def _collect_dependency_versions() -> tuple[dict[str, str], list[str]]:
+    """Return ``(versions, primary_names)`` for the currently-loaded distributions.
+
+    ``versions``: imported distributions (from :func:`_imported_distributions`)
+    plus the always-include backstop, minus the auto-drop list. Sorted by name
+    for stable JSON.
+
+    ``primary_names``: subset present in :data:`_PRIMARY_DEPENDENCIES` — the
+    version-drift hotspots UIs render prominently.
+    """
+    candidates = (_imported_distributions() | _ALWAYS_INCLUDE_DEPENDENCIES) - _AUTO_DROP_DEPENDENCIES
+    versions: dict[str, str] = {}
+    for name in sorted(candidates):
+        if (v := _get_package_version(name)) is not None:
+            versions[name] = v
+    primary = sorted(set(versions) & _PRIMARY_DEPENDENCIES)
+    return versions, primary
 
 
 def _to_github_url(remote_url: str, commit: str) -> str | None:
@@ -206,7 +337,25 @@ class AgentInfo(TypedBaseModel):
     framework_version: str = Field(description="cube-harness version at eval time.")
     dependency_versions: dict[str, str] = Field(
         default_factory=dict,
-        description="Installed versions of tracked packages (cube-harness, litellm, anthropic, openai, ...).",
+        description=(
+            "Installed versions of every distribution imported into the experiment's process "
+            "at eval time, minus a curated drop-list of behaviorally-inert plumbing. "
+            "Captured at ExperimentRecord build time (Experiment.save_config), which runs "
+            "BEFORE any episode — so distributions only imported lazily during run-time "
+            "(e.g. `import torch` inside a tool's execute()) won't be in sys.modules yet "
+            "and are silently missed. Cube authors who rely on lazy imports should either "
+            "promote them to module-level or add the distribution to "
+            "_ALWAYS_INCLUDE_DEPENDENCIES in cube_harness.eval_log. See _AUTO_DROP_DEPENDENCIES "
+            "+ _PRIMARY_DEPENDENCIES in the same module for the curated allow/deny lists."
+        ),
+    )
+    primary_dependencies: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Subset of dependency_versions whose version drift most directly affects scores "
+            "(LLM gateway + provider SDKs, tokenizers, env runtimes, schema validation). Surfaced "
+            "prominently by downstream UIs; the full set stays in dependency_versions."
+        ),
     )
     git_commit: str | None = Field(default=None, description="Git SHA-1 of the repo HEAD at eval time.")
     git_remote_url: str | None = Field(
@@ -225,7 +374,7 @@ class AgentInfo(TypedBaseModel):
         description=(
             "Git SHA-1 of the installed cube-standard (`cube`) package's repo HEAD. Populated only "
             "when cube-standard is an editable/source checkout (the common case while it tracks an "
-            "unreleased branch); None for a released wheel — use dependency_versions['cube'] then."
+            "unreleased branch); None for a released wheel — use dependency_versions['cube-standard'] then."
         ),
     )
     cube_standard_git_is_dirty: bool | None = Field(
@@ -262,13 +411,16 @@ class AgentInfo(TypedBaseModel):
         cube_standard_dir = str(Path(cube.__file__).resolve().parent)
         cube_standard_git_commit, _, cube_standard_git_is_dirty = _get_git_info(cwd=cube_standard_dir)
 
+        dependency_versions, primary_dependencies = _collect_dependency_versions()
+
         return cls(
             agent_id=agent_id,
             config_type=config_type,
             config=config_dict,
             llm_model=llm_model,
             framework_version=harness_version,
-            dependency_versions=_collect_dependency_versions(),
+            dependency_versions=dependency_versions,
+            primary_dependencies=primary_dependencies,
             git_commit=git_commit,
             git_remote_url=git_remote_url,
             git_is_dirty=git_is_dirty,
@@ -290,6 +442,15 @@ class BenchmarkSubset(TypedBaseModel):
     filter: str | None = Field(
         default=None,
         description="Glob expression if the subset was created via subset_from_glob.",
+    )
+    task_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Explicit task list when the subset was constructed via subset_from_list. "
+            "Hand-picked subsets without a natural name don't make good reproducibility "
+            "reference points — the journal-eligibility scan flags them as subset_review. "
+            "None when the subset was built from a filter or is the full benchmark."
+        ),
     )
 
     @classmethod
@@ -443,6 +604,16 @@ class ExperimentRecord(TypedBaseModel):
     benchmark_name: str = Field(description="Benchmark name from benchmark_metadata.name.")
     benchmark_version: str | None = Field(default=None, description="Benchmark version string.")
     benchmark_subset: BenchmarkSubset = Field(description="Subset descriptor for MNAR propensity correction.")
+    debug_limit: int | None = Field(
+        default=None,
+        description=(
+            "If set, the runner truncated the task list to the first N entries at run time. "
+            "Surfaced for downstream tooling — the reproducibility-journal scan script uses "
+            "this signal to flag debug runs as non-submittable without re-reading the full "
+            "ExperimentConfig. None means: no truncation was applied (or the recipe used a "
+            "code path that didn't propagate the value into the record)."
+        ),
+    )
     investigator_llm_config: InvestigatorLLMConfig | None = Field(
         default=None,
         description="Investigator configuration if a post-hoc LLM investigator was run on these episodes.",
@@ -456,6 +627,7 @@ class ExperimentRecord(TypedBaseModel):
         agent_config: Any,
         benchmark_config: BenchmarkConfig,
         git_cwd: str | None = None,
+        debug_limit: int | None = None,
     ) -> "ExperimentRecord":
         """Build ExperimentRecord from experiment parameters."""
         harness_version = _get_package_version("cube-harness") or "unknown"
@@ -473,6 +645,7 @@ class ExperimentRecord(TypedBaseModel):
             benchmark_name=bm_name,
             benchmark_version=bm_version,
             benchmark_subset=BenchmarkSubset.from_benchmark_config(benchmark_config),
+            debug_limit=debug_limit,
         )
 
     def write(self, output_dir: Path) -> None:
