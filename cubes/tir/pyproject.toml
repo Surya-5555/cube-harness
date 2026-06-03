@@ -1,0 +1,23 @@
+[project]
+name = "tir-cube"
+version = "0.1.0"
+description = "Multi-Turn Tool-Integrated Reasoning benchmark — solve arithmetic with one deterministic Python call and a LaTeX final answer"
+requires-python = ">=3.12"
+dependencies = [
+    "cube-standard",
+    "datasets>=4.8.4",
+    "sandbox-fusion",
+    "math-verify[antlr4_9_3]==0.8.0",
+]
+
+[project.entry-points."cube.benchmarks"]
+tir-cube = "tir_cube.benchmark:MathToolUseBenchmark"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+[tool.ruff]
+fix = true
+line-length = 120
+indent-width = 4
