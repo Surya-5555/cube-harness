@@ -105,4 +105,4 @@ markers = [
 where = ["src"]
 
 [tool.uv.sources]
-# cube-standard = { git = "https://github.com/YOUR_ORG/cube-standard.git", branch = "dev" }
+cube-standard = { git = "https://github.com/The-AI-Alliance/cube-standard.git", branch = "dev" }
