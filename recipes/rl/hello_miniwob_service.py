@@ -9,8 +9,6 @@
 # [tool.uv.sources]
 # cube-harness = { path = "../..", editable = true }
 # miniwob-cube = { path = "../../cubes/miniwob", editable = true }
-# cube-standard = { path = "../../../cube-standard" }
-# cube-browser-tool = { path = "../../../cube-standard/cube-tools/cube-browser-tool" }
 # ///
 """Async mock RL trainer consuming cube-harness rollout events over HTTP/SSE.
 

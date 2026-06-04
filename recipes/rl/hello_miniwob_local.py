@@ -8,8 +8,6 @@
 # [tool.uv.sources]
 # cube-harness = { path = "../..", editable = true }
 # miniwob-cube = { path = "../../cubes/miniwob", editable = true }
-# cube-standard = { path = "../../../cube-standard" }
-# cube-browser-tool = { path = "../../../cube-standard/cube-tools/cube-browser-tool" }
 # ///
 """Minimal local MiniWoB rollout smoke: no HTTP server, prints events as they arrive.
 

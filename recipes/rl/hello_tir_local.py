@@ -8,7 +8,6 @@
 # [tool.uv.sources]
 # cube-harness = { path = "../..", editable = true }
 # tir-cube = { path = "../../cubes/tir", editable = true }
-# cube-standard = { path = "../../../cube-standard" }
 # ///
 """Minimal local TIR rollout smoke: no HTTP server, prints events as they arrive.
 
