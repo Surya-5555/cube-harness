@@ -29,13 +29,13 @@ is a valid prefix of the next step, which starts the same way and appends one mo
 
 import json
 import logging
-import time
-from collections.abc import Generator
-from contextlib import contextmanager
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from cube_harness.streamer import EventStreamer
 
 from cube.benchmark import BenchmarkConfig
-from cube.core import Action, ActionSchema, Observation, ValidatedConfig
+from cube.core import Action, ActionSchema, Observation
 from cube.task import STOP_ACTION
 from litellm import Message
 from pydantic import Field
@@ -46,23 +46,6 @@ from cube_harness.core import AgentOutput
 from cube_harness.llm import LLM, LLMCall, LLMConfig, Prompt, get_reasoning
 
 logger = logging.getLogger(__name__)
-
-
-class Profiler:
-    """Records named wall-clock spans; call as a context manager to record each span."""
-
-    def __init__(self) -> None:
-        self._data: dict[str, tuple[float, float]] = {}
-
-    @contextmanager
-    def __call__(self, name: str) -> Generator[None, None, None]:
-        t_start = time.time()
-        yield
-        self._data[name] = (t_start, time.time())
-
-    @property
-    def data(self) -> dict[str, tuple[float, float]]:
-        return self._data
 
 
 # ---------------------------------------------------------------------------
@@ -141,54 +124,6 @@ def _truncate_message(msg: dict, max_chars: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Budget config
-# ---------------------------------------------------------------------------
-
-
-class BudgetConfig(ValidatedConfig):
-    """Episode budget limits and periodic status display.
-
-    Single entry point: check(cost, tokens, step) -> (status_msg | None, busted).
-    - busted=True when any configured limit is exceeded → caller should STOP.
-    - status_msg is a human-readable summary injected into the prompt every
-      display_every_k steps; None when it is not a display step or nothing is configured.
-
-    Format: "cumulative episode budget: 34/150 steps, 35% token usage."
-    Token usage % = max(cost/cost_limit, tokens/token_limit) across whichever limits are set.
-    """
-
-    max_actions: int | None = None
-    cost_limit: float | None = None
-    token_limit: int | None = None
-    display_every_k: int = 5
-
-    def check(self, cost: float, tokens: int, step: int) -> tuple[str | None, bool]:
-        """Return (status_message_or_None, is_over_budget)."""
-        busted = (
-            (self.max_actions is not None and step >= self.max_actions)
-            or (self.cost_limit is not None and cost >= self.cost_limit)
-            or (self.token_limit is not None and tokens >= self.token_limit)
-        )
-        if busted:
-            return None, True
-        msg: str | None = None
-        if step > 0 and step % self.display_every_k == 0:
-            parts: list[str] = []
-            if self.max_actions is not None:
-                parts.append(f"{step}/{self.max_actions} steps")
-            if self.cost_limit is not None or self.token_limit is not None:
-                pct = 0.0
-                if self.cost_limit is not None and self.cost_limit > 0:
-                    pct = max(pct, cost / self.cost_limit)
-                if self.token_limit is not None and self.token_limit > 0:
-                    pct = max(pct, tokens / self.token_limit)
-                parts.append(f"{pct * 100:.1f}% token usage")
-            if parts:
-                msg = "cumulative episode budget: " + ", ".join(parts) + "."
-        return msg, False
-
-
-# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
@@ -255,8 +190,13 @@ class GennyConfig(AgentConfig):
 
     # Misc
     max_obs_chars: int | None = None  # None = no truncation
-    # Episode budget: step/cost/token limits + periodic status display.
-    budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    # How often to inject the framework `Budget` summary into the prompt
+    # ("budget used: agent_steps 34/150 (23%), cost $1.20/$5.00 (24%), …").
+    # The actual limits live on `cube_harness.budget.Budget` constructed by
+    # Episode (max_agent_steps, max_cost_usd, max_prompt_tokens, …); Genny just
+    # decides when to display the summary so the LLM can plan against
+    # what's left. 0 disables injection entirely.
+    display_budget_every_k: int = 5
     # Retry budget when the model returns no tool calls. On each retry the empty response
     # and a correction user message are appended; if still no tool calls after all retries,
     # a STOP action is returned. 0 = no retry (preserves current behavior).
@@ -288,6 +228,20 @@ class GennyConfig(AgentConfig):
         )
 
     def make(self, action_set: list[ActionSchema] | None = None, task_id: str | None = None, **kwargs) -> "Genny":
+        # If the agent opted into parallel action dispatch, force the LLM to
+        # actually emit multiple tool calls per turn. Otherwise the agent's
+        # `_arun` body fans out over a one-element list — same wall-clock as
+        # sequential, no win. Caught by the agent-owns-loop reference
+        # baseline (gpt-5.4-mini on TerminalBench-2): parity with sequential
+        # because nothing flipped the flag. Force it here on the config
+        # that needs it, not the caller.
+        if self.parallel_actions and not self.llm_config.parallel_tool_calls:
+            logger.info(
+                "GennyConfig.parallel_actions=True: forcing llm_config.parallel_tool_calls=True "
+                "(was False — without it the LLM emits one tool call per turn and parallel "
+                "dispatch would be a no-op)."
+            )
+            self.llm_config = self.llm_config.model_copy(update={"parallel_tool_calls": True})
         return Genny(config=self, action_schemas=action_set or [], task_id=task_id)
 
 
@@ -317,7 +271,7 @@ class Genny(Agent):
     output_content_types: list[str] = ["application/json"]
 
     def __init__(self, config: GennyConfig, action_schemas: list[ActionSchema], task_id: str | None = None):
-        self.config = config
+        super().__init__(config)  # initialize self.config + self._recorder=None
         self.task_id = task_id
         if task_id is None and (config.task_hints or config.task_clarification):
             logger.debug(
@@ -346,42 +300,54 @@ class Genny(Agent):
         self.summary_actions: list[str] = []  # Mode B: action taken per step, separate message for cache stability
         self.history: list[list[dict | Message]] = []  # Mode A / flat: completed (obs, asst) pairs
         self._latest_obs: list[dict | Message] = []  # current step's obs, not yet in history
-        self._actions_cnt: int = 0
-        self._total_cost: float = 0.0
-        self._total_tokens: int = 0
         self._compacted_summary: str = ""  # injected into system message after compaction
 
+    def attach_recorder(self, recorder: "EventStreamer") -> None:
+        """Propagate the recorder to both held LLMs — act + summarize.
+        Each `.call()` auto-emits an LLMCallEvent.
+
+        Defensive `getattr` lookup: test/debug subclasses that skip
+        `Genny.__init__` (e.g. scripted no-LLM mocks for unit tests)
+        won't have `.llm` / `.summarize_llm` — silently skip the
+        propagation for those rather than crash on a missing attribute.
+        """
+        super().attach_recorder(recorder)
+        llm = getattr(self, "llm", None)
+        if llm is not None:
+            llm.attach_recorder(recorder)
+        summarize_llm = getattr(self, "summarize_llm", None)
+        if summarize_llm is not None:
+            summarize_llm.attach_recorder(recorder)
+
     def step(self, obs: Observation) -> AgentOutput:
-        budget_msg, busted = self.config.budget.check(self._total_cost, self._total_tokens, self._actions_cnt)
-        if busted:
-            logger.info(
-                "Budget limit reached (step=%d cost=$%.4f tokens=%d), issuing STOP.",
-                self._actions_cnt,
-                self._total_cost,
-                self._total_tokens,
-            )
+        # Soft-stop on budget. The framework Budget lives on
+        # `self._recorder.budget` — set by Episode's
+        # `agent.attach_recorder(...)` before run starts. Checking
+        # `exhausted` BEFORE work lets the agent emit STOP_ACTION
+        # cleanly rather than have MonitoredTool raise BudgetExceeded
+        # mid-call (which is the safety-net path for agents that
+        # don't self-check).
+        budget = self._recorder.budget if self._recorder is not None else None
+        if budget is not None and budget.exhausted:
+            logger.info("Budget limit reached (%s), issuing STOP.", budget)
             return AgentOutput(actions=[Action(name=STOP_ACTION.name, arguments={})])
 
-        profiler = Profiler()
+        # Budget summary for the LLM, every K turns. Empty when no caps
+        # are set or when `display_budget_every_k=0`.
+        budget_msg: str | None = None
+        every_k = self.config.display_budget_every_k
+        if budget is not None and every_k > 0 and budget.agent_steps > 0 and budget.agent_steps % every_k == 0:
+            budget_msg = str(budget)
 
-        with profiler("context"):
-            obs_messages = self._obs_to_messages(obs)
-            self._ingest_obs(obs_messages)
+        obs_messages = self._obs_to_messages(obs)
+        self._ingest_obs(obs_messages)
+        self._compact_history()
 
-        compact_call: LLMCall | None = None
-        with profiler("compact"):
-            compact_call = self._compact_history()
-
-        thoughts: str | None = None
-        sum_call: LLMCall | None = None
         if self.config.enable_summarize:
-            with profiler("summarize"):
-                summary, sum_call = self._summarize_past()
-            thoughts = summary
+            summary, _ = self._summarize_past()
             self.summaries.append(summary)
 
-        with profiler("act"):
-            response, act_calls = self._act(budget_msg)
+        response = self._act(budget_msg)
         actions = _decode_actions(response)
 
         # Format error exhaustion: _act() retried max_format_errors times but still no tool calls.
@@ -397,29 +363,11 @@ class Genny(Agent):
                     self.history.append(self._latest_obs)
                 self.history.append([response])
         else:
-            # Prefer the model's reasoning trace when available; otherwise fall back
-            # to the response content so non-reasoning agents still surface their
-            # inline ReAct thinking in the trajectory's `thoughts` panel.
-            thoughts = get_reasoning(response) or response.content or None
             if self._latest_obs:
                 self.history.append(self._latest_obs)
             self.history.append([response])
 
-        llm_calls: list[LLMCall] = (
-            act_calls
-            + ([sum_call] if sum_call is not None else [])
-            + ([compact_call] if compact_call is not None else [])
-        )
-        for call in llm_calls:
-            self._total_cost += call.usage.cost
-            self._total_tokens += call.usage.prompt_tokens + call.usage.completion_tokens
-        self._actions_cnt += 1
-        return AgentOutput(
-            actions=actions,
-            llm_calls=llm_calls,
-            profiling=profiler.data,
-            thoughts=thoughts or None,
-        )
+        return AgentOutput(actions=actions)
 
     def _obs_to_messages(self, obs: Observation) -> list[dict | Message]:
         messages = cast(list[dict | Message], obs.to_llm_messages())
@@ -495,15 +443,8 @@ class Genny(Agent):
         messages.extend(self._latest_obs)
         messages.append({"role": "user", "content": self.config.summarize_prompt})
         prompt = Prompt(messages=messages, tools=self._api_tools)
-        response = self.summarize_llm(prompt)
-        llm_call = LLMCall(
-            tag="summary",
-            llm_config=self._summarize_llm_config,
-            prompt=prompt,
-            output=response.message,
-            usage=response.usage,
-        )
-        return response.message.content or "", llm_call
+        llm_call = self.summarize_llm.call(prompt, tag="summary")
+        return llm_call.output.content or "", llm_call
 
     def _history_chars(self) -> int:
         """Estimate total chars in accumulated history (or summaries for Mode B)."""
@@ -548,15 +489,8 @@ class Genny(Agent):
             messages.extend(group)
         messages.append({"role": "user", "content": self.config.compact_prompt})
         prompt = Prompt(messages=messages, tools=[])
-        response = self.llm(prompt)
-        summary = response.message.content or get_reasoning(response.message) or ""
-        llm_call = LLMCall(
-            tag="compact",
-            llm_config=self.config.llm_config,
-            prompt=prompt,
-            output=response.message,
-            usage=response.usage,
-        )
+        llm_call = self.llm.call(prompt, tag="compact")
+        summary = llm_call.output.content or get_reasoning(llm_call.output) or ""
         self._compacted_summary = summary
         self.history = self.history[-keep:]
         logger.info(f"Flat history compacted: {len(self.history)} groups remain ({self._history_chars()} chars)")
@@ -575,51 +509,41 @@ class Genny(Agent):
             {"role": "user", "content": steps_text + "\n\n" + self.config.compact_prompt},
         ]
         prompt = Prompt(messages=messages, tools=[])
-        response = self.llm(prompt)
-        summary = response.message.content or get_reasoning(response.message) or ""
-        llm_call = LLMCall(
-            tag="compact",
-            llm_config=self.config.llm_config,
-            prompt=prompt,
-            output=response.message,
-            usage=response.usage,
-        )
+        llm_call = self.llm.call(prompt, tag="compact")
+        summary = llm_call.output.content or get_reasoning(llm_call.output) or ""
         self.summaries = [summary]
         self.summary_actions = []
         logger.info(f"Summaries compacted to 1 entry ({self._history_chars()} chars)")
         return llm_call
 
-    def _act(self, budget_msg: str | None = None) -> tuple[Message, list[LLMCall]]:
-        """Build context, encode tools, call act LLM; retry up to max_format_errors times on no tool calls."""
+    def _act(self, budget_msg: str | None = None) -> Message:
+        """Build context, encode tools, call act LLM; retry up to max_format_errors times on no tool calls.
+
+        Each `self.llm.call(...)` auto-emits an LLMCallEvent through the
+        attached recorder; this helper just returns the latest message
+        for action decoding.
+        """
         messages = self._choose_context(budget_msg)
         prompt = Prompt(messages=messages, tools=self._api_tools)
         logger.info(f"Act pass — estimated prompt tokens: {self.token_counter(messages=messages)}")
         try:
-            response = self.llm(prompt)
+            call = self.llm.call(prompt, tag="act")
         except Exception as e:
             logger.exception(colored(f"LLM error in act pass: {e}", "red"))
             raise
+        usage = call.usage
         logger.info(
-            f"LLM usage — prompt: {response.usage.prompt_tokens}, "
-            f"completion: {response.usage.completion_tokens}, cost: ${response.usage.cost:.4f}"
+            f"LLM usage — prompt: {usage.prompt_tokens}, completion: {usage.completion_tokens}, cost: ${usage.cost:.4f}"
         )
-        llm_calls = [
-            LLMCall(
-                tag="act",
-                llm_config=self.config.llm_config,
-                prompt=prompt,
-                output=response.message,
-                usage=response.usage,
-            )
-        ]
+        response_msg = call.output
         for attempt in range(self.config.max_format_errors):
-            if response.message.tool_calls:
+            if response_msg.tool_calls:
                 break
             logger.warning(
                 f"No tool calls in response (attempt {attempt + 1}/{self.config.max_format_errors}), retrying."
             )
             messages = list(messages) + [
-                response.message,
+                response_msg,
                 # auto-fix(448)↓
                 # A model that believes it is finished emits a no-tool-call (text)
                 # response. The old correction ("every response MUST include a tool
@@ -639,17 +563,9 @@ class Genny(Agent):
                 # /auto-fix(448)
             ]
             prompt = Prompt(messages=messages, tools=self._api_tools)
-            response = self.llm(prompt)
-            llm_calls.append(
-                LLMCall(
-                    tag="act",
-                    llm_config=self.config.llm_config,
-                    prompt=prompt,
-                    output=response.message,
-                    usage=response.usage,
-                )
-            )
-        return response.message, llm_calls
+            call = self.llm.call(prompt, tag="act")
+            response_msg = call.output
+        return response_msg
 
     def _choose_context(self, budget_msg: str | None = None) -> list[dict | Message]:
         """Build the act-pass prompt.

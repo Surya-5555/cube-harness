@@ -1,14 +1,18 @@
 """LLM interaction abstractions, LiteLLM based."""
 
 import pprint
+import time
 from datetime import datetime
 from functools import partial
-from typing import Any, Callable, List, Literal
+from typing import TYPE_CHECKING, Any, Callable, List, Literal
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from cube_harness.streamer import EventStreamer
 
 import litellm
 import tenacity
-from cube.core import TypedBaseModel, ValidatedConfig
+from cube.core import StepError, TypedBaseModel, ValidatedConfig
 from litellm import BadRequestError, Message, get_llm_provider
 from litellm.exceptions import (
     APIConnectionError,
@@ -104,6 +108,25 @@ class LLMConfig(ValidatedConfig):
     # model thinks on step 0 and nowhere else — usually wrong for agents.
     interleaved_thinking: bool = False
     tool_choice: Literal["auto", "none", "required"] | None = "auto"
+    # `parallel_tool_calls` controls TWO things together:
+    #   1. The provider-side flag passed to OpenAI/Anthropic, allowing
+    #      the model to emit multiple `tool_calls` in one assistant
+    #      message when it wants to.
+    #   2. The cube-harness dispatch contract: when True, the framework
+    #      (specifically `Genny[parallel_actions=True]._arun`) fans the emitted tool
+    #      calls out via `asyncio.gather` — they execute concurrently,
+    #      results are merged into the next obs.
+    #
+    # Tool-call safety contract: when this is True, the agent author
+    # implicitly trusts the model to know which tool calls are safe to
+    # parallelize. There is no per-tool `parallel_safe` declaration in
+    # cube-harness — the model is the decision-maker, and tool
+    # descriptions in the prompt are where parallelism semantics get
+    # communicated ("call this tool at most once per turn", etc.).
+    # Set this to False for any agent whose tool set has shared
+    # mutable state across calls (e.g. browser Page, terminal shell);
+    # the framework will then dispatch sequentially. Default is False
+    # — conservative.
     parallel_tool_calls: bool = False
     num_retries: int = 5
     retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry"
@@ -293,6 +316,60 @@ def _mark_last_tool_for_cache(tools: list[dict]) -> list[dict]:
 class LLM:
     def __init__(self, config: LLMConfig):
         self.config = config
+        # Optional recorder for auto-emit of LLMCallEvent. Set via
+        # `attach_recorder(recorder)` from the agent's `attach_recorder`
+        # override (Agent / Genny / etc). When unset, `LLM.call()` returns
+        # the LLMCall without emitting — useful for tests and for agents
+        # that hold an LLM but don't want its calls in the trajectory.
+        self._recorder: "EventStreamer | None" = None
+
+    def attach_recorder(self, recorder: "EventStreamer") -> None:
+        """Wire this LLM to a recorder so `.call()` auto-emits an
+        `LLMCallEvent` per API call. Idempotent — re-attaching to a new
+        recorder is safe (replaces the prior ref)."""
+        self._recorder = recorder
+
+    def call(self, prompt: Prompt, tag: str = "") -> "LLMCall":
+        """Invoke the LLM and return a complete `LLMCall` record.
+
+        Auto-emits an `LLMCallEvent` to the attached recorder (if any).
+        This is the canonical entry-point for agent code: one call,
+        one event, no manual recording at the call site.
+        """
+        start = time.time()
+        try:
+            response = self(prompt)
+        except Exception as e:
+            end = time.time()
+            # Emit an LLMCallEvent carrying the prompt + tag + error so
+            # the trajectory captures WHICH call failed (which prompt /
+            # tag / model). Re-raise after — Episode's outer except
+            # records the failure at the trajectory level too.
+            if self._recorder is not None:
+                error_call = LLMCall(
+                    tag=tag,
+                    llm_config=self.config,
+                    prompt=prompt,
+                    output=Message(content="", role="assistant"),
+                    usage=Usage(),
+                )
+                self._recorder.on_llm_call(
+                    error_call,
+                    profiling={"llm": (start, end)},
+                    error=StepError.from_exception(e),
+                )
+            raise
+        end = time.time()
+        call = LLMCall(
+            tag=tag,
+            llm_config=self.config,
+            prompt=prompt,
+            output=response.message,
+            usage=response.usage,
+        )
+        if self._recorder is not None:
+            self._recorder.on_llm_call(call, profiling={"llm": (start, end)})
+        return call
 
     def __call__(self, prompt: Prompt) -> LLMResponse:
         tools = prompt.tools

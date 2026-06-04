@@ -916,7 +916,13 @@ def get_chat_branches(step: EnvironmentOutput | AgentOutput | None) -> dict[str,
     """
     if not isinstance(step, AgentOutput):
         return {}
-    return {(call.tag or call.id): _render_llm_call_html(call) for call in step.llm_calls}
+    # `llm_calls` is gone from AgentOutput post-auto-recorder; falls back
+    # to [] for new trajectories. LLM call data now lives on
+    # LLMCallEvents in the trajectory's event stream — XRay will render
+    # it from there once the event-card view ships
+    # (agent-owns-loop-xray follow-up PR).
+    llm_calls = getattr(step, "llm_calls", None) or []
+    return {(call.tag or call.id): _render_llm_call_html(call) for call in llm_calls}
 
 
 def _truncate(text: str, max_len: int) -> str:
@@ -989,8 +995,13 @@ def _format_agent_step_details(step: AgentOutput, duration_info: str) -> str:
     """Format AgentOutput details as markdown."""
     sections = [f"## 🤖 Agent Output{duration_info}\n"]
 
-    if step.llm_calls:
-        llm_call = step.llm_calls[0]
+    # `llm_calls` / `thoughts` gone from AgentOutput post-auto-recorder.
+    # getattr keeps the legacy V1 read path rendering while new
+    # trajectories show empty token / rationale sections until XRay's
+    # event-card view ships (agent-owns-loop-xray follow-up).
+    llm_calls = getattr(step, "llm_calls", None) or []
+    if llm_calls:
+        llm_call = llm_calls[0]
         usage = llm_call.usage
         if usage and usage.prompt_tokens > 0:
             token_parts = [f"📊 **Tokens:** prompt: {usage.prompt_tokens:,}"]
@@ -1004,8 +1015,9 @@ def _format_agent_step_details(step: AgentOutput, duration_info: str) -> str:
                 token_parts.append(f"💰 **${usage.cost:.4f}**")
             sections.append(" │ ".join(token_parts) + "\n")
 
-    if step.thoughts:
-        sections.append(f"### Rationale\n{_truncate(step.thoughts, 150000)}\n")
+    thoughts = getattr(step, "thoughts", None)
+    if thoughts:
+        sections.append(f"### Rationale\n{_truncate(thoughts, 150000)}\n")
 
     if step.actions:
         sections.append("### Actions\n")
@@ -1015,8 +1027,8 @@ def _format_agent_step_details(step: AgentOutput, duration_info: str) -> str:
     else:
         sections.append("*No actions taken*\n")
 
-    if step.llm_calls:
-        llm_call = step.llm_calls[0]
+    if llm_calls:
+        llm_call = llm_calls[0]
         if llm_call.output:
             msg = llm_call.output
             content = getattr(msg, "content", None)
@@ -1321,7 +1333,13 @@ def _compute_token_stats_for_trajectory(traj: Trajectory) -> dict[str, int | flo
     }
     for traj_step in traj.steps:
         if isinstance(traj_step.output, AgentOutput):
-            for llm_call in traj_step.output.llm_calls:
+            # AgentOutput post-agent-owns-loop has no `llm_calls` field.
+            # New trajectories source token stats from LLMCallEvent in the
+            # event stream — already aggregated into `summary_stats` by
+            # `EventStreamer`. This walk is only hit on legacy V1 reads
+            # where llm_calls was bundled into AgentOutput.
+            llm_calls = getattr(traj_step.output, "llm_calls", None) or []
+            for llm_call in llm_calls:
                 if llm_call.usage:
                     stats["prompt"] = int(stats["prompt"]) + llm_call.usage.prompt_tokens
                     stats["completion"] = int(stats["completion"]) + llm_call.usage.completion_tokens
@@ -1351,7 +1369,10 @@ def compute_trajectory_stats(traj: Trajectory) -> dict[str, Any]:
         elif isinstance(traj_step.output, AgentOutput):
             n_agent_steps += 1
             total_actions += len(traj_step.output.actions)
-            total_llm_calls += len(traj_step.output.llm_calls)
+            # AgentOutput.llm_calls is gone post-agent-owns-loop; fall
+            # back to 0 (new trajectories carry token stats in
+            # `summary_stats` already, via EventStreamer).
+            total_llm_calls += len(getattr(traj_step.output, "llm_calls", None) or [])
 
     duration = None
     if traj.start_time is not None and traj.end_time is not None:

@@ -116,20 +116,20 @@ def _check(label: str, exp: Experiment, result: ExpResult) -> int:
     if len(result.trajectories) != N_TASKS:
         return _fail(f"[{label}] expected {N_TASKS} trajectories, got {len(result.trajectories)}")
 
-    for traj_id, traj in result.trajectories.items():
-        # 1. Returned trajectory is step-less but summarised (nothing accumulated in RAM).
-        if traj.steps:
-            return _fail(f"[{label}] {traj_id}: returned trajectory still holds {len(traj.steps)} steps in RAM")
-        if not traj.summary_stats:
-            return _fail(f"[{label}] {traj_id}: summary_stats missing on returned trajectory")
-        if (traj.reward_info or {}).get("reward") != 1.0:
-            return _fail(f"[{label}] {traj_id}: reward_info missing/wrong: {traj.reward_info}")
+    for traj_id, view in result.trajectories.items():
+        # 1. Returned TrajectoryView holds no decoded events in RAM (cache empty).
+        if view._cache:
+            return _fail(f"[{label}] {traj_id}: returned view cache pre-populated with {len(view._cache)} events")
+        if not view.summary_stats:
+            return _fail(f"[{label}] {traj_id}: summary_stats missing on returned view")
+        if (view.reward_info or {}).get("reward") != 1.0:
+            return _fail(f"[{label}] {traj_id}: reward_info missing/wrong: {view.reward_info}")
 
-        # 2. Steps are fully persisted and reload from disk.
-        loaded = storage.load_trajectory(traj_id)
-        if len(loaded.steps) < 2:
-            return _fail(f"[{label}] {traj_id}: expected >=2 persisted steps, got {len(loaded.steps)}")
-        if loaded.summary_stats != traj.summary_stats:
+        # 2. Events are fully persisted and reload from disk.
+        reopened = storage.load_episode(traj_id)
+        if len(reopened) < 2:
+            return _fail(f"[{label}] {traj_id}: expected >=2 persisted events, got {len(reopened)}")
+        if reopened.summary_stats != view.summary_stats:
             return _fail(f"[{label}] {traj_id}: summary_stats changed across disk round-trip")
 
     # 3. Stats + eval-log export work off summary_stats (would raise/return 0 if broken).
@@ -137,7 +137,9 @@ def _check(label: str, exp: Experiment, result: ExpResult) -> int:
     eval_log = exp.export_eval_log()
     if len(eval_log.episodes) != N_TASKS:
         return _fail(f"[{label}] eval-log has {len(eval_log.episodes)} episodes, expected {N_TASKS}")
-    if not all(ep.num_turns >= 2 and ep.score == 1.0 for ep in eval_log.episodes):
+    # The MockAgent has no LLM, so `n_agent_steps` (= LLMCallEvent count) is 0.
+    # Each task fires 1 env step via the synthetic ToolCallEvent — num_turns counts that.
+    if not all(ep.num_turns >= 1 and ep.score == 1.0 for ep in eval_log.episodes):
         return _fail(f"[{label}] eval-log records have wrong num_turns/score (not derived from summary_stats)")
 
     print(f"  ✓ [{label}] {N_TASKS} step-less returns; steps + summary on disk; eval-log derived from summary")

@@ -75,6 +75,12 @@ class Experiment(TypedBaseModel):
     infra: SerializeAsAny[InfraConfig] | None = None
     resume: bool = False
     max_steps: int = MAX_STEPS
+    # Per-episode dollar cap on cumulative LLM cost. None = no cap.
+    # Episode threads this into `Budget.max_cost_usd`; EventStreamer bumps
+    # `Budget.cost_usd` from `LLMCall.usage.cost`; `MonitoredTool` raises
+    # `BudgetExceeded` when the agent runs over. Agents (e.g. Genny) also
+    # read it via `recorder.budget` for graceful self-stop.
+    max_cost_usd: float | None = None
     max_retries: int = 3
     git_cwd: str | None = None
     debug_limit: int | None = None
@@ -195,6 +201,7 @@ class Experiment(TypedBaseModel):
                 task_config=tc,
                 exp_name=self.name,
                 max_steps=self.max_steps,
+                max_cost_usd=self.max_cost_usd,
                 runtime_context=runtime_context,
                 storage=None,
             )

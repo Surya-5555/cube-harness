@@ -5,20 +5,27 @@ state manipulation directly. LLM-touching paths (_summarize_past, _act_pass,
 step) use MagicMock so the test suite stays fast.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 from cube.benchmark import BenchmarkClarifications
 from cube.core import Action, ActionSchema, Observation
 
 from cube_harness.agents.genny import (
-    BudgetConfig,
     Genny,
     GennyConfig,
     _format_action_list,
     _truncate_message,
 )
-from cube_harness.llm import LLMConfig, LLMResponse, Usage
+from cube_harness.llm import LLMCall, LLMConfig, LLMResponse, Prompt, Usage
+from cube_harness.streamer import EventStreamer
+from cube_harness.tool import Budget
+
+
+def _attach_recorder(agent: Genny, budget: Budget | None = None) -> None:
+    """Mimic what the base `Agent.run` does on entry — stash a
+    EventStreamer (with a Budget) on the agent so step()'s budget
+    checks have something to read."""
+    agent._recorder = EventStreamer(trajectory_id="t", budget=budget or Budget(max_agent_steps=100))
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,10 +49,12 @@ def _make_schema(name: str = "click", description: str = "Click an element.") ->
 
 def _make_agent(
     enable_summarize: bool = False,
+    display_budget_every_k: int = 5,
 ) -> Genny:
     config = GennyConfig(
         llm_config=LLMConfig(model_name="test"),
         enable_summarize=enable_summarize,
+        display_budget_every_k=display_budget_every_k,
     )
     return Genny(config=config, action_schemas=[_make_schema()])
 
@@ -279,24 +288,25 @@ class TestChooseContext:
         assert messages[-1]["content"] == agent.config.act_prompt
 
     def test_budget_status_in_final_prompt_at_display_step(self) -> None:
-        budget = BudgetConfig(max_actions=50, display_every_k=5)
-        agent = _make_agent()
-        agent.config = agent.config.model_copy(update={"budget": budget})
+        """When step() is at a display tick (turns % display_budget_every_k
+        == 0), the framework `Budget` summary string injects into the
+        final user prompt so the LLM can plan against what's left."""
+        agent = _make_agent(display_budget_every_k=5)
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        msg, _ = budget.check(0.0, 0, 5)  # step=5 is first display step
-        messages = agent._choose_context(msg)
-        assert "cumulative episode budget: 5/50 steps" in messages[-1]["content"]
+        # Mimic Genny.step()'s message construction at the display tick
+        # (agent_steps=5, max_agent_steps=50).
+        budget = Budget(max_agent_steps=50, agent_steps=5)
+        messages = agent._choose_context(str(budget))
+        assert "budget used: agent_steps 5/50" in messages[-1]["content"]
 
     def test_budget_status_absent_between_display_steps(self) -> None:
-        budget = BudgetConfig(max_actions=50, display_every_k=5)
-        agent = _make_agent()
-        agent.config = agent.config.model_copy(update={"budget": budget})
+        """No message means no injection — Genny just doesn't pass one."""
+        agent = _make_agent(display_budget_every_k=5)
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        msg, _ = budget.check(0.0, 0, 3)  # step=3 is not a display step
-        messages = agent._choose_context(msg)
-        assert "cumulative episode budget" not in messages[-1]["content"]
+        messages = agent._choose_context(None)  # step=3 between display ticks
+        assert "budget used" not in messages[-1]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +321,74 @@ def _mock_llm_response(text: str = "summary text") -> LLMResponse:
         message=LitellmMessage(role="assistant", content=text),
         usage=Usage(prompt_tokens=10, completion_tokens=5),
     )
+
+
+class _FakeLLM:
+    """Drop-in for `LLM` covering both surfaces Genny might invoke:
+    `__call__(prompt) -> LLMResponse` (legacy) and
+    `.call(prompt, tag) -> LLMCall` (auto-recorder path).
+
+    Post-auto-recorder, Genny uses `.call()`; the mocked response is
+    wrapped into an LLMCall so the existing test scaffolding (which
+    fed `LLMResponse` instances) keeps working.
+    """
+
+    def __init__(self, response: LLMResponse | list[LLMResponse]) -> None:
+        from cube_harness.llm import LLMConfig
+
+        # Accept either a single response (reused for every call) or a
+        # list (queue; mimics _FakeLLM([...])).
+        if isinstance(response, list):
+            self._queue: list[LLMResponse] = list(response)
+            self._default = None
+        else:
+            self._queue = []
+            self._default = response
+        self.config = LLMConfig(model_name="mock-model")
+        self.return_value = response
+        self.call_count = 0
+        self.call_args_list: list[tuple[tuple, dict]] = []
+
+    def _next_response(self) -> LLMResponse:
+        if self._queue:
+            return self._queue.pop(0)
+        assert self._default is not None, "no more queued responses + no default"
+        return self._default
+
+    def __call__(self, prompt: Prompt) -> LLMResponse:  # noqa: D401
+        self.call_count += 1
+        self.call_args_list.append(((prompt,), {}))
+        return self._next_response()
+
+    def attach_recorder(self, recorder: object) -> None:
+        _ = recorder
+
+    def call(self, prompt: Prompt, tag: str = "") -> "LLMCall":
+        from cube_harness.llm import LLMCall
+
+        self.call_count += 1
+        self.call_args_list.append(((prompt,), {"tag": tag}))
+        response = self._next_response()
+        return LLMCall(
+            tag=tag,
+            llm_config=self.config,
+            prompt=prompt,
+            output=response.message,
+            usage=response.usage,
+        )
+
+    # --- MagicMock-mimicking introspection (tests assert against these) ---
+
+    @property
+    def call_args(self) -> tuple | None:
+        """Last invocation's (args, kwargs) — MagicMock-compatible."""
+        return self.call_args_list[-1] if self.call_args_list else None
+
+    def assert_called_once(self) -> None:
+        assert self.call_count == 1, f"expected 1 call, got {self.call_count}"
+
+    def assert_called(self) -> None:
+        assert self.call_count >= 1, f"expected ≥1 call, got {self.call_count}"
 
 
 class TestFormatActionList:
@@ -333,7 +411,7 @@ class TestSummarizePast:
         agent = _make_agent(enable_summarize=True)
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response("my summary"))
+        agent.summarize_llm = _FakeLLM(_mock_llm_response("my summary"))
         summary, _ = agent._summarize_past()
         assert summary == "my summary"
 
@@ -341,7 +419,7 @@ class TestSummarizePast:
         agent = _make_agent(enable_summarize=True)
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "the current screenshot"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response())
+        agent.summarize_llm = _FakeLLM(_mock_llm_response())
         agent._summarize_past()
         prompt = agent.summarize_llm.call_args[0][0]
         contents = [m.get("content", "") for m in prompt.messages if isinstance(m, dict)]
@@ -354,7 +432,7 @@ class TestSummarizePast:
         agent.summaries = ["step one cot", "step two cot"]
         agent.summary_actions = ["action_1", "action_2"]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response())
+        agent.summarize_llm = _FakeLLM(_mock_llm_response())
         agent._summarize_past()
         prompt = agent.summarize_llm.call_args[0][0]
         asst_msgs = [m for m in prompt.messages if isinstance(m, dict) and m.get("role") == "assistant"]
@@ -369,7 +447,7 @@ class TestSummarizePast:
         agent.summaries = ["s1"]
         agent.summary_actions = ["a1"]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response("new summary"))
+        agent.summarize_llm = _FakeLLM(_mock_llm_response("new summary"))
         agent._summarize_past()
         sum_prompt = agent.summarize_llm.call_args[0][0]
 
@@ -389,7 +467,7 @@ class TestSummarizePast:
         agent = Genny(config=config, action_schemas=[_make_schema()])
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response())
+        agent.summarize_llm = _FakeLLM(_mock_llm_response())
         agent._summarize_past()
         prompt = agent.summarize_llm.call_args[0][0]
         assert prompt.messages[-1]["content"] == "My custom summarize instruction."
@@ -398,7 +476,7 @@ class TestSummarizePast:
         agent = _make_agent(enable_summarize=True)
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response())
+        agent.summarize_llm = _FakeLLM(_mock_llm_response())
         agent._summarize_past()
         prompt = agent.summarize_llm.call_args[0][0]
         assert isinstance(prompt.messages[0], dict)
@@ -408,7 +486,7 @@ class TestSummarizePast:
         agent = _make_agent(enable_summarize=True)
         agent.goal = [{"role": "user", "content": "goal"}]
         agent._latest_obs = [{"role": "user", "content": "obs"}]
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response())
+        agent.summarize_llm = _FakeLLM(_mock_llm_response())
         agent._summarize_past()
         prompt = agent.summarize_llm.call_args[0][0]
         assert len(prompt.tools) > 0
@@ -422,8 +500,8 @@ class TestSummarizePast:
 class TestStep:
     def test_step_records_summary_and_action_separately(self) -> None:
         agent = _make_agent(enable_summarize=True)
-        agent.llm = MagicMock(return_value=_mock_llm_response("action"))
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response("step summary"))
+        agent.llm = _FakeLLM(_mock_llm_response("action"))
+        agent.summarize_llm = _FakeLLM(_mock_llm_response("step summary"))
         obs = Observation.from_text("goal text")
         agent.step(obs)
         # Summary stays pure (no action appended) — cache stability.
@@ -436,7 +514,7 @@ class TestStep:
     def test_mode_a_commits_obs_and_asst_to_history(self) -> None:
         """Mode A: after step(), completed (obs, asst) pair is in self.history."""
         agent = _make_agent(enable_summarize=False)
-        agent.llm = MagicMock(return_value=_mock_llm_response("I think therefore I act"))
+        agent.llm = _FakeLLM(_mock_llm_response("I think therefore I act"))
         obs = Observation.from_text("goal text")
         agent.step(obs)
         # history: initial obs (from step 0 extra messages or none) + asst
@@ -447,7 +525,7 @@ class TestStep:
     def test_mode_a_second_step_obs_in_history(self) -> None:
         """Mode A: after step 2, step 1's obs and asst are both in history."""
         agent = _make_agent(enable_summarize=False)
-        agent.llm = MagicMock(return_value=_mock_llm_response("response"))
+        agent.llm = _FakeLLM(_mock_llm_response("response"))
         obs1 = Observation.from_text("goal text")
         agent.step(obs1)
         obs2 = Observation.from_text("second obs")
@@ -461,36 +539,43 @@ class TestStep:
         all_contents = [_content(m) for group in agent.history for m in group]
         assert any("response" in c for c in all_contents)
 
-    def test_step_increments_action_count(self) -> None:
+    def test_step_issues_stop_action_when_budget_exhausted(self) -> None:
+        """Genny self-stops gracefully (emits STOP_ACTION) when the
+        framework Budget reports `exhausted=True`. This is the soft-stop
+        path; MonitoredTool's hard `BudgetExceeded` is the safety net."""
         agent = _make_agent()
-        agent.llm = MagicMock(return_value=_mock_llm_response())
-        agent.step(Observation.from_text("goal"))
-        assert agent._actions_cnt == 1
-
-    def test_step_issues_stop_action_when_limit_reached(self) -> None:
-        agent = _make_agent()
-        agent.config = agent.config.model_copy(update={"budget": BudgetConfig(max_actions=0)})
+        # Budget with max_agent_steps=0 is born exhausted.
+        _attach_recorder(agent, Budget(max_agent_steps=0))
         result = agent.step(Observation.from_text("obs"))
         assert len(result.actions) == 1
         assert result.actions[0].name == "final_step"
 
+    @pytest.mark.skip(
+        reason="Tests AgentOutput.thoughts — gone (auto-recorder collapse). "
+        "Agent-side prose / chain-of-thought is now on LLMCallEvent.call.output."
+    )
     def test_thoughts_is_summary_when_summarize_enabled(self) -> None:
         agent = _make_agent(enable_summarize=True)
-        agent.llm = MagicMock(return_value=_mock_llm_response("act text"))
-        agent.summarize_llm = MagicMock(return_value=_mock_llm_response("my cot reasoning"))
+        agent.llm = _FakeLLM(_mock_llm_response("act text"))
+        agent.summarize_llm = _FakeLLM(_mock_llm_response("my cot reasoning"))
         result = agent.step(Observation.from_text("goal text"))
         assert result.thoughts == "my cot reasoning"
         assert "Action:" not in result.thoughts
 
+    @pytest.mark.skip(
+        reason="Tests AgentOutput.thoughts — gone (auto-recorder collapse). "
+        "Agent-side prose / chain-of-thought is now on LLMCallEvent.call.output."
+    )
     def test_thoughts_is_inline_content_when_summarize_disabled(self) -> None:
         agent = _make_agent(enable_summarize=False)
-        agent.llm = MagicMock(return_value=_mock_llm_response("I think therefore I act"))
+        agent.llm = _FakeLLM(_mock_llm_response("I think therefore I act"))
         result = agent.step(Observation.from_text("goal text"))
         assert result.thoughts == "I think therefore I act"
 
+    @pytest.mark.skip(reason="Tests AgentOutput.thoughts — gone (auto-recorder collapse).")
     def test_thoughts_is_none_when_no_content(self) -> None:
         agent = _make_agent(enable_summarize=False)
-        agent.llm = MagicMock(return_value=_mock_llm_response(""))
+        agent.llm = _FakeLLM(_mock_llm_response(""))
         result = agent.step(Observation.from_text("goal text"))
         assert result.thoughts is None
 
@@ -654,7 +739,7 @@ class TestFlatHistory:
     def test_flat_mode_commits_obs_and_asst_to_history(self) -> None:
         """flat_history=True: each step commits obs+asst to history for flat base prompt."""
         agent = _make_flat_agent()
-        agent.llm = MagicMock(return_value=_mock_llm_response("action taken"))
+        agent.llm = _FakeLLM(_mock_llm_response("action taken"))
         agent.step(Observation.from_text("initial task"))
         agent.step(Observation.from_text("tool result"))
         # After step 2, history should contain rounds from step 1
@@ -663,7 +748,7 @@ class TestFlatHistory:
     def test_flat_mode_step2_base_prompt_includes_step1_history(self) -> None:
         """After step 1, step 2's base prompt includes step 1's completed round."""
         agent = _make_flat_agent()
-        agent.llm = MagicMock(return_value=_mock_llm_response("step1 response"))
+        agent.llm = _FakeLLM(_mock_llm_response("step1 response"))
         agent.step(Observation.from_text("initial task"))
         agent.step(Observation.from_text("tool result"))
         messages = agent._build_base_prompt()
@@ -677,202 +762,13 @@ class TestFlatHistory:
         assert any("step1 response" in c for c in all_contents)
 
 
-# ---------------------------------------------------------------------------
-# BudgetConfig.check
-# ---------------------------------------------------------------------------
-
-
-class TestBudgetConfig:
-    # --- busted cases ---
-
-    def test_busted_max_actions_at_limit(self) -> None:
-        b = BudgetConfig(max_actions=10)
-        _, busted = b.check(0.0, 0, 10)
-        assert busted
-
-    def test_busted_max_actions_over_limit(self) -> None:
-        b = BudgetConfig(max_actions=10)
-        _, busted = b.check(0.0, 0, 11)
-        assert busted
-
-    def test_not_busted_max_actions_below_limit(self) -> None:
-        b = BudgetConfig(max_actions=10)
-        _, busted = b.check(0.0, 0, 9)
-        assert not busted
-
-    def test_busted_cost_limit(self) -> None:
-        b = BudgetConfig(cost_limit=1.0)
-        _, busted = b.check(1.0, 0, 3)
-        assert busted
-
-    def test_busted_token_limit(self) -> None:
-        b = BudgetConfig(token_limit=1000)
-        _, busted = b.check(0.0, 1000, 3)
-        assert busted
-
-    def test_busted_returns_no_msg(self) -> None:
-        b = BudgetConfig(cost_limit=1.0)
-        msg, busted = b.check(2.0, 0, 5)
-        assert busted
-        assert msg is None
-
-    def test_no_limits_never_busted(self) -> None:
-        b = BudgetConfig()
-        _, busted = b.check(999.0, 999_999, 999)
-        assert not busted
-
-    # --- status message cases ---
-
-    def test_no_msg_at_step_zero(self) -> None:
-        b = BudgetConfig(max_actions=50, display_every_k=5)
-        msg, _ = b.check(0.0, 0, 0)
-        assert msg is None
-
-    def test_no_msg_between_display_steps(self) -> None:
-        b = BudgetConfig(max_actions=50, display_every_k=5)
-        msg, _ = b.check(0.0, 0, 3)
-        assert msg is None
-
-    def test_msg_at_display_step(self) -> None:
-        b = BudgetConfig(max_actions=50, display_every_k=5)
-        msg, _ = b.check(0.0, 0, 5)
-        assert msg == "cumulative episode budget: 5/50 steps."
-
-    def test_msg_at_subsequent_display_step(self) -> None:
-        b = BudgetConfig(max_actions=50, display_every_k=5)
-        msg, _ = b.check(0.0, 0, 10)
-        assert msg == "cumulative episode budget: 10/50 steps."
-
-    def test_msg_cost_usage_percentage(self) -> None:
-        b = BudgetConfig(cost_limit=4.0, display_every_k=5)
-        msg, _ = b.check(1.0, 0, 5)  # 25%
-        assert msg == "cumulative episode budget: 25.0% token usage."
-
-    def test_msg_token_usage_percentage(self) -> None:
-        b = BudgetConfig(token_limit=1000, display_every_k=5)
-        msg, _ = b.check(0.0, 500, 5)  # 50%
-        assert msg == "cumulative episode budget: 50.0% token usage."
-
-    def test_msg_uses_max_of_cost_and_token_pct(self) -> None:
-        b = BudgetConfig(cost_limit=4.0, token_limit=1000, display_every_k=5)
-        # cost 10%, tokens 50% → should report 50%
-        msg, _ = b.check(0.4, 500, 5)
-        assert msg == "cumulative episode budget: 50.0% token usage."
-
-    def test_msg_steps_and_usage_combined(self) -> None:
-        b = BudgetConfig(max_actions=100, cost_limit=2.0, display_every_k=5)
-        msg, _ = b.check(1.0, 0, 10)  # 50% cost
-        assert msg == "cumulative episode budget: 10/100 steps, 50.0% token usage."
-
-    def test_no_msg_when_no_limits_configured(self) -> None:
-        b = BudgetConfig(display_every_k=5)
-        msg, _ = b.check(0.0, 0, 5)
-        assert msg is None
-
-    def test_display_every_k_respected(self) -> None:
-        b = BudgetConfig(max_actions=100, display_every_k=3)
-        msg3, _ = b.check(0.0, 0, 3)
-        msg4, _ = b.check(0.0, 0, 4)
-        msg6, _ = b.check(0.0, 0, 6)
-        assert msg3 is not None
-        assert msg4 is None
-        assert msg6 is not None
-
-
-# ---------------------------------------------------------------------------
-# cost_limit
-# ---------------------------------------------------------------------------
-
-
-def _mock_llm_response_with_cost(cost: float, text: str = "response") -> LLMResponse:
-    from litellm import Message as LitellmMessage
-
-    return LLMResponse(
-        message=LitellmMessage(role="assistant", content=text),
-        usage=Usage(prompt_tokens=10, completion_tokens=5, cost=cost),
-    )
-
-
-class TestCostLimit:
-    def test_no_stop_when_below_limit(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(cost_limit=1.0))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_cost(0.10))
-        agent.step(Observation.from_text("task"))
-        # LLM was called (not short-circuited by cost limit)
-        agent.llm.assert_called_once()
-
-    def test_stop_when_limit_reached(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(cost_limit=0.05))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_cost(0.10))
-        agent.step(Observation.from_text("task"))  # spends $0.10, exceeds limit
-        result = agent.step(Observation.from_text("task2"))
-        assert result.actions[0].name == "final_step"
-
-    def test_no_limit_when_cost_limit_none(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(cost_limit=None))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent._total_cost = 999.0
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_cost(0.0))
-        agent.step(Observation.from_text("task"))
-        # LLM was called despite enormous accumulated cost because cost_limit=None
-        agent.llm.assert_called_once()
-
-    def test_total_cost_accumulates(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(cost_limit=10.0))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_cost(0.50))
-        agent.step(Observation.from_text("t1"))
-        agent.step(Observation.from_text("t2"))
-        assert agent._total_cost == pytest.approx(1.0)
-
-
-# ---------------------------------------------------------------------------
-# token_limit
-# ---------------------------------------------------------------------------
-
-
-def _mock_llm_response_with_tokens(prompt_tokens: int, completion_tokens: int, text: str = "response") -> LLMResponse:
-    from litellm import Message as LitellmMessage
-
-    return LLMResponse(
-        message=LitellmMessage(role="assistant", content=text),
-        usage=Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),
-    )
-
-
-class TestTokenLimit:
-    def test_no_stop_when_below_limit(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(token_limit=1000))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_tokens(10, 5))
-        agent.step(Observation.from_text("task"))
-        agent.llm.assert_called_once()
-
-    def test_stop_when_limit_reached(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(token_limit=10))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_tokens(8, 5))
-        agent.step(Observation.from_text("task"))  # uses 13 tokens, exceeds limit
-        result = agent.step(Observation.from_text("task2"))
-        assert result.actions[0].name == "final_step"
-
-    def test_no_limit_when_token_limit_none(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(token_limit=None))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent._total_tokens = 999_999
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_tokens(0, 0))
-        agent.step(Observation.from_text("task"))
-        agent.llm.assert_called_once()
-
-    def test_total_tokens_accumulates(self) -> None:
-        config = GennyConfig(llm_config=LLMConfig(model_name="test"), budget=BudgetConfig(token_limit=10_000))
-        agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_tokens(100, 50))
-        agent.step(Observation.from_text("t1"))
-        agent.step(Observation.from_text("t2"))
-        assert agent._total_tokens == 300
+# BudgetConfig.check / TestCostLimit / TestTokenLimit deleted:
+# - BudgetConfig is gone — caps live on the framework `cube_harness.tool.Budget`
+#   constructed by Episode from `Experiment.max_steps` / `Experiment.max_cost_usd`.
+# - Cost & token tracking lives in `EventStreamer.on_llm_call` (bumps
+#   `Budget.bump_llm_usage` per LLM call from `LLMCall.usage`).
+# - Genny's soft-stop via `streamer.budget.exhausted` is covered by
+#   `test_step_issues_stop_action_when_budget_exhausted` above.
 
 
 # ---------------------------------------------------------------------------
@@ -900,7 +796,7 @@ class TestMaxFormatErrors:
         """max_format_errors=0: no retry, empty actions list returned."""
         config = GennyConfig(llm_config=LLMConfig(model_name="test"), max_format_errors=0)
         agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response("no tool calls"))
+        agent.llm = _FakeLLM(_mock_llm_response("no tool calls"))
         result = agent.step(Observation.from_text("task"))
         agent.llm.assert_called_once()
         assert result.actions == []
@@ -912,7 +808,7 @@ class TestMaxFormatErrors:
         no_tool_resp = _mock_llm_response("no tool calls")
         tool_resp = _mock_response_with_tool_call()
         # First call: no tool calls. Second call: has tool call.
-        agent.llm = MagicMock(side_effect=[no_tool_resp, tool_resp])
+        agent.llm = _FakeLLM([no_tool_resp, tool_resp])
         result = agent.step(Observation.from_text("task"))
         assert agent.llm.call_count == 2
         assert len(result.actions) == 1
@@ -921,7 +817,7 @@ class TestMaxFormatErrors:
         """When all retries fail, STOP action is returned."""
         config = GennyConfig(llm_config=LLMConfig(model_name="test"), max_format_errors=2)
         agent = Genny(config=config, action_schemas=[_make_schema()])
-        agent.llm = MagicMock(return_value=_mock_llm_response("no tool calls"))
+        agent.llm = _FakeLLM(_mock_llm_response("no tool calls"))
         result = agent.step(Observation.from_text("task"))
         assert agent.llm.call_count == 3  # initial + 2 retries
         assert result.actions[0].name == "final_step"
@@ -932,7 +828,7 @@ class TestMaxFormatErrors:
         agent = Genny(config=config, action_schemas=[_make_schema()])
         no_tool_resp = _mock_llm_response("no tool calls")
         tool_resp = _mock_response_with_tool_call()
-        agent.llm = MagicMock(side_effect=[no_tool_resp, tool_resp])
+        agent.llm = _FakeLLM([no_tool_resp, tool_resp])
         agent.step(Observation.from_text("task"))
         # agent.llm is called as agent.llm(prompt) so args[0] is the Prompt
         second_prompt = agent.llm.call_args_list[1][0][0]
@@ -971,7 +867,7 @@ class TestCompaction:
 
     def test_compact_flat_history_trims_to_tail_and_sets_summary(self) -> None:
         agent = _make_compact_agent(threshold=1)
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_content("compact summary"))
+        agent.llm = _FakeLLM(_mock_llm_response_with_content("compact summary"))
         _simulate_completed_rounds(agent, 5)
 
         result = agent._compact_flat_history()
@@ -982,7 +878,7 @@ class TestCompaction:
 
     def test_compact_flat_history_calls_llm_with_no_tools(self) -> None:
         agent = _make_compact_agent(threshold=1)
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_content("summary"))
+        agent.llm = _FakeLLM(_mock_llm_response_with_content("summary"))
         _simulate_completed_rounds(agent, 4)
 
         agent._compact_flat_history()
@@ -999,7 +895,7 @@ class TestCompaction:
             ),
             action_schemas=[_make_schema()],
         )
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_content("consolidated"))
+        agent.llm = _FakeLLM(_mock_llm_response_with_content("consolidated"))
         agent.summaries = ["s1", "s2", "s3"]
         agent.summary_actions = ["a1", "a2", "a3"]
 
@@ -1012,7 +908,7 @@ class TestCompaction:
     def test_compact_history_injects_summary_into_system_message(self) -> None:
         agent = _make_compact_agent(threshold=1)
         agent.goal = [{"role": "user", "content": "task goal"}]
-        agent.llm = MagicMock(return_value=_mock_llm_response_with_content("old work summary"))
+        agent.llm = _FakeLLM(_mock_llm_response_with_content("old work summary"))
         _simulate_completed_rounds(agent, 4)
 
         agent._compact_flat_history()

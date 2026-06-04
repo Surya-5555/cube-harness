@@ -1,43 +1,27 @@
-import time
-from enum import StrEnum
-from pathlib import Path
-from typing import TYPE_CHECKING
+"""Experiment-level summary model.
 
-from cube.core import EnvironmentOutput
+Per-episode stats live inside `EventStreamer` (folded incrementally as
+events flow through) and are persisted on `TrajectoryMetadata.summary_stats`.
+
+This module is what remains after the SummaryProcessor + per-event jsonl
+were collapsed into the streamer. It carries one model:
+
+- `ExperimentSummary` — the per-experiment rollup (counts, totals, avg
+  reward). Written by `FileStorage.update_experiment_summary` and read
+  by XRay's experiment table.
+"""
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
-
-from cube_harness.core import AgentOutput, Trajectory, TrajectoryStep
-
-if TYPE_CHECKING:
-    from cube_harness.storage import FileStorage
-
-
-class EpisodeStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    DONE = "done"
-    FAILED = "failed"
-
-
-class StepSummary(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-
-    turn: int
-    timestamp: float
-    status: EpisodeStatus
-    n_env_steps: int
-    n_agent_steps: int
-    total_actions: int
-    total_llm_calls: int
-    prompt_tokens: int
-    completion_tokens: int
-    tokens: int
-    cost_usd: float
-    reward: float
-    done: bool
 
 
 class ExperimentSummary(BaseModel):
+    """Cumulative experiment-level totals across all finalized episodes.
+
+    Updated by `FileStorage.update_experiment_summary(meta)` on each
+    `finalize_episode`. Persisted at `<output_dir>/summary.json`. XRay's
+    experiment-table uses this for O(1) rendering (no per-episode load).
+    """
+
     model_config = ConfigDict(strict=True, extra="forbid", populate_by_name=True)
 
     n_episodes: int = 0
@@ -50,98 +34,3 @@ class ExperimentSummary(BaseModel):
     updated_at: str | None = None
     # Previously named "success_rate" — actually avg reward, not a success rate
     avg_reward: float = Field(0.0, validation_alias=AliasChoices("avg_reward", "success_rate"))
-
-
-class SummaryProcessor:
-    def __init__(self, episode_dir: Path) -> None:
-        self._summary_path = episode_dir / "episode_summary.jsonl"
-        self._n_env_steps = 0
-        self._n_agent_steps = 0
-        self._total_actions = 0
-        self._total_llm_calls = 0
-        self._prompt_tokens = 0
-        self._completion_tokens = 0
-        self._cached_tokens = 0
-        self._cache_creation_tokens = 0
-        self._cost_usd = 0.0
-        self._reward = 0.0
-        self._done = False
-        self._error_type: str | None = None
-
-    def _build_entry(self, turn: int, status: EpisodeStatus) -> StepSummary:
-        return StepSummary(
-            turn=turn,
-            timestamp=time.time(),
-            status=status,
-            n_env_steps=self._n_env_steps,
-            n_agent_steps=self._n_agent_steps,
-            total_actions=self._total_actions,
-            total_llm_calls=self._total_llm_calls,
-            prompt_tokens=self._prompt_tokens,
-            completion_tokens=self._completion_tokens,
-            tokens=self._prompt_tokens + self._completion_tokens,
-            cost_usd=self._cost_usd,
-            reward=self._reward,
-            done=self._done,
-        )
-
-    def _append(self, entry: StepSummary) -> None:
-        with open(self._summary_path, "a") as f:
-            f.write(entry.model_dump_json() + "\n")
-
-    def on_step(self, step_num: int, step: TrajectoryStep) -> None:
-        # Capture the first step-level error so EpisodeRecord can report it without
-        # re-walking the (now un-retained) step list.
-        err = getattr(step.output, "error", None)
-        if err is not None and self._error_type is None:
-            self._error_type = err.error_type
-
-        if isinstance(step.output, AgentOutput):
-            self._n_agent_steps += 1
-            self._total_actions += len(step.output.actions)
-            self._total_llm_calls += len(step.output.llm_calls)
-            for llm_call in step.output.llm_calls:
-                if llm_call.usage:
-                    self._prompt_tokens += llm_call.usage.prompt_tokens
-                    self._completion_tokens += llm_call.usage.completion_tokens
-                    self._cached_tokens += llm_call.usage.cached_tokens
-                    self._cache_creation_tokens += llm_call.usage.cache_creation_tokens
-                    self._cost_usd += llm_call.usage.cost
-        elif isinstance(step.output, EnvironmentOutput):
-            self._n_env_steps += 1
-            self._reward = step.output.reward
-            self._done = step.output.done
-
-        self._append(self._build_entry(step_num, EpisodeStatus.RUNNING))
-
-    @property
-    def has_error(self) -> bool:
-        return self._error_type is not None
-
-    @property
-    def final_reward(self) -> float:
-        """Reward of the most recent environment step (the trajectory's final reward)."""
-        return self._reward
-
-    def summary_stats(self, *, duration: float | None, final_reward: float) -> dict:
-        """Final per-episode stats, accumulated incrementally — the single source of
-        truth (replaces the old end-of-run walk over ``trajectory.steps``)."""
-        return {
-            "n_env_steps": self._n_env_steps,
-            "n_agent_steps": self._n_agent_steps,
-            "total_actions": self._total_actions,
-            "total_llm_calls": self._total_llm_calls,
-            "duration": duration,
-            "prompt_tokens": self._prompt_tokens,
-            "completion_tokens": self._completion_tokens,
-            "cached_tokens": self._cached_tokens,
-            "cache_creation_tokens": self._cache_creation_tokens,
-            "cost": self._cost_usd,
-            "final_reward": final_reward,
-            "error_type": self._error_type,
-        }
-
-    def on_episode_complete(self, trajectory: Trajectory, storage: "FileStorage") -> None:
-        status = EpisodeStatus.FAILED if self.has_error else EpisodeStatus.DONE
-        self._append(self._build_entry(-1, status))
-        storage.update_experiment_summary(trajectory)

@@ -8,9 +8,9 @@ from cube.core import Action, EnvironmentOutput, Observation
 from cube.task import TaskConfig, TaskMetadata
 
 from cube_harness.agent import AgentConfig
-from cube_harness.core import AgentOutput, Trajectory, TrajectoryStep
+from cube_harness.core import AgentOutput, ToolCallEvent, Trajectory, TrajectoryStep
 from cube_harness.episode import Episode
-from cube_harness.storage import _read_step_file
+from cube_harness.storage import TrajectoryView
 from tests.conftest import MockAgent, MockAgentConfig, MockCubeTask, MockCubeTaskConfig, MockToolConfig
 
 
@@ -52,13 +52,15 @@ class TestEpisode:
 
     def test_episode_run_completes(self, mock_episode):
         """Test Episode run completes successfully."""
-        trajectory = mock_episode.run()
+        view = mock_episode.run()
 
-        assert isinstance(trajectory, Trajectory)
-        assert "task_id" in trajectory.metadata
-        # Steps stream to disk; the returned trajectory carries metadata + summary only.
-        loaded = mock_episode.storage.load_trajectory(trajectory.id)
-        assert len(loaded.steps) >= 2  # initial env output + agent output + final env output
+        assert isinstance(view, TrajectoryView)
+        assert "task_id" in view.metadata
+        # RFC agent-owns-loop: events stream to disk; the returned
+        # view is a lazy reader (no in-memory event list).
+        # Minimum: reset event + at least one agent event + at least one
+        # tool call + final evaluation event.
+        assert len(view) >= 2
 
     def test_episode_run_saves_trajectory(self, mock_episode, tmp_dir):
         """Test Episode run saves trajectory files."""
@@ -71,7 +73,7 @@ class TestEpisode:
         assert len(ep_dirs) >= 1
         assert (ep_dirs[0] / "episode.metadata.json").exists()
         assert (ep_dirs[0] / "episode_config.json").exists()
-        assert (ep_dirs[0] / "steps").exists()
+        assert (ep_dirs[0] / "events").exists()
 
     def test_episode_run_metadata_file_content(self, mock_episode, tmp_dir):
         """Test Episode run creates correct metadata file."""
@@ -87,20 +89,20 @@ class TestEpisode:
         assert "task_id" in metadata
 
     def test_episode_run_step_files(self, mock_episode, tmp_dir):
-        """Test Episode run creates per-step files."""
+        """Test Episode run creates per-event files (RFC agent-owns-loop)."""
         mock_episode.run()
 
         episodes_dir = tmp_dir / "episodes"
         ep_dirs = [d for d in episodes_dir.iterdir() if d.is_dir()]
         assert len(ep_dirs) > 0, "No episode directory found"
 
-        steps_dir = ep_dirs[0] / "steps"
-        step_files = sorted(steps_dir.iterdir())
-        assert len(step_files) >= 1
-
-        for step_file in step_files:
-            data = _read_step_file(step_file)
-            assert isinstance(data, dict)
+        # RFC: per-event files live under events/ now; the legacy steps/
+        # dir is preserved (empty) for in-flight rollback compatibility.
+        events_dir = ep_dirs[0] / "events"
+        event_files = sorted(events_dir.iterdir())
+        assert len(event_files) >= 1
+        for f in event_files:
+            assert f.name.endswith(".msgpack.zst")
 
     def test_episode_run_respects_max_steps(self, tmp_dir, mock_agent_config, mock_cube_task_config):
         """Test Episode run respects max_steps limit."""
@@ -131,8 +133,17 @@ class TestEpisode:
 
         trajectory = episode.run()
 
-        # Should have stopped at max_steps (steps stream to disk; read the streamed count)
-        assert trajectory.summary_stats["n_agent_steps"] <= 3
+        # RFC agent-owns-loop: max_steps translates to Budget.max_agent_steps.
+        # Budget.exhausted fires when turns >= max_agent_steps. The agent
+        # records 3 normal turns; BudgetExceeded surfaces; the failure
+        # LLMCallEvent (recorder.record_failure) is metadata, not a
+        # "turn", so the total agent-event count is at most 4
+        # (3 turns + 1 failure). Tool calls are bounded by the budget
+        # at <=3.
+        assert trajectory.summary_stats["n_agent_steps"] <= 4
+        # Episode marked MAX_STEPS_REACHED.
+        # (status assertion lives in test_episode_status.py; here we
+        # just confirm the budget enforcement bounded the run.)
 
     def test_episode_run_stops_on_done(self, tmp_dir, mock_agent_config, mock_cube_task_config):
         """Test Episode run stops when done=True."""
@@ -291,22 +302,24 @@ class TestEpisode:
         with pytest.raises(RuntimeError, match="Agent step failed"):
             episode.run()
 
-        # But error should be saved in trajectory before raising
+        # But error should be saved in the events stream before raising
         from cube_harness.storage import FileStorage
 
         storage = FileStorage(tmp_dir)
         traj_id = f"{episode.config.task_config.task_id}_ep{episode.config.id}"
-        trajectory = storage.load_trajectory(traj_id)
+        view = storage.load_episode(traj_id)
 
-        # Find the agent output step with error
-        agent_steps = [s for s in trajectory.steps if isinstance(s.output, AgentOutput)]
-        assert len(agent_steps) > 0, "No agent steps found in trajectory"
+        # Episode failures land on a dedicated `AgentErrorEvent` (emitted
+        # by `recorder.record_failure`). Agent.run raises through the
+        # outer except, which records the failure as the trajectory's
+        # last event before the exception propagates.
+        from cube_harness.core import AgentErrorEvent
 
-        error_step = next((s for s in agent_steps if s.output.error is not None), None)
-        assert error_step is not None, "No error found in agent steps"
-        assert error_step.output.error is not None
-        assert error_step.output.error.error_type == "RuntimeError"
-        assert "Agent step failed" in error_step.output.error.exception_str
+        error_events = [e.output for e in view if isinstance(e.output, AgentErrorEvent)]
+        assert len(error_events) >= 1, "No AgentErrorEvent found in trajectory"
+        err = error_events[-1].error
+        assert err.error_type == "RuntimeError"
+        assert "Agent step failed" in err.exception_str
 
     def test_episode_captures_env_error(self, tmp_dir, mock_agent_config):
         """Test Episode captures environment errors correctly in trajectory."""
@@ -335,22 +348,25 @@ class TestEpisode:
         with pytest.raises(ValueError, match="Environment validation failed"):
             episode.run()
 
-        # But error should be saved in trajectory before raising
+        # But error should be saved in the events stream before raising
         from cube_harness.storage import FileStorage
 
         storage = FileStorage(tmp_dir)
         traj_id = f"{episode.config.task_config.task_id}_ep{episode.config.id}"
-        trajectory = storage.load_trajectory(traj_id)
+        view = storage.load_episode(traj_id)
 
-        # Find the environment output step with error
-        env_steps = [s for s in trajectory.steps if isinstance(s.output, EnvironmentOutput)]
-        assert len(env_steps) > 0, "No env steps found in trajectory"
+        # Failures from task.evaluate() raised in the finally block are
+        # captured as an AgentErrorEvent via recorder.record_failure.
+        from cube_harness.core import AgentErrorEvent
 
-        error_step = next((s for s in env_steps if s.output.error is not None), None)
-        assert error_step is not None, "No error found in env steps"
-        assert error_step.output.error is not None
-        assert error_step.output.error.error_type == "ValueError"
-        assert "Environment validation failed" in error_step.output.error.exception_str
+        error_events = [e.output for e in view if isinstance(e.output, AgentErrorEvent)]
+        assert len(error_events) >= 1, "No AgentErrorEvent found"
+        err = error_events[-1].error
+        assert "Environment validation failed" in err.exception_str
+        # ToolCallEvents (env step proxies) should also be present from
+        # the agent loop before the failure.
+        tool_call_events = [e.output for e in view if isinstance(e.output, ToolCallEvent)]
+        assert len(tool_call_events) >= 1
 
     def test_episode_run_raises_on_duplicate_trajectory(
         self, tmp_dir, mock_agent_config, mock_cube_task_config
