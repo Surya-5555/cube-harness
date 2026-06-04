@@ -11,6 +11,10 @@ Anthropic SDK) is forbidden (PS-002).
 
 ## Public API
 
+Shared base classes (`BaseLLMConfig`, `BaseLLM`) contain behavior common to
+benchmark and rollout LLMs. Benchmark LLM configuration remains `LLMConfig`;
+rollout-specific endpoint/logprob capture lives in `cube_harness.rl.llm`.
+
 ### `LLMConfig`
 ```python
 class LLMConfig(TypedBaseModel):
@@ -90,13 +94,19 @@ class LLMCall(TypedBaseModel):
     id: str = field(default_factory=lambda: str(uuid4()))
     tag: str | None = None           # e.g. "act", "summary", "criticise"
     timestamp: datetime
-    config: LLMConfig
+    config: BaseLLMConfig
     prompt: Prompt
     output: Message
     usage: Usage | None = None
+    prompt_token_ids: list[int] | None = None
+    completion_token_ids: list[int] | None = None
+    logprobs: list[float] | None = None
+    finish_reason: str | None = None
+    metadata: dict = {}
 ```
 
-Captured in `AgentOutput.llm_calls`. Agents MUST set `tag` to distinguish multi-call
+`LLM.call(prompt, tag=...)` builds `LLMCall` and auto-emits `LLMCallEvent`
+when a recorder is attached. Agents MUST set `tag` to distinguish multi-call
 steps in traces and training data.
 
 ## Invariants

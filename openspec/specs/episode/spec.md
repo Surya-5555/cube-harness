@@ -29,6 +29,13 @@ class EpisodeConfig(TypedBaseModel):
 Saved to disk at `{output_dir}/episodes/{trajectory_id}/episode_config.json` before
 the episode runs, so experiments can resume after crashes.
 
+RL rollout hooks:
+
+- `recorder_config: EventStreamerConfig` lets callers attach additional event
+  sinks, including `RLEventSink`, without changing the episode loop.
+- `write_eval_log: bool = True` may be set false by high-throughput rollout
+  workers to skip debug/eval-log artifacts.
+
 ### `Episode`
 ```python
 class Episode:

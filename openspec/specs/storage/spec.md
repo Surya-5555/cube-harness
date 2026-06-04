@@ -61,6 +61,12 @@ class FileStorage:
     def load_logs(trajectory_id) -> str
 ```
 
+## `InMemoryStorage`
+
+`InMemoryStorage` implements the storage contract for rollout workers that need
+the `Episode` runtime but do not want disk on the hot path. Use `FileStorage`
+only when `persist_rollout=True` for debug/replay artifacts.
+
 ## On-disk layouts
 
 ### V2 (current, written by all runs)
