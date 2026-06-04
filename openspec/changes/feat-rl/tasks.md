@@ -8,7 +8,7 @@
 - [x] Make rollout storage optional with `persist_rollout`.
 - [x] Move rollout LLM implementation to `cube_harness.rl.llm`.
 - [x] Keep `cube_harness.llm` as the shared/benchmark LLM layer.
-- [x] Add TIR cube and RL recipes.
+- [x] Add RL recipes.
 - [x] Add rollout service tests and throughput opt-in tests.
 - [x] Move deterministic RL smoke to `scripts/smoke/rl_mock_multiturn_service.py`.
 

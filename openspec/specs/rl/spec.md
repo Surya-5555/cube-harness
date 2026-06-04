@@ -11,7 +11,7 @@ cube-harness runtime. This spec covers the whole PR 487 RL surface:
 - realtime rollout event publishing from the canonical event stream;
 - rollout LLM endpoint/configuration and trainable token/logprob metadata;
 - optional in-memory vs file-backed storage/debug behavior;
-- RL recipes, deterministic smoke, tests, and the TIR cube fixture.
+- RL recipes, deterministic smoke, and tests.
 
 RL uses the agent-owned `Episode` runtime and consumes the canonical
 `TrajectoryEvent` stream; it does not own a second episode loop or recorder
@@ -19,13 +19,13 @@ stack.
 
 ```text
 RolloutRequest
-    ↓
+    |
 RolloutEngine / executor (Ray or local)
-    ↓
+    |
 Episode + EventStreamer
-    ↓
+    |
 RLEventSink / publisher
-    ↓
+    |
 trainer
 ```
 
@@ -129,7 +129,6 @@ RL examples live under `recipes/rl/`:
 
 - `hello_miniwob_local.py`
 - `hello_miniwob_service.py`
-- `hello_tir_local.py`
 
 The deterministic system smoke lives under `scripts/smoke/`:
 
@@ -147,11 +146,6 @@ Focused tests for the PR live in:
 - `tests/perf/test_rollout_throughput.py`
 - `tests/rollout_perf_helpers.py`
 
-## TIR Cube
-
-The PR adds `cubes/tir`, a small Multi-Turn Tool-Integrated Reasoning cube used
-by RL recipes and local rollout validation. It is a cube package, not an RL
-runtime abstraction.
 
 ## Invariants
 

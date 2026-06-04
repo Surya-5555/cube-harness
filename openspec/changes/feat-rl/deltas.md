@@ -13,7 +13,6 @@ Defines the new RL rollout subsystem:
 - `EventPublisher` and `RLEventSink`
 - optional storage/debug behavior
 - recipes and smoke expectations
-- TIR cube role
 
 ## MODIFIED — `openspec/specs/episode/spec.md`
 
@@ -45,14 +44,10 @@ storage.
 Rollout-specific endpoint behavior and token/logprob validation live in
 `cube_harness.rl.llm`.
 
-## ADDED — `cubes/tir`
-
-Adds a small Multi-Turn Tool-Integrated Reasoning cube used by RL recipes and
-local rollout validation.
 
 ## ADDED — `recipes/rl/` and RL smoke
 
-Adds rollout recipes for MiniWoB and TIR plus the deterministic smoke:
+Adds rollout recipes for MiniWoB plus the deterministic smoke:
 
 ```bash
 uv run scripts/smoke/rl_mock_multiturn_service.py --turns 2

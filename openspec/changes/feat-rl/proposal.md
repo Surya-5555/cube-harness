@@ -9,8 +9,7 @@
 PR 487 adds the first RL rollout collection path to cube-harness. The feature is
 broader than event streaming alone: it introduces a trainer-facing rollout
 service, local and Ray execution, rollout-specific LLM metadata capture,
-examples, a deterministic smoke, and a small TIR cube for multi-turn
-tool-integrated reasoning.
+examples, and a deterministic smoke.
 
 cube-harness can already run benchmark episodes, but RL training needs a system
 that can:
@@ -40,7 +39,7 @@ RL trainer / optimizer process
 |-- keeps rollout requests in flight per cube
 |-- reconstructs trajectories, filters, rewards, writes train data
 |
-|   MiniWoB rollout server                         TIR rollout server
+|   cube A rollout server                          cube B rollout server
 |   (one cube / benchmark config)                  (one cube / benchmark config)
 |   |                                              |
 |   |-- GET /events (SSE) -----------------------> |-- GET /events (SSE)
@@ -97,14 +96,14 @@ check for this contract. It uses a mock benchmark and mock agent, requires no
 live LLM, validates event ordering and token-id metadata, reconstructs a
 multi-turn trajectory, and writes JSONL training examples.
 
-For tighter local debugging, `recipes/rl/hello_miniwob_local.py` and
-`recipes/rl/hello_tir_local.py` use `RolloutEngine` directly in process, without
-an HTTP server, and print rollout events as they arrive.
+For tighter local debugging, `recipes/rl/hello_miniwob_local.py` uses
+`RolloutEngine` directly in process, without an HTTP server, and prints rollout
+events as they arrive.
 
 ## Proposal
 
 Add `cube_harness.rl` as a benchmark-scoped rollout service and executor layer,
-with companion recipes, smoke coverage, and the TIR cube used by the recipes.
+with companion recipes and smoke coverage.
 RL rollouts run normal `Episode`s and publish from the canonical event stream:
 
 ```text
@@ -129,9 +128,8 @@ The whole PR contract includes:
   used by both benchmark and rollout calls;
 - `cube_harness.episode`, `streamer`, and `storage`: extension points that let
   RL attach sinks and avoid disk writes without forking the episode loop;
-- `recipes/rl`: local and service examples for MiniWoB and TIR;
+- `recipes/rl`: local and service examples for MiniWoB;
 - `scripts/smoke/rl_mock_multiturn_service.py`: deterministic end-to-end smoke;
-- `cubes/tir`: Multi-Turn Tool-Integrated Reasoning benchmark package;
 - tests covering rollout service behavior, optional storage, event publishing,
   and throughput-sensitive paths.
 
@@ -195,7 +193,7 @@ logs, and eval logs are debug aids, not required training transport.
 Use local mode when validating event shape, LLM metadata, prompts, tools, or a
 single benchmark integration. Local mode runs `RolloutEngine` and `Episode` in
 the same process, can be used without HTTP, and is the easiest place to print or
-step through events. The local MiniWoB and TIR recipes are examples.
+step through events. The local MiniWoB recipe is the current example.
 
 Use service mode when validating the trainer-facing contract. It exercises the
 FastAPI app, SSE framing, ack offsets, cancellation endpoint, and client-side
@@ -229,8 +227,6 @@ The RL implementation should stay split along these boundaries:
   and inspection support. They must not be required for rollout publishing.
 - **Recipes/smokes** (`recipes/rl`, `scripts/smoke`): executable examples that
   document real trainer usage and catch integration regressions.
-- **TIR cube** (`cubes/tir`): benchmark fixture/example for tool-integrated
-  reasoning, not an RL runtime dependency.
 
 Keep new behavior in the narrow subsystem that owns it. Avoid adding trainer
 logic to the service, service logic to the sink, or rollout-specific branching to
@@ -265,5 +261,3 @@ metadata extraction is currently the highest-risk provider-specific area.
 - Ray cancellation should kill stale rollout work by request/group/client.
 - `RolloutLLM` should validate token ids/logprobs needed for training.
 - Recipes and `scripts/smoke/rl_mock_multiturn_service.py` should remain runnable.
-- The TIR cube should stay a benchmark fixture/example, not an RL runtime
-  dependency.
