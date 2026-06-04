@@ -7,18 +7,17 @@
 #
 # [tool.uv.sources]
 # cube-harness = { path = "../..", editable = true }
-# cube-standard = { path = "../../../cube-standard" }
 # ///
-"""Deterministic multi-turn rollout-service smoke for RL event metadata.
+"""SMOKE: deterministic multi-turn rollout-service metadata path.
 
-This recipe does not call a live LLM. It uses a mock agent and mock task
+This smoke does not call a live LLM. It uses a mock agent and mock task
 so the rollout always produces multiple trainable LLM calls. Use it when you want
 to verify event ordering, trajectory reconstruction, and token-ID JSONL export
 without depending on model capability.
 
 Example:
 
-    uv run recipes/rl/mock_multiturn_service.py --turns 4
+    uv run scripts/smoke/rl_mock_multiturn_service.py --turns 4
 
 Expected shape for --turns 4:
 
@@ -26,6 +25,8 @@ Expected shape for --turns 4:
     5 tool_call events, including the initial reset observation
     1 terminal evaluation event
     4 JSONL SFT records
+
+Prints SMOKE OK|FAIL: rl_mock_multiturn_service  (exit 0|1).
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -461,7 +463,8 @@ async def run(turns: int, jsonl_path: Path) -> None:
     write_jsonl(jsonl_path, records)
     assert_multiturn_metadata(trajectory, turns=turns, jsonl_records=records)
     print(
-        f"mock smoke ok: trajectory={trajectory['trajectory_id']} llm_calls={len(trajectory['llm_calls'])} "
+        f"SMOKE OK: rl_mock_multiturn_service trajectory={trajectory['trajectory_id']} "
+        f"llm_calls={len(trajectory['llm_calls'])} "
         f"tool_calls={len(trajectory['tool_calls'])} evaluations={len(trajectory['evaluations'])} jsonl={jsonl_path}",
         flush=True,
     )
@@ -477,9 +480,13 @@ def main() -> None:
     configure_terminal_logging(LOG_LEVEL, force=True)
     args = parse_args()
     jsonl_path = OUTPUT_DIR / "training_examples.jsonl"
-    if args.turns < 2:
-        raise ValueError("--turns must be >= 2 to test multi-turn metadata")
-    asyncio.run(run(args.turns, jsonl_path))
+    try:
+        if args.turns < 2:
+            raise ValueError("--turns must be >= 2 to test multi-turn metadata")
+        asyncio.run(run(args.turns, jsonl_path))
+    except Exception as exc:
+        print(f"SMOKE FAIL: rl_mock_multiturn_service {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
