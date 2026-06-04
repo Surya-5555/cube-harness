@@ -11,18 +11,29 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
+# Optional Tk fallback for the directory picker on non-macOS platforms.
+# Imported at module level (EX-001); guarded since headless hosts may lack Tk.
+try:
+    import tkinter as _tkinter
+    from tkinter import filedialog as _tk_filedialog
+except Exception:  # pragma: no cover - platform without Tk
+    _tkinter = None
+    _tk_filedialog = None
+
 from cube.benchmark import BenchmarkConfig
-from cube.core import EnvironmentOutput
+from cube.core import EnvironmentOutput, Observation
 from PIL import Image
-from pydantic import BaseModel
 
 from cube_harness.agent import AgentConfig
 from cube_harness.analyze.stats import reward_mean_stderr
-from cube_harness.core import AgentOutput, Trajectory, TrajectoryStep
+from cube_harness.analyze.xray_events import EpisodeEvents, EventGroup
+from cube_harness.core import AgentOutput, Trajectory
 from cube_harness.episode_status import STATUS_FILENAME, EpisodeStatus, should_sweep_running_to_stale
 from cube_harness.episode_status import TERMINAL_STATUSES as _EPISODE_TERMINAL_STATUSES
 from cube_harness.exp_runner import DEFAULT_CANCEL_GRACE_S, DEFAULT_STEP_TIMEOUT_S
@@ -271,6 +282,42 @@ def _build_ray_dashboard_links_html(ray_dashboard_urls: list[tuple[str, str]] | 
     return '<div style="font-size:11px;margin-top:4px;">' + " &nbsp;·&nbsp; ".join(parts) + "</div>"
 
 
+def pick_directory(start: Path) -> Path | None:
+    """Open a native folder picker rooted at `start`; return the chosen dir.
+
+    Runs on the XRay host (a local tool), so the dialog appears on the user's
+    own desktop. Uses macOS `osascript` (no GUI-thread constraints, unlike Tk in
+    a Gradio worker thread) and falls back to Tk elsewhere. Returns None if the
+    user cancels, the picker is unavailable, or the choice isn't a directory.
+    """
+    chosen: str | None = None
+    if sys.platform == "darwin":
+        script = (
+            f'set startDir to POSIX file "{start}"\n'
+            'set d to choose folder with prompt "Select XRay results directory" default location startDir\n'
+            "POSIX path of d"
+        )
+        try:
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode == 0:  # non-zero == user cancelled
+            chosen = result.stdout.strip()
+    elif _tkinter is not None and _tk_filedialog is not None:
+        try:
+            root = _tkinter.Tk()
+            root.withdraw()
+            chosen = _tk_filedialog.askdirectory(initialdir=str(start))
+            root.destroy()
+        except Exception:  # pragma: no cover - display-less host
+            return None
+
+    if not chosen:
+        return None
+    path = Path(chosen).expanduser()
+    return path if path.is_dir() else None
+
+
 def archive_experiment(results_dir: Path, exp_name: str) -> None:
     """Move an experiment directory into results_dir/_archive/.
 
@@ -295,41 +342,6 @@ def _is_experiment_dir(dir_path: Path) -> bool:
     return any(
         f.name.endswith(".metadata.json") and ".archived_" not in f.name for f in dir_path.glob("*.metadata.json")
     )
-
-
-def _count_episodes(dir_path: Path) -> int:
-    episodes_dir = dir_path / "episodes"
-    if episodes_dir.exists():
-        return sum(1 for d in episodes_dir.iterdir() if d.is_dir() and ".archived_" not in d.name)
-    n = len([f for f in dir_path.glob("*.metadata.json") if ".archived_" not in f.name])
-    if n > 0:
-        return n
-    traj_dir = dir_path / "trajectories"
-    if traj_dir.exists():
-        return len([f for f in traj_dir.glob("*.metadata.json") if ".archived_" not in f.name])
-    return 0
-
-
-def get_directory_contents(results_dir: Path) -> list[str]:
-    """Return sorted list of experiment directory names with trajectory counts.
-
-    Returns ["Select experiment directory"] + names sorted most-recent first.
-    Includes directories that have trajectory metadata in the same dir (flat layout)
-    or under a ``trajectories/`` subdirectory (legacy).
-    Directories whose names start with '_' (e.g. _archive) are excluded.
-    """
-    sentinel = "Select experiment directory"
-    if not results_dir or not results_dir.exists():
-        return [sentinel]
-
-    exp_descriptions = []
-    for dir_path in results_dir.iterdir():
-        if not _is_experiment_dir(dir_path):
-            continue
-        n_trajs = _count_episodes(dir_path)
-        exp_descriptions.append(f"{dir_path.name} ({n_trajs} trajectories)")
-
-    return [sentinel] + sorted(exp_descriptions, reverse=True)
 
 
 def _parse_exp_date(dir_path: Path) -> str:
@@ -662,64 +674,6 @@ def get_experiments_table_rows(results_dir: Path) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Screenshot extraction
-# ---------------------------------------------------------------------------
-
-
-def get_screenshot_from_step(step: EnvironmentOutput | AgentOutput | None) -> Image.Image | None:
-    """Extract the first PIL Image from an EnvironmentOutput's observation contents.
-
-    Returns None if no image is found, step is None, or step is an AgentOutput.
-    """
-    if not isinstance(step, EnvironmentOutput):
-        return None
-    for content in step.obs.contents:
-        if isinstance(content.data, Image.Image):
-            return content.data
-    return None
-
-
-def get_current_screenshot(
-    step: EnvironmentOutput | AgentOutput | None,
-    prev_step: EnvironmentOutput | AgentOutput | None,
-) -> Image.Image | None:
-    """Get the best screenshot for the current step.
-
-    If current step is EnvironmentOutput: return its screenshot.
-    If current step is AgentOutput: fall back to screenshot from prev_step.
-    """
-    img = get_screenshot_from_step(step)
-    if img is None and prev_step is not None:
-        img = get_screenshot_from_step(prev_step)
-    return img
-
-
-# ---------------------------------------------------------------------------
-# Content extraction
-# ---------------------------------------------------------------------------
-
-
-def extract_obs_content(step: EnvironmentOutput | None, name_pattern: str) -> str | None:
-    """Find text content in EnvironmentOutput.obs.contents by name substring match.
-
-    Performs case-insensitive substring match against content.name.
-    Returns the first matching str content.data, or None if not found.
-
-    Examples:
-        extract_obs_content(step, "axtree")  -> accessibility tree text
-        extract_obs_content(step, "html")    -> page HTML
-        extract_obs_content(step, "pruned")  -> pruned HTML
-    """
-    if not isinstance(step, EnvironmentOutput):
-        return None
-    pattern_lower = name_pattern.lower()
-    for content in step.obs.contents:
-        if isinstance(content.data, str) and pattern_lower in (content.name or "").lower():
-            return content.data
-    return None
-
-
-# ---------------------------------------------------------------------------
 # LLM prompt / chat rendering
 # ---------------------------------------------------------------------------
 
@@ -908,312 +862,6 @@ def _render_llm_call_html(llm_call: LLMCall) -> str:
     return "".join(blocks)
 
 
-def get_chat_branches(step: EnvironmentOutput | AgentOutput | None) -> dict[str, str]:
-    """Return {label: html} for each LLMCall in an agent step.
-
-    The tab label is call.tag when set, otherwise call.id.
-    Returns empty dict for non-AgentOutput steps or steps with no llm_calls.
-    """
-    if not isinstance(step, AgentOutput):
-        return {}
-    # `llm_calls` is gone from AgentOutput post-auto-recorder; falls back
-    # to [] for new trajectories. LLM call data now lives on
-    # LLMCallEvents in the trajectory's event stream — XRay will render
-    # it from there once the event-card view ships
-    # (agent-owns-loop-xray follow-up PR).
-    llm_calls = getattr(step, "llm_calls", None) or []
-    return {(call.tag or call.id): _render_llm_call_html(call) for call in llm_calls}
-
-
-def _truncate(text: str, max_len: int) -> str:
-    """Truncate text to max_len characters with a trailing indicator."""
-    if len(text) <= max_len:
-        return text
-    return text[:max_len] + "\n... [truncated]"
-
-
-# ---------------------------------------------------------------------------
-# Step detail markdown
-# ---------------------------------------------------------------------------
-
-
-def get_step_details_markdown(
-    step: EnvironmentOutput | AgentOutput | None,
-    traj_step: TrajectoryStep | None,
-) -> str:
-    """Produce a context-aware markdown summary of the current step."""
-    if step is None:
-        return "No step selected"
-
-    duration_info = ""
-    if traj_step and traj_step.start_time is not None and traj_step.end_time is not None:
-        duration = traj_step.end_time - traj_step.start_time
-        duration_info = f" │ ⏱️ {format_duration(duration)}"
-
-    if isinstance(step, EnvironmentOutput):
-        return _format_env_step_details(step, duration_info)
-    elif isinstance(step, AgentOutput):
-        return _format_agent_step_details(step, duration_info)
-    return "Unknown step type"
-
-
-def _format_env_step_details(step: EnvironmentOutput, duration_info: str) -> str:
-    """Format EnvironmentOutput details as markdown."""
-    sections = [f"## 🌍 Environment Output{duration_info}\n"]
-
-    if step.done:
-        status = "✅ **Success**" if step.reward > 0 else "❌ **Failed**"
-        sections.append(f"**Status:** {status} │ **Reward:** {step.reward:.2f}\n")
-    else:
-        sections.append(f"**Reward:** {step.reward:.2f} │ **Done:** No\n")
-
-    for content in step.obs.contents:
-        if isinstance(content.data, str):
-            name = content.name or "Content"
-            data = _truncate(content.data, 200000)
-            sections.append(f"### {name}\n```\n{data}\n```\n")
-        elif isinstance(content.data, Image.Image):
-            sections.append(f"**{content.name or 'Screenshot'}:** {content.data.size[0]}x{content.data.size[1]}\n")
-        elif isinstance(content.data, (dict, list)):
-            name = content.name or "Data"
-            data_str = json.dumps(content.data, indent=2)
-            data_str = _truncate(data_str, 100000)
-            sections.append(f"### {name}\n```json\n{data_str}\n```\n")
-        elif isinstance(content.data, BaseModel):
-            name = content.name or "Data"
-            data_str = content.data.model_dump_json(indent=2)
-            data_str = _truncate(data_str, 100000)
-            sections.append(f"### {name}\n```json\n{data_str}\n```\n")
-
-    if step.info.get("error"):
-        sections.append(f"\n### ⚠️ Error\n```\n{step.info['error']}\n```\n")
-
-    return "\n".join(sections)
-
-
-def _format_agent_step_details(step: AgentOutput, duration_info: str) -> str:
-    """Format AgentOutput details as markdown."""
-    sections = [f"## 🤖 Agent Output{duration_info}\n"]
-
-    # `llm_calls` / `thoughts` gone from AgentOutput post-auto-recorder.
-    # getattr keeps the legacy V1 read path rendering while new
-    # trajectories show empty token / rationale sections until XRay's
-    # event-card view ships (agent-owns-loop-xray follow-up).
-    llm_calls = getattr(step, "llm_calls", None) or []
-    if llm_calls:
-        llm_call = llm_calls[0]
-        usage = llm_call.usage
-        if usage and usage.prompt_tokens > 0:
-            token_parts = [f"📊 **Tokens:** prompt: {usage.prompt_tokens:,}"]
-            token_parts.append(f"completion: {usage.completion_tokens:,}")
-            if usage.cached_tokens > 0:
-                cache_pct = usage.cached_tokens / usage.prompt_tokens * 100
-                token_parts.append(f"cached: {usage.cached_tokens:,} ({cache_pct:.0f}%)")
-            if usage.cache_creation_tokens > 0:
-                token_parts.append(f"cache_created: {usage.cache_creation_tokens:,}")
-            if usage.cost > 0:
-                token_parts.append(f"💰 **${usage.cost:.4f}**")
-            sections.append(" │ ".join(token_parts) + "\n")
-
-    thoughts = getattr(step, "thoughts", None)
-    if thoughts:
-        sections.append(f"### Rationale\n{_truncate(thoughts, 150000)}\n")
-
-    if step.actions:
-        sections.append("### Actions\n")
-        for i, action in enumerate(step.actions):
-            args_str = json.dumps(action.arguments, indent=2)
-            sections.append(f"**{i + 1}. {action.name}**\n```json\n{args_str}\n```\n")
-    else:
-        sections.append("*No actions taken*\n")
-
-    if llm_calls:
-        llm_call = llm_calls[0]
-        if llm_call.output:
-            msg = llm_call.output
-            content = getattr(msg, "content", None)
-            if content:
-                reasoning = _truncate(str(content), 150000)
-                sections.append(f"### Agent Reasoning\n{reasoning}\n")
-
-    return "\n".join(sections)
-
-
-# ---------------------------------------------------------------------------
-# Always-visible step summary (task goal + agent action)
-# ---------------------------------------------------------------------------
-
-
-def get_task_goal(trajectory: Trajectory | None) -> str:
-    """Extract the task goal text from the first EnvironmentOutput's text content.
-
-    The goal is typically the first text content item in the first env step,
-    set by Task.setup() via Observation.from_text(goal).
-    """
-    if trajectory is None:
-        return "*No trajectory loaded*"
-    if not trajectory.steps:
-        return "*No goal text found*"
-    for ts in trajectory.steps:
-        if isinstance(ts.output, EnvironmentOutput):
-            for content in ts.output.obs.contents:
-                if isinstance(content.data, str) and content.data.strip():
-                    return content.data
-    return "*No goal text found*"
-
-
-def get_agent_action_markdown(agent_out: AgentOutput | None) -> str:
-    """Return a compact markdown summary of the agent's actions as function call syntax.
-
-    Renders each action as: `name(key="value", key2=123)`
-    Long string values are truncated to 200 chars.
-    Returns a placeholder for terminal steps.
-    """
-    if agent_out is None:
-        return "*Terminal step — no agent action*"
-    if not agent_out.actions:
-        return "*No actions taken*"
-    parts = []
-    for action in agent_out.actions:
-        args_parts = []
-        for k, v in (action.arguments or {}).items():
-            if isinstance(v, str):
-                v_display = v if len(v) <= 200 else v[:200] + "…"
-                args_parts.append(f'{k}="{v_display}"')
-            else:
-                args_parts.append(f"{k}={v!r}")
-        call_str = f"{action.name}({', '.join(args_parts)})"
-        parts.append(f"`{call_str}`")
-    return "\n\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Paired step rendering (env + agent shown together)
-# ---------------------------------------------------------------------------
-
-
-def get_paired_step_details_markdown(
-    env_out: EnvironmentOutput | None,
-    agent_out: AgentOutput | None,
-    env_ts: TrajectoryStep | None,
-    agent_ts: TrajectoryStep | None,
-) -> str:
-    """Produce a combined markdown summary showing both env observation and agent action."""
-    if env_out is None:
-        return "No step selected"
-
-    env_duration = ""
-    if env_ts and env_ts.start_time is not None and env_ts.end_time is not None:
-        env_duration = f" │ ⏱️ {format_duration(env_ts.end_time - env_ts.start_time)}"
-
-    env_section = _format_env_step_details(env_out, env_duration)
-
-    if agent_out is None:
-        agent_section = "\n---\n\n## 🤖 Agent Action\n\n*No agent action — terminal observation.*\n"
-    else:
-        agent_duration = ""
-        if agent_ts and agent_ts.start_time is not None and agent_ts.end_time is not None:
-            agent_duration = f" │ ⏱️ {format_duration(agent_ts.end_time - agent_ts.start_time)}"
-        agent_section = "\n---\n\n" + _format_agent_step_details(agent_out, agent_duration)
-
-    return env_section + agent_section
-
-
-def get_paired_error_markdown(
-    env_out: EnvironmentOutput | None,
-    agent_out: AgentOutput | None,
-) -> str:
-    """Show errors from both the env output and the agent output for this UI step."""
-    parts = []
-
-    if env_out is not None:
-        env_err = _extract_error_markdown(env_out, "Environment")
-        if env_err:
-            parts.append(env_err)
-
-    if agent_out is not None:
-        agent_err = _extract_error_markdown(agent_out, "Agent")
-        if agent_err:
-            parts.append(agent_err)
-
-    return "\n\n---\n\n".join(parts) if parts else "No errors in this step"
-
-
-def _extract_error_markdown(step: EnvironmentOutput | AgentOutput, label: str) -> str:
-    """Extract error string from a single step, returning empty string if none."""
-    if step.error is not None:
-        err = step.error
-        return (
-            f"### ⚠️ {label}: {err.error_type}\n"
-            f"**Message:** {err.exception_str}\n\n"
-            f"**Stack Trace:**\n```\n{err.stack_trace}\n```"
-        )
-    if isinstance(step, EnvironmentOutput):
-        info_error = step.info.get("error")
-        if info_error:
-            return f"### ⚠️ {label} error (from info)\n```\n{info_error}\n```"
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# Error & logs (legacy single-step, kept for backward compatibility)
-# ---------------------------------------------------------------------------
-
-
-def get_step_error_markdown(step: EnvironmentOutput | AgentOutput | None) -> str:
-    """Extract error information from a single step as markdown.
-
-    Checks step.error (StepError) for both step types.
-    Also checks EnvironmentOutput.info.get('error') as a fallback.
-    """
-    if step is None:
-        return "No errors in this step"
-    result = _extract_error_markdown(step, "Error")
-    return result if result else "No errors in this step"
-
-
-def get_step_logs_markdown(
-    step: EnvironmentOutput | AgentOutput | None,
-    traj: Trajectory | None,
-) -> str:
-    """Extract log information from a step and trajectory metadata.
-
-    Shows failure stack trace prominently when present (_failure_text in metadata),
-    then EnvironmentOutput.info entries, then trajectory metadata.
-    For missing stubs, returns early after showing failure info.
-    """
-    parts = []
-
-    if traj:
-        failure_text = traj.metadata.get("_failure_text", "")
-        if failure_text:
-            parts.append(f"### ❌ System Error\n```\n{failure_text}\n```\n")
-        elif traj.metadata.get("_missing"):
-            parts.append(
-                "### ❌ Missing Trajectory\n\n"
-                "This task has no trajectory data. It may have crashed before any steps were recorded.\n"
-            )
-        # For missing stubs there are no steps, so return now
-        if traj.metadata.get("_missing"):
-            return "\n".join(parts)
-
-    if isinstance(step, EnvironmentOutput) and step.info:
-        log_entries = {k: v for k, v in step.info.items() if k not in ("error", "message")}
-        if log_entries:
-            parts.append("### Step Info\n")
-            for k, v in log_entries.items():
-                parts.append(f"**{k}**: `{v}`\n")
-
-    if traj and traj.metadata:
-        # Exclude internal keys already displayed above
-        meta = {k: v for k, v in traj.metadata.items() if k not in ("_failure_text", "_missing")}
-        if meta:
-            meta_str = json.dumps(meta, indent=2)
-            parts.append(f"\n### Trajectory Metadata\n```json\n{meta_str}\n```\n")
-
-    return "\n".join(parts) if parts else "No log information available."
-
-
 def get_logs_tab_markdown(traj: Trajectory | None, log_content: str) -> str:
     """Render the Logs tab: episode log file content, with system error banner when present."""
     if traj is None:
@@ -1322,86 +970,54 @@ def render_retry_history_md(history: list[dict[str, Any]], traj: Trajectory) -> 
 # ---------------------------------------------------------------------------
 
 
-def _compute_token_stats_for_trajectory(traj: Trajectory) -> dict[str, int | float]:
-    """Sum token usage across all AgentOutput LLM calls in one trajectory."""
-    stats: dict[str, int | float] = {
-        "prompt": 0,
-        "completion": 0,
-        "cached": 0,
-        "cache_created": 0,
-        "cost": 0.0,
-    }
-    for traj_step in traj.steps:
-        if isinstance(traj_step.output, AgentOutput):
-            # AgentOutput post-agent-owns-loop has no `llm_calls` field.
-            # New trajectories source token stats from LLMCallEvent in the
-            # event stream — already aggregated into `summary_stats` by
-            # `EventStreamer`. This walk is only hit on legacy V1 reads
-            # where llm_calls was bundled into AgentOutput.
-            llm_calls = getattr(traj_step.output, "llm_calls", None) or []
-            for llm_call in llm_calls:
-                if llm_call.usage:
-                    stats["prompt"] = int(stats["prompt"]) + llm_call.usage.prompt_tokens
-                    stats["completion"] = int(stats["completion"]) + llm_call.usage.completion_tokens
-                    stats["cached"] = int(stats["cached"]) + llm_call.usage.cached_tokens
-                    stats["cache_created"] = int(stats["cache_created"]) + llm_call.usage.cache_creation_tokens
-                    stats["cost"] = float(stats["cost"]) + llm_call.usage.cost
-    return stats
+_EMPTY_TRAJECTORY_STATS: dict[str, Any] = {
+    "n_env_steps": 0,
+    "n_agent_steps": 0,
+    "total_actions": 0,
+    "total_llm_calls": 0,
+    "duration": None,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cached_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cost": 0.0,
+    "final_reward": 0.0,
+}
 
 
 def compute_trajectory_stats(traj: Trajectory) -> dict[str, Any]:
-    """Compute per-trajectory statistics.
+    """Per-trajectory statistics, sourced from the trajectory's ``summary_stats``.
 
-    Returns dict with: n_env_steps, n_agent_steps, total_actions, total_llm_calls,
-    duration, prompt_tokens, completion_tokens, cached_tokens, cache_creation_tokens,
-    cost, final_reward.
+    Keys: n_env_steps, n_agent_steps, total_actions, total_llm_calls, duration,
+    prompt_tokens, completion_tokens, cached_tokens, cache_creation_tokens, cost,
+    final_reward.
+
+    XRay's metadata stubs carry ``summary_stats`` (aggregated by ``EventStreamer``),
+    so that's a pure lookup. Legacy in-memory ``Trajectory`` objects with ``steps``
+    (still built by ``inspect_results`` / the Global Report and ``experiments_report``)
+    have no ``summary_stats`` — fall back to counting steps and reading the reward
+    from ``reward_info`` (or the last env step). Token stats stay zero on this path
+    (the legacy ``AgentOutput.llm_calls`` are gone).
     """
     if traj.summary_stats:
         return traj.summary_stats
-    n_env_steps = 0
-    n_agent_steps = 0
-    total_actions = 0
-    total_llm_calls = 0
+    if not traj.steps:
+        return dict(_EMPTY_TRAJECTORY_STATS)
 
-    for traj_step in traj.steps:
-        if isinstance(traj_step.output, EnvironmentOutput):
-            n_env_steps += 1
-        elif isinstance(traj_step.output, AgentOutput):
-            n_agent_steps += 1
-            total_actions += len(traj_step.output.actions)
-            # AgentOutput.llm_calls is gone post-agent-owns-loop; fall
-            # back to 0 (new trajectories carry token stats in
-            # `summary_stats` already, via EventStreamer).
-            total_llm_calls += len(getattr(traj_step.output, "llm_calls", None) or [])
-
-    duration = None
+    stats = dict(_EMPTY_TRAJECTORY_STATS)
+    stats["n_env_steps"] = sum(1 for s in traj.steps if isinstance(s.output, EnvironmentOutput))
+    stats["n_agent_steps"] = sum(1 for s in traj.steps if isinstance(s.output, AgentOutput))
+    stats["total_actions"] = sum(len(s.output.actions) for s in traj.steps if isinstance(s.output, AgentOutput))
     if traj.start_time is not None and traj.end_time is not None:
-        duration = traj.end_time - traj.start_time
-
-    final_reward = 0.0
+        stats["duration"] = traj.end_time - traj.start_time
     if traj.reward_info:
-        final_reward = traj.reward_info.get("reward", 0.0)
+        stats["final_reward"] = traj.reward_info.get("reward", 0.0)
     else:
-        for traj_step in reversed(traj.steps):
-            if isinstance(traj_step.output, EnvironmentOutput):
-                final_reward = traj_step.output.reward
+        for s in reversed(traj.steps):
+            if isinstance(s.output, EnvironmentOutput):
+                stats["final_reward"] = s.output.reward
                 break
-
-    token_stats = _compute_token_stats_for_trajectory(traj)
-
-    return {
-        "n_env_steps": n_env_steps,
-        "n_agent_steps": n_agent_steps,
-        "total_actions": total_actions,
-        "total_llm_calls": total_llm_calls,
-        "duration": duration,
-        "prompt_tokens": token_stats["prompt"],
-        "completion_tokens": token_stats["completion"],
-        "cached_tokens": token_stats["cached"],
-        "cache_creation_tokens": token_stats["cache_created"],
-        "cost": token_stats["cost"],
-        "final_reward": final_reward,
-    }
+    return stats
 
 
 def _finished_rewards(trajectories: list[Trajectory]) -> list[float]:
@@ -1526,16 +1142,9 @@ def compute_experiment_stats(trajectories: list[Trajectory]) -> str:
 # Agent / Task / Seed hierarchy tables
 # ---------------------------------------------------------------------------
 #
-# NOTE: The per-trajectory stats shown in the task and seed tables (n_steps, tokens, cost)
-# are derived by iterating over all loaded TrajectoryStep objects.  When trajectories are
-# loaded as metadata stubs (steps=[]), these values will show "-" until the full trajectory
-# is loaded — either by the user clicking on a seed, or by the background bulk-loading
-# thread in xray.py.
-#
-# This is a temporary workaround.  The long-term solution is to have the evaluation loop
-# persist per-episode summary stats (n_steps, prompt_tokens, completion_tokens, total_cost,
-# duration) directly into the *.metadata.json file as each episode completes.  That would
-# make all table columns immediately available at experiment-open time without any bulk loading.
+# Per-trajectory stats (n_steps, tokens, cost) come from `compute_trajectory_stats`,
+# which reads `Trajectory.summary_stats` — aggregated by EventStreamer and persisted on
+# the metadata stub. Stubs with no summary_stats render "-".
 # ---------------------------------------------------------------------------
 
 
@@ -1616,336 +1225,296 @@ def build_trajectory_table(trajectories: list[Trajectory], agent_key: str) -> li
     return rows
 
 
-# ---------------------------------------------------------------------------
-# Timeline HTML generation
-# ---------------------------------------------------------------------------
-
-_ENV_COLOR = "#a1c9f4"
-_AGENT_COLOR = "#8de5a1"
-_CURRENT_BORDER_COLOR = "#ffd700"
-_SUCCESS_BORDER_COLOR = "#32cd32"
-_FAILURE_BORDER_COLOR = "#dc3545"
-_MIN_WIDTH = 12
-_MAX_WIDTH = 240
-
-# Muted palette for profiling labels — distinct from env blue and agent green.
-_PROFILING_PALETTE = [
-    "#f9c784",  # warm amber
-    "#d4a8e0",  # soft violet
-    "#f4a3a8",  # dusty rose
-    "#80cbc4",  # teal
-    "#fde68a",  # pale gold
-    "#ff9a6c",  # soft orange
-]
+# ===========================================================================
+# Event-stream rendering (agent-owns-loop XRay rewrite)
+#
+# Everything below consumes the flat `EpisodeEvents` view model (Observation /
+# LLMCall / EvaluationEvent payloads) — never EnvironmentOutput / AgentOutput /
+# Trajectory.steps. The card rail replaces the horizontal timeline; the detail
+# panes render a resolved `EventGroup` instead of a lone step.
+# ===========================================================================
 
 
-def _compute_step_width(
-    duration: float | None,
-    min_duration: float,
-    max_duration: float,
-    min_width: int = _MIN_WIDTH,
-    max_width: int = _MAX_WIDTH,
-) -> int:
-    """Compute pixel width for a timeline segment based on its duration."""
-    if duration is None or max_duration <= min_duration:
-        return min_width
-    normalized = (duration - min_duration) / (max_duration - min_duration)
-    return int(min_width + normalized * (max_width - min_width))
+# --- Observation extractors ------------------------------------------------
 
 
-def _assign_profiling_colors(labels: list[str]) -> dict[str, str]:
-    """Map profiling labels to palette colors in a stable, insertion-order manner."""
-    return {label: _PROFILING_PALETTE[i % len(_PROFILING_PALETTE)] for i, label in enumerate(labels)}
-
-
-def _build_profiling_strip_css(
-    profiling: dict[str, tuple[float, float]],
-    label_colors: dict[str, str],
-    agent_t_start: float | None = None,
-    agent_t_end: float | None = None,
-    env_pct: float = 0.0,
-) -> str | None:
-    """Build a CSS linear-gradient for the top profiling strip.
-
-    The strip is anchored to the agent portion of the bar (env_pct% → 100%).
-    When agent_t_start/end are provided, profiling entries are positioned using the
-    agent step's absolute timestamps so the strip aligns with the green agent zone.
-    Falls back to spanning the profiling window if agent timing is unavailable.
-    Returns None if profiling is empty or the total duration is zero.
-    """
-    if not profiling:
+def screenshot_from_obs(obs: Observation | None) -> Image.Image | None:
+    """First PIL image in an Observation's contents, or None."""
+    if obs is None:
         return None
-    entries = sorted(
-        [(start, end, label) for label, (start, end) in profiling.items() if end > start],
-        key=lambda x: x[0],
-    )
-    if not entries:
+    for content in obs.contents:
+        if isinstance(content.data, Image.Image):
+            return content.data
+    return None
+
+
+def text_content_from_obs(obs: Observation | None, name_pattern: str) -> str | None:
+    """First text content whose name contains `name_pattern` (case-insensitive)."""
+    if obs is None:
         return None
+    needle = name_pattern.lower()
+    for content in obs.contents:
+        if isinstance(content.data, str) and needle in (content.name or "").lower():
+            return content.data
+    return None
 
-    agent_span = 100.0 - env_pct  # bar-% width of the agent zone
 
-    if agent_t_start is not None and agent_t_end is not None and agent_t_end > agent_t_start:
-        ref_start = agent_t_start
-        ref_duration = agent_t_end - agent_t_start
-    else:
-        # Fallback: map relative to the profiling window, over the agent zone only.
-        ref_start = entries[0][0]
-        ref_end = max(e for _, e, _ in entries)
-        ref_duration = ref_end - ref_start
-
-    if ref_duration <= 0:
-        return None
-
-    stops: list[str] = []
-    # Cover the env portion with transparent so colors stay in the agent zone.
-    if env_pct > 0.5:
-        stops.append(f"transparent 0% {env_pct:.1f}%")
-
-    cursor_pct = env_pct
-    for seg_start, seg_end, label in entries:
-        pct_start = env_pct + (seg_start - ref_start) / ref_duration * agent_span
-        pct_end = env_pct + (seg_end - ref_start) / ref_duration * agent_span
-        # Clamp to the agent portion.
-        pct_start = max(env_pct, min(100.0, pct_start))
-        pct_end = max(env_pct, min(100.0, pct_end))
-        if pct_end <= pct_start:
+def goal_from_events(events: EpisodeEvents | None) -> str:
+    """Task goal text — the first non-empty text content of the first observation."""
+    if events is None or len(events) == 0:
+        return "*No trajectory loaded*"
+    for i in range(len(events)):
+        obs = events.observation(i)
+        if obs is None:
             continue
-        color = label_colors.get(label, _AGENT_COLOR)
-        if pct_start > cursor_pct + 0.5:
-            stops.append(f"transparent {cursor_pct:.1f}% {pct_start:.1f}%")
-        stops.append(f"{color} {pct_start:.1f}% {pct_end:.1f}%")
-        cursor_pct = pct_end
-    if cursor_pct < 99.5:
-        stops.append(f"transparent {cursor_pct:.1f}% 100%")
-    if not stops or stops == [f"transparent 0% {env_pct:.1f}%"]:
-        return None
-    return f"linear-gradient(to right, {', '.join(stops)})"
+        for content in obs.contents:
+            if isinstance(content.data, str) and content.data.strip():
+                return content.data
+    return "*No goal text found*"
 
 
-def _build_segment_html(
-    step_idx: int,
-    is_current: bool,
-    total_width: int,
-    tooltip: str,
-    env_frac: float,
-    done: bool = False,
-    reward: float = 0.0,
-    profiling_strip_css: str | None = None,
-) -> str:
-    """Build the HTML div for one timeline segment.
+# --- Card rail -------------------------------------------------------------
 
-    The main bar uses a two-color env/agent gradient. When profiling_strip_css is provided,
-    a thin colored strip is rendered at the top of the bar (like the done border at the bottom).
+_RAIL_MIN_H = 44  # px — shortest card
+_RAIL_MAX_H = 140  # px — tallest card
+
+
+def _card_height(duration: float | None, min_dur: float, max_dur: float) -> int:
+    """Map an event duration to a clamped card height in pixels."""
+    if duration is None or max_dur <= min_dur:
+        return _RAIL_MIN_H
+    frac = (duration - min_dur) / (max_dur - min_dur)
+    return int(_RAIL_MIN_H + frac * (_RAIL_MAX_H - _RAIL_MIN_H))
+
+
+def _card_onclick(index: int) -> str:
+    """JS that writes `index` into the hidden #timeline_click_input Number.
+
+    Reuses the native-setter pattern the old timeline used so Gradio's change
+    detection fires on every click (even when re-selecting the same value).
     """
-    border = f"3px solid {_CURRENT_BORDER_COLOR}" if is_current else "1px solid #ccc"
-    box_shadow = "0 0 8px rgba(255, 215, 0, 0.8)" if is_current else "none"
-
-    done_border = ""
-    if done:
-        done_color = _SUCCESS_BORDER_COLOR if reward > 0 else _FAILURE_BORDER_COLOR
-        done_border = f"border-bottom: 4px solid {done_color};"
-
-    step_num = step_idx + 1
-    env_pct = int(env_frac * 100)
-    gradient = (
-        _ENV_COLOR
-        if env_pct == 100
-        else (f"linear-gradient(to right, {_ENV_COLOR} {env_pct}%, {_AGENT_COLOR} {env_pct}%)")
-    )
-
-    strip_html = ""
-    if profiling_strip_css:
-        strip_html = (
-            f'<div style="position: absolute; top: 0; left: 0; right: 0; height: 5px;'
-            f' background: {profiling_strip_css}; border-radius: 3px 3px 0 0; pointer-events: none;"></div>'
-        )
-
-    # Use native setter to properly trigger Gradio's change detection
-    onclick = (
-        f"const inp = document.querySelector('#timeline_click_input input, #timeline_click_input textarea');"
-        f" if(inp) {{"
-        f" const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;"
-        f" nativeSetter.call(inp, {step_idx});"
-        f" inp.dispatchEvent(new Event('input', {{bubbles: true}}));"
-        f" inp.dispatchEvent(new Event('change', {{bubbles: true}}));"
-        f" }}"
-    )
-
     return (
-        f'<div class="timeline-step" data-step="{step_idx}" title="{tooltip}" onclick="{onclick}" style="'
-        f"position: relative; display: inline-flex; align-items: center; justify-content: center;"
-        f" min-width: {total_width}px; height: 36px; margin: 2px;"
-        f" background: {gradient}; border: {border}; border-radius: 4px;"
-        f" cursor: pointer; font-size: 11px; font-weight: bold; color: #333;"
-        f" box-shadow: {box_shadow}; {done_border} transition: transform 0.1s;"
-        f'"'
-        f" onmouseover=\"this.style.transform='scale(1.1)'\" onmouseout=\"this.style.transform='scale(1)'\">"
-        f"{strip_html}{step_num}</div>"
+        "const inp = document.querySelector('#timeline_click_input input, #timeline_click_input textarea');"
+        " if(inp) {"
+        " const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;"
+        f" s.call(inp, {index});"
+        " inp.dispatchEvent(new Event('input', {bubbles: true}));"
+        " inp.dispatchEvent(new Event('change', {bubbles: true}));"
+        " }"
     )
 
 
-def _collect_profiling_labels(trajectory: Trajectory) -> list[str]:
-    """Return unique profiling labels across all AgentOutputs, in first-seen order."""
-    seen: dict[str, None] = {}
-    for ts in trajectory.steps:
-        if isinstance(ts.output, AgentOutput):
-            for label in ts.output.profiling:
-                seen.setdefault(label, None)
-    return list(seen.keys())
+def _event_profiling(events: EpisodeEvents, index: int) -> dict | None:
+    """`profiling` dict of an event's payload, if it carries one (LLM calls)."""
+    return getattr(events.output(index), "profiling", None) or None
 
 
-def generate_timeline_html(trajectory: Trajectory | None, current_step: int) -> str:
-    """Generate an HTML timeline with one segment per UI step (EnvironmentOutput).
+def render_event_rail_html(events: EpisodeEvents | None, selected: int) -> str:
+    """Vertical, scrollable column of `.xray-event-card` divs — one per event.
 
-    current_step is a UI step index (0-based index into env steps).
-    Each segment's width scales with total (env+agent) duration.
-    The segment bar is split left→right: env time (blue) then agent time (green), with the
-    agent portion further subdivided by AgentOutput.profiling intervals when present.
+    The active card (index == selected) gets a solid border in its kind colour;
+    its group-mates get a muted (dashed) border. Card height scales with the
+    event's wall-clock duration. A left-edge stripe marks profiled events.
     """
-    if trajectory is None or not trajectory.steps:
-        return "<div style='padding: 10px; color: #666;'>No trajectory loaded</div>"
+    if events is None or len(events) == 0:
+        return "<div style='padding:10px;color:#666;'>No events to display</div>"
 
-    env_steps: list[tuple[int, EnvironmentOutput]] = [
-        (i, ts.output)  # type: ignore[misc]
-        for i, ts in enumerate(trajectory.steps)
-        if isinstance(ts.output, EnvironmentOutput)
-    ]
+    durations: list[float | None] = []
+    for ev in events.events:
+        d = ev.end_time - ev.start_time if (ev.start_time is not None and ev.end_time is not None) else None
+        durations.append(d)
+    valid = [d for d in durations if d is not None and d > 0]
+    min_dur, max_dur = (min(valid), max(valid)) if valid else (0.0, 1.0)
 
-    if not env_steps:
-        return "<div style='padding: 10px; color: #666;'>No environment steps found</div>"
+    accompanying: set[int] = set(events.accompanying_indices(selected)) if 0 <= selected < len(events) else set()
 
-    # Assign stable colors to every profiling label found in this trajectory.
-    profiling_labels = _collect_profiling_labels(trajectory)
-    label_colors = _assign_profiling_colors(profiling_labels)
-
-    def _raw_duration(raw_idx: int) -> float | None:
-        ts = trajectory.steps[raw_idx]
-        if ts.start_time is not None and ts.end_time is not None:
-            return ts.end_time - ts.start_time
-        return None
-
-    # Pre-compute per-UI-step env and agent durations
-    env_durs: list[float | None] = []
-    agent_durs: list[float | None] = []
-    total_durs: list[float | None] = []
-    for raw_idx, _ in env_steps:
-        ed = _raw_duration(raw_idx)
-        next_idx = raw_idx + 1
-        has_agent = next_idx < len(trajectory.steps) and isinstance(trajectory.steps[next_idx].output, AgentOutput)
-        ad = _raw_duration(next_idx) if has_agent else None
-        env_durs.append(ed)
-        agent_durs.append(ad)
-        total = (ed or 0.0) + (ad or 0.0)
-        total_durs.append(total if (ed is not None or ad is not None) else None)
-
-    valid_totals = [d for d in total_durs if d is not None and d > 0]
-    min_total = min(valid_totals) if valid_totals else 0.0
-    max_total = max(valid_totals) if valid_totals else 1.0
-
-    steps_html = []
-    for ui_idx, (raw_idx, env_out) in enumerate(env_steps):
-        is_current = ui_idx == current_step
-        total_width = _compute_step_width(total_durs[ui_idx], min_total, max_total)
-
-        ed = env_durs[ui_idx] or 0.0
-        ad = agent_durs[ui_idx] or 0.0
-        total = ed + ad
-        env_frac = (ed / total) if total > 0 else 1.0
-
-        # Collect agent step profiling for the top strip.
-        agent_out: AgentOutput | None = None
-        agent_ts_start: float | None = None
-        agent_ts_end: float | None = None
-        next_idx = raw_idx + 1
-        if next_idx < len(trajectory.steps):
-            next_ts = trajectory.steps[next_idx]
-            if isinstance(next_ts.output, AgentOutput):
-                agent_out = next_ts.output
-                agent_ts_start = next_ts.start_time
-                agent_ts_end = next_ts.end_time
-
-        profiling = agent_out.profiling if agent_out is not None else {}
-        profiling_strip_css = _build_profiling_strip_css(
-            profiling, label_colors, agent_ts_start, agent_ts_end, env_frac * 100.0
-        )
-
-        # Build tooltip as a timing tree.
-        timing_parts = []
-        if ed > 0:
-            timing_parts.append(f"env: {format_duration(ed)}")
-        if ad > 0:
-            timing_parts.append(f"agent: {format_duration(ad)}")
-        tooltip = f"Step {ui_idx + 1}"
-        if timing_parts:
-            tooltip += f" ({' + '.join(timing_parts)})"
-        tree_lines: list[str] = []
-        if ed > 0:
-            tree_lines.append(f"  env: {format_duration(ed)}")
-        if ad > 0:
-            tree_lines.append(f"  agent: {format_duration(ad)}")
-            for lbl, (start, end) in profiling.items():
-                tree_lines.append(f"    {lbl}: {format_duration(end - start)}")
-        if env_out.done:
-            tree_lines.append(f"  reward: {env_out.reward:.2f}")
-        if tree_lines:
-            tooltip += "\n" + "\n".join(tree_lines)
-
-        steps_html.append(
-            _build_segment_html(
-                ui_idx,
-                is_current,
-                total_width,
-                tooltip,
-                env_frac,
-                env_out.done,
-                env_out.reward,
-                profiling_strip_css,
+    cards_html: list[str] = []
+    for card in events.cards():
+        i = card.index
+        is_active = i == selected
+        is_accomp = i in accompanying
+        if is_active:
+            border = f"2px solid {card.color}"
+            shadow = f"box-shadow:0 0 0 2px {card.color}33;"
+        elif is_accomp:
+            border = f"2px dashed {card.color}99"
+            shadow = ""
+        else:
+            border = "1px solid #e2e8f0"
+            shadow = ""
+        height = _card_height(durations[i], min_dur, max_dur)
+        stripe = ""
+        if _event_profiling(events, i):
+            stripe = (
+                "<div style='position:absolute;left:0;top:0;bottom:0;width:4px;"
+                f"background:{card.color};border-radius:6px 0 0 6px;'></div>"
             )
+        dur_label = format_duration(durations[i]) if durations[i] is not None else ""
+        title = html_lib.escape(card.title)
+        subtitle = html_lib.escape(card.subtitle)
+        cards_html.append(
+            f"<div class='xray-event-card' data-index='{i}' onclick=\"{_card_onclick(i)}\" "
+            f"style='position:relative;display:flex;flex-direction:column;justify-content:center;"
+            f"min-height:{height}px;margin:4px 0;padding:6px 10px 6px 14px;border:{border};{shadow}"
+            f"border-radius:6px;background:{card.color}0d;cursor:pointer;overflow:hidden;'>"
+            f"{stripe}"
+            f"<div style='display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;color:#1f2937;'>"
+            f"<span style='font-size:15px;'>{card.icon}</span>"
+            f"<span style='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{title}</span>"
+            f"<span style='margin-left:auto;font-size:10px;color:#9ca3af;font-weight:400;'>#{i}{(' · ' + dur_label) if dur_label else ''}</span>"
+            f"</div>"
+            f"<div style='font-size:11px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;'>{subtitle}</div>"
+            f"</div>"
         )
 
-    # Legend row 1: bar colors and step indicators (always shown).
-    row1_parts = [
-        f'<div style="display: flex; align-items: center; gap: 4px;">'
-        f'<div style="width: 22px; height: 14px;'
-        f" background: linear-gradient(to right, {_ENV_COLOR} 50%, {_AGENT_COLOR} 50%);"
-        f' border-radius: 3px;"></div>'
-        f"<span>Env | Agent time</span></div>",
-        f'<div style="display: flex; align-items: center; gap: 4px;">'
-        f'<div style="width: 16px; height: 16px; border: 2px solid {_CURRENT_BORDER_COLOR}; border-radius: 3px;"></div>'
-        f"<span>Current</span></div>",
-        f'<div style="display: flex; align-items: center; gap: 4px;">'
-        f'<div style="width: 16px; height: 16px; border-bottom: 3px solid {_SUCCESS_BORDER_COLOR}; background: #ddd; border-radius: 3px;"></div>'
-        f"<span>Success</span></div>",
-        f'<div style="display: flex; align-items: center; gap: 4px;">'
-        f'<div style="width: 16px; height: 16px; border-bottom: 3px solid {_FAILURE_BORDER_COLOR}; background: #ddd; border-radius: 3px;"></div>'
-        f"<span>Failure</span></div>",
-    ]
-    legend_html = (
-        '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; font-size: 12px; color: #666;">'
-        + "".join(row1_parts)
-        + "</div>"
-    )
+    # No scroll wrapper here — the overflow lives on the stable `#xray_rail`
+    # Gradio container (see _CSS), so re-rendering these cards on selection does
+    # not reset the scroll position.
+    return "<div id='xray-event-rail'>" + "".join(cards_html) + "</div>"
 
-    # Legend row 2: profiling labels (only when profiling data is present).
-    if profiling_labels:
-        row2_parts = [
-            f'<div style="display: flex; align-items: center; gap: 4px;">'
-            f'<div style="width: 16px; height: 5px; background: {label_colors[lbl]}; border-radius: 2px; border: 1px solid #bbb;"></div>'
-            f"<span>{lbl}</span></div>"
-            for lbl in profiling_labels
-        ]
-        legend_html += (
-            '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; font-size: 12px; color: #666;">'
-            '<span style="color:#999;">Agent profiling:</span>' + "".join(row2_parts) + "</div>"
+
+# --- Grouped detail panes --------------------------------------------------
+
+
+def render_group_chat_html(events: EpisodeEvents, group: EventGroup) -> str:
+    """Chat pane: the group's LLM call rendered with the existing helper."""
+    call = events.llm_call(group.llm_index)
+    if call is None:
+        return "<em>No LLM call in this group (e.g. the reset observation).</em>"
+    return _render_llm_call_html(call)
+
+
+def _message_text(msg: object) -> str:
+    """Plain text of an LLM output message (str content, or text parts of a list)."""
+    content = getattr(msg, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+    return ""
+
+
+def render_group_reasoning_html(events: EpisodeEvents, group: EventGroup) -> str:
+    """Reasoning pane: the LLM's thinking for the group, shown beside the action.
+
+    Prefers extended-thinking `reasoning_content` (Anthropic exposes this);
+    otherwise the assistant message text. When neither is present but the model
+    consumed reasoning tokens, note that the provider hid the chain-of-thought
+    (OpenAI/Azure return `reasoning_tokens` but not the text)."""
+    call = events.llm_call(group.llm_index)
+    if call is None:
+        return "<em>No LLM call in this group.</em>"
+    text = getattr(call.output, "reasoning_content", None) or _message_text(call.output)
+    if text and text.strip():
+        return (
+            f"<div style='white-space:pre-wrap;font-size:13px;line-height:1.4;'>{html_lib.escape(text.strip())}</div>"
         )
+    reasoning_tokens = getattr(call.usage, "reasoning_tokens", 0) or 0
+    if reasoning_tokens > 0:
+        return (
+            f"<em>🔒 The model used {reasoning_tokens:,} reasoning token(s), but the provider "
+            "did not return the reasoning text (hidden chain-of-thought).</em>"
+        )
+    return "<em>No reasoning text — the model emitted only tool call(s).</em>"
 
-    return (
-        f'<div style="padding: 10px; background: #f8f9fa; border-radius: 8px;">'
-        f"{legend_html}"
-        f'<div id="timeline-container" style="'
-        f"display: flex; flex-wrap: wrap; align-items: center; padding: 8px;"
-        f" background: white; border-radius: 6px; border: 1px solid #dee2e6;"
-        f' max-height: 120px; overflow-y: auto;">'
-        f"{''.join(steps_html)}"
-        f"</div></div>"
-    )
+
+def render_group_observation_html(events: EpisodeEvents, group: EventGroup) -> tuple[list[Image.Image], str]:
+    """Observation pane: screenshots + text contents for every observation in
+    the group. Parallel siblings are stacked with per-observation labels.
+
+    Returns `(images, html)` — the gallery images and the text/labels HTML.
+    """
+    images: list[Image.Image] = []
+    blocks: list[str] = []
+    obs_indices = group.observation_indices
+    multiple = len(obs_indices) > 1
+    for n, idx in enumerate(obs_indices):
+        obs = events.observation(idx)
+        action = events.action(idx)
+        label = action.name if action is not None else f"observation #{idx}"
+        if multiple:
+            blocks.append(
+                f"<h4 style='margin:8px 0 4px;'>🖥️ Sibling {n + 1}/{len(obs_indices)} — {html_lib.escape(label)}</h4>"
+            )
+        else:
+            blocks.append(f"<h4 style='margin:8px 0 4px;'>🖥️ {html_lib.escape(label)}</h4>")
+        img = screenshot_from_obs(obs)
+        if img is not None:
+            images.append(img)
+            blocks.append(
+                f"<div style='font-size:12px;color:#6b7280;'>screenshot {img.size[0]}×{img.size[1]} → see gallery</div>"
+            )
+        if obs is not None:
+            for content in obs.contents:
+                if isinstance(content.data, str) and content.data.strip():
+                    name = html_lib.escape(content.name or "text")
+                    blocks.append(_details_block(name, content.data))
+    if not blocks:
+        return [], "<em>No observation in this group.</em>"
+    return images, "".join(blocks)
+
+
+def render_group_evaluation_md(events: EpisodeEvents, group: EventGroup) -> str:
+    """Evaluation pane: reward + info for every EvaluationEvent in the group."""
+    if not group.evaluation_indices:
+        return "*No evaluation recorded for this group.*"
+    parts: list[str] = []
+    for idx in group.evaluation_indices:
+        out = events.output(idx)
+        scope = "Terminal" if getattr(out, "is_terminal", False) else "Step-wise"
+        reward = getattr(out, "reward", 0.0)
+        info = getattr(out, "info", {}) or {}
+        parts.append(f"### 🏁 {scope} evaluation\n\n**Reward:** {reward:g}\n")
+        if info:
+            parts.append("```json\n" + json.dumps(info, indent=2, default=str) + "\n```")
+    return "\n".join(parts)
+
+
+def render_group_error_md(events: EpisodeEvents, group: EventGroup) -> str:
+    """Error pane: every error in the group (LLM, tool, or agent error)."""
+    if not group.error_indices:
+        return "No errors in this group."
+    parts: list[str] = []
+    for idx in group.error_indices:
+        err = events.error(idx)
+        if err is None:
+            continue
+        parts.append(
+            f"### ⚠️ {err.error_type}\n**Message:** {err.exception_str}\n\n**Stack Trace:**\n```\n{err.stack_trace}\n```"
+        )
+    return "\n\n---\n\n".join(parts) if parts else "No errors in this group."
+
+
+def render_group_debug_json(events: EpisodeEvents, group: EventGroup) -> str:
+    """Debug pane: raw JSON dump of every event in the group.
+
+    Dumps `event.output` with its concrete type (rather than the
+    `TrajectoryEvent` wrapper, whose union `output` field triggers noisy
+    Pydantic serializer warnings on every non-matching arm).
+    """
+    dump = []
+    for idx in group.members:
+        ev = events[idx]
+        dump.append(
+            {
+                "index": idx,
+                "kind": type(ev.output).__name__,
+                "start_time": ev.start_time,
+                "end_time": ev.end_time,
+                "output": ev.output.model_dump(mode="json"),
+            }
+        )
+    return json.dumps(dump, indent=2, default=str)
+
+
+def render_group_action_html(events: EpisodeEvents, group: EventGroup) -> str:
+    """Always-visible action panel: the action(s) the group's LLM dispatched."""
+    actions = [events.action(i) for i in group.observation_indices]
+    actions = [a for a in actions if a is not None]
+    if not actions:
+        return "<em>No action — observation-only or terminal group.</em>"
+    lines: list[str] = []
+    for action in actions:
+        args = ", ".join(f"{k}={json.dumps(v, default=str)}" for k, v in (action.arguments or {}).items())
+        lines.append(f"<code>{html_lib.escape(action.name)}({html_lib.escape(args)})</code>")
+    return "<br>".join(lines)
