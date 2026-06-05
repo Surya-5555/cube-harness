@@ -151,12 +151,12 @@ def test_default_run_completes_when_task_signals_done() -> None:
 def test_summary_stats_counts_agent_steps_without_llm_calls() -> None:
     task = _MockTask(done_after_n=3)
     budget = Budget(max_agent_steps=10)
-    recorder, _storage = _setup(task, budget)
+    recorder, _storage, env_tool = _setup(task, budget)
     agent = _CounterAgent(_CounterAgentConfig())
     agent.attach_recorder(recorder)
 
     try:
-        asyncio.run(agent.run(initial_obs=Observation(), env_tool=task.toolbox))
+        agent.run(initial_obs=Observation(), env_tool=env_tool)
     except TaskDone:
         pass
 
