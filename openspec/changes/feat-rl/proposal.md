@@ -91,10 +91,13 @@ labels    = [-100] * len(prompt_token_ids) + completion_token_ids
 reward    = group/trajectory reward
 ```
 
-`scripts/smoke/rl_mock_multiturn_service.py` is the deterministic integration
-check for this contract. It uses a mock benchmark and mock agent, requires no
-live LLM, validates event ordering and token-id metadata, reconstructs a
-multi-turn trajectory, and writes JSONL training examples.
+`scripts/smoke/rl_mock_multiturn_service.py` is the deterministic local-mode
+integration check for this contract. It uses a mock benchmark and mock agent,
+requires no live LLM, validates event ordering and token-id metadata,
+reconstructs a multi-turn trajectory, and writes JSONL training examples.
+`scripts/smoke/rl_ray_rollout.py` is the Ray-backed smoke for real Ray startup,
+scheduling, event-sink actor wiring, and cancellation; this coverage is kept out
+of default pytest because GitHub-hosted runners are resource constrained.
 
 For tighter local debugging, `recipes/rl/hello_miniwob_local.py` uses
 `RolloutEngine` directly in process, without an HTTP server, and prints rollout
@@ -129,9 +132,11 @@ The whole PR contract includes:
 - `cube_harness.episode`, `streamer`, and `storage`: extension points that let
   RL attach sinks and avoid disk writes without forking the episode loop;
 - `recipes/rl`: local and service examples for MiniWoB;
-- `scripts/smoke/rl_mock_multiturn_service.py`: deterministic end-to-end smoke;
-- tests covering rollout service behavior, optional storage, event publishing,
-  and throughput-sensitive paths.
+- `scripts/smoke/rl_mock_multiturn_service.py`: deterministic local-mode end-to-end smoke;
+- `scripts/smoke/rl_ray_rollout.py`: Ray-backed scheduling and cancellation smoke;
+- `scripts/smoke/rl_ray_throughput.py`: Ray-backed throughput scaling smoke;
+- tests covering rollout service behavior, optional storage, and event publishing
+  without starting a real Ray cluster.
 
 ## HTTP Service
 

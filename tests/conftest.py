@@ -351,19 +351,3 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Save xray e2e screenshots to /tmp/xray_screenshots/ for visual inspection.",
     )
-    parser.addoption(
-        "--run-perf",
-        action="store_true",
-        default=False,
-        help="Run opt-in performance/throughput tests marked with @pytest.mark.perf.",
-    )
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if config.getoption("--run-perf", default=False):
-        return
-
-    skip_perf = pytest.mark.skip(reason="perf tests run only when --run-perf is provided")
-    for item in items:
-        if item.get_closest_marker("perf") is not None:
-            item.add_marker(skip_perf)

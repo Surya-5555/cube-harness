@@ -45,24 +45,25 @@ Rollout-specific endpoint behavior and token/logprob validation live in
 `cube_harness.rl.llm`.
 
 
-## ADDED — `recipes/rl/` and RL smoke
+## ADDED — `recipes/rl/` and RL smokes
 
-Adds rollout recipes for MiniWoB plus the deterministic smoke:
+Adds rollout recipes for MiniWoB plus deterministic smokes:
 
 ```bash
 uv run scripts/smoke/rl_mock_multiturn_service.py --turns 2
+uv run scripts/smoke/rl_ray_rollout.py
+uv run scripts/smoke/rl_ray_throughput.py
 ```
 
-The smoke is the PR-level integration check for the rollout service when a
-coding agent needs a fast end-to-end validation signal.
+The local-mode smoke is the PR-level integration check for the rollout service
+when a coding agent needs a fast end-to-end validation signal. The Ray smokes are kept outside the default pytest suite because real Ray
+scheduling can be flaky on resource-constrained GitHub-hosted runners.
 
-## ADDED — rollout service tests and perf helpers
+## ADDED — rollout service unit tests
 
-Adds rollout tests and opt-in throughput coverage:
+Adds rollout unit tests that do not start a real Ray cluster:
 
 - `tests/test_rollout_service.py`
-- `tests/perf/test_rollout_throughput.py`
-- `tests/rollout_perf_helpers.py`
 
 ## REMOVED / NOT CARRIED FORWARD — old unreleased RL compatibility layer
 

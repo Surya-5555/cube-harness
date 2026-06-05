@@ -140,21 +140,26 @@ RL examples live under `recipes/rl/`:
 - `hello_miniwob_local.py`
 - `hello_miniwob_service.py`
 
-The deterministic system smoke lives under `scripts/smoke/`:
+Deterministic system smokes live under `scripts/smoke/`:
 
 ```bash
 uv run scripts/smoke/rl_mock_multiturn_service.py --turns 2
+uv run scripts/smoke/rl_ray_rollout.py
+uv run scripts/smoke/rl_ray_throughput.py
 ```
 
-It runs the rollout service with a mock benchmark/agent, reconstructs partial
-trajectory events, validates trainable metadata, writes JSONL training examples,
-and prints `SMOKE OK: rl_mock_multiturn_service` on success.
+`rl_mock_multiturn_service.py` runs the rollout service in local mode with a
+mock benchmark/agent, reconstructs partial trajectory events, validates
+trainable metadata, writes JSONL training examples, and prints
+`SMOKE OK: rl_mock_multiturn_service` on success. `rl_ray_rollout.py` is the
+Ray-backed smoke for real Ray startup, scheduling, event-sink actor wiring, and
+cancellation. `rl_ray_throughput.py` preserves the throughput scaling check as
+a smoke. Ray coverage is intentionally smoke-only because GitHub-hosted
+runners are resource constrained and can make Ray scheduling tests flaky.
 
-Focused tests for the PR live in:
+Focused unit tests for the PR live in:
 
 - `tests/test_rollout_service.py`
-- `tests/perf/test_rollout_throughput.py`
-- `tests/rollout_perf_helpers.py`
 
 
 ## Invariants

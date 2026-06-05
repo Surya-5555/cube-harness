@@ -11,13 +11,12 @@ from litellm import Message
 
 from cube_harness.core import AgentErrorEvent, EvaluationEvent, LLMCallEvent, ToolCallEvent, TrajectoryEvent
 from cube_harness.llm import LLMCall, LLMConfig, Prompt, Usage
-from cube_harness.rl import CancelRequest, RayConfig, RolloutConfig, RolloutEngine, RolloutRequest, serve
+from cube_harness.rl import RayConfig, RolloutConfig, RolloutEngine, RolloutRequest, serve
 from cube_harness.rl.events import EventContext
 from cube_harness.rl.llm import RolloutLLM, RolloutLLMConfig
 from cube_harness.rl.trajectory_sink import RLEventSink
 from cube_harness.streamer import EventStreamer, EventStreamerConfig
 from tests.conftest import MockAgentConfig, MockCubeBenchmarkConfig
-from tests.rollout_perf_helpers import SlowRolloutBenchmarkConfig
 
 
 def _rollout_llm_request_config() -> RolloutLLMConfig:
@@ -92,6 +91,7 @@ def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> 
         benchmark_config=MockCubeBenchmarkConfig(),
         agent_config=MockAgentConfig(),
         max_steps=2,
+        execution_mode="local",
     )
     app = serve(config=config)
     service = app.state.service
@@ -100,7 +100,7 @@ def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> 
         health = service.health()
         assert health["ready"] is True
         assert health["benchmark"]["name"] == "mock-cube"
-        assert health["ray"]["initialized"] is True
+        assert health["ray"]["initialized"] is False
         assert health["executor"]["inflight_rollouts"] == 0
         assert health["persist_rollout"] is False
         assert not (tmp_dir / "rollout_config.json").exists()
@@ -150,6 +150,7 @@ def test_rollout_debug_persistence_is_opt_in(tmp_dir) -> None:
         agent_config=MockAgentConfig(),
         max_steps=2,
         persist_rollout=True,
+        execution_mode="local",
     )
     app = serve(config=config)
     service = app.state.service
@@ -271,14 +272,14 @@ def test_rollout_service_exposes_task_configs(tmp_dir) -> None:
         service.close()
 
 
-def test_rollout_health_reports_ray_capacity(tmp_dir) -> None:
+def test_rollout_health_reports_local_capacity(tmp_dir) -> None:
     config = RolloutConfig(
         name="rollout_test",
         output_dir=tmp_dir,
         benchmark_config=MockCubeBenchmarkConfig(),
         agent_config=MockAgentConfig(),
         max_steps=2,
-        ray=RayConfig(num_workers=2),
+        execution_mode="local",
     )
     app = serve(config=config)
     service = app.state.service
@@ -286,11 +287,11 @@ def test_rollout_health_reports_ray_capacity(tmp_dir) -> None:
     try:
         health = service.health()
         assert health["ready"] is True
-        assert health["ray"]["initialized"] is True
-        assert health["ray"]["configured_num_workers"] == 2
+        assert health["ray"]["initialized"] is False
+        assert health["ray"]["configured_num_workers"] == 1
         assert health["ray"]["task_num_cpus"] == 0.25
-        assert health["ray"]["cluster_cpus"] >= 1
-        assert health["ray"]["estimated_rollout_slots"] >= 8
+        assert health["ray"]["cluster_cpus"] == 0.0
+        assert health["ray"]["estimated_rollout_slots"] == 0
         assert health["executor"]["inflight_rollouts"] == 0
         assert health["executor"]["cancelled_rollouts"] == 0
         assert health["sink"]["next_offset"] == 0
@@ -300,53 +301,6 @@ def test_rollout_health_reports_ray_capacity(tmp_dir) -> None:
         service.close()
 
 
-def test_rollout_cancel_emits_single_cancelled_terminal(tmp_dir) -> None:
-    config = RolloutConfig(
-        name="rollout_cancel_test",
-        output_dir=tmp_dir,
-        benchmark_config=SlowRolloutBenchmarkConfig(),
-        agent_config=MockAgentConfig(),
-        max_steps=1,
-        ray=RayConfig(num_workers=1),
-    )
-    rollout = RolloutEngine(config=config)
-
-    try:
-        request = RolloutRequest(
-            request_id="cancel-request-1",
-            task_id="slow_rollout_task",
-            llm_config=_rollout_llm_request_config(),
-        )
-
-        async def run_cancel() -> list[dict]:
-            await rollout.submit(request)
-            result = await rollout.cancel(CancelRequest(request_id=request.request_id))
-            assert result == {"cancelled": 1}
-            async for _event in rollout.events(
-                from_offset=0,
-                stop_request_id=request.request_id,
-                timeout_s=10.0,
-                poll_timeout_s=0.1,
-            ):
-                pass
-            return rollout.events_from(0)
-
-        events = asyncio.run(run_cancel())
-        terminals = [event for event in events if event["type"] == "terminal"]
-        assert len(terminals) == 1
-        assert terminals[0]["request_id"] == request.request_id
-        assert terminals[0]["rollout_status"] == "cancelled"
-        assert terminals[0]["rollout_valid"] is False
-        assert terminals[0]["trainable"] is False
-
-        health = rollout.stats()
-        assert health["executor"]["cancelled_rollouts"] == 1
-        assert health["executor"]["terminal_rollouts"] == 1
-        assert health["executor"]["pending_cancel_request_ids"] == []
-    finally:
-        rollout.close()
-
-
 def test_rollout_streams_events_without_http_service(tmp_dir) -> None:
     config = RolloutConfig(
         name="rollout_test",
@@ -354,6 +308,7 @@ def test_rollout_streams_events_without_http_service(tmp_dir) -> None:
         benchmark_config=MockCubeBenchmarkConfig(),
         agent_config=MockAgentConfig(),
         max_steps=2,
+        execution_mode="local",
     )
     rollout = RolloutEngine(config=config)
 
@@ -393,6 +348,7 @@ def test_duplicate_rollout_request_does_not_emit_second_accepted(tmp_dir) -> Non
         benchmark_config=MockCubeBenchmarkConfig(),
         agent_config=MockAgentConfig(),
         max_steps=2,
+        execution_mode="local",
     )
     rollout = RolloutEngine(config=config)
 
@@ -425,6 +381,7 @@ def test_rollout_events_are_reconstructable_from_stream(tmp_dir) -> None:
         benchmark_config=MockCubeBenchmarkConfig(),
         agent_config=MockAgentConfig(),
         max_steps=2,
+        execution_mode="local",
     )
     rollout = RolloutEngine(config=config)
 
