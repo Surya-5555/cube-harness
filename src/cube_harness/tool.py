@@ -27,6 +27,7 @@ async leaves (see cube-standard PR #152).
 """
 
 import asyncio
+import copy
 import logging
 import time
 from typing import Any, Callable
@@ -129,7 +130,7 @@ def _record_step_evaluation(
 
 
 class _MonitorState:
-    """State shared between a MonitoredTool wrapper and install_monitoring.
+    """State shared between a MonitoredTool wrapper and its build helper.
 
     Carries the streamer's `emit` callable, budget, parent-event-id
     getter (late-bound to the streamer's current parent), and an
@@ -267,6 +268,11 @@ class MonitoredTool(AbstractTool):
         self.inner = inner
         self._inner_is_async = isinstance(inner, AbstractAsyncTool)
         self._state = _MonitorState(emit, budget, parent_event_id_getter, task)
+        # TEMP (F4 / design-debt): when set, this leaf does NOT surface
+        # STOP_ACTION. `_dedup_stop_actions` flips it on every monitored leaf
+        # but one so a multi-leaf toolbox surfaces `stop` exactly once. See
+        # `_dedup_stop_actions` for why and the proper fix.
+        self._suppress_stop = False
 
     # --- delegation ---
 
@@ -285,7 +291,7 @@ class MonitoredTool(AbstractTool):
         """
         actions = list(self.inner.action_set)
         task = self._state.task
-        if task is not None and getattr(task, "accept_agent_stop", False):
+        if task is not None and getattr(task, "accept_agent_stop", False) and not self._suppress_stop:
             if not any(a.name == STOP_ACTION.name for a in actions):
                 actions.append(STOP_ACTION)
         return actions
@@ -412,7 +418,7 @@ class MonitoredTool(AbstractTool):
 
 
 # ---------------------------------------------------------------------------
-# install_monitoring helper
+# build_monitored_env_tool helper
 # ---------------------------------------------------------------------------
 
 
@@ -433,79 +439,92 @@ def wrap_tool(
     return MonitoredTool(inner, emit, budget, parent_event_id_getter, task)
 
 
-def install_monitoring(task: Any, streamer: Any) -> None:
-    """Wrap every leaf tool of `task`'s toolbox in place + bake the
-    task reference into each wrapper for cube-standard Task.step semantics.
+def build_monitored_env_tool(task: Any, streamer: Any) -> AbstractTool | AbstractAsyncTool | None:
+    """Build the monitored ``env_tool`` the agent drives — WITHOUT mutating
+    the task's own tool.
 
-    `streamer` is an `EventStreamer` instance — we read three pieces
-    from it: `streamer.emit` (the single fan-out callable),
-    `streamer.budget` (the per-episode Budget), and
-    `streamer.current_parent_event_id` (the late-bound getter for
-    ToolCallEvent.parent_event_id).
+    The agent sees a `MonitoredTool` (single tool) or a shallow copy of the
+    task's toolbox whose leaves are `MonitoredTool`-wrapped. Crucially the
+    wrappers share the SAME inner tool instances as the task, so browser /
+    container state is shared between the agent's calls and the task's own.
 
-    After this call, any path through the toolbox emits monitoring +
-    triggers the task.step wrapping inline:
+    The task keeps its concrete `tool` / `toolbox`, so `task.setup` / `reset`
+    / `evaluate` / `finished` still reach concrete-tool methods (`bash`,
+    `evaluate_js`), private attrs (`_container`, `_config`), and type checks
+    (`isinstance` / `Toolbox.find_tool`). Previously these were wrapped in
+    place, which broke every cube whose lifecycle code touched its own tool.
+    The RFC's contract is "the agent receives only env_tool; the task
+    reference never leaks" — the wrapper still absorbs `Task.step` semantics
+    (STOP_ACTION, obs_postprocess, validate_per_step, finished) via the
+    baked-in task ref, but the task's tool is no longer clobbered.
 
-      - STOP_ACTION short-circuit → raises TaskDone.
-      - obs_postprocess on every Observation result.
-      - Step-wise evaluate when task.validate_per_step=True, recorded
-        as an EvaluationEvent (no bleed to the agent).
-      - task.finished() check after every tool call → raises TaskDone.
-
-    The function mutates `task.toolbox.tools` / `task.tool` so call
-    sites that hold the original reference see the wrappers.
-
-    Nested `Toolbox` / `AsyncToolbox` instances are recursively
-    flattened. Already-wrapped tools pass through (idempotent).
-
-    Looks up the toolbox via `task.toolbox` first, then `task.tool` —
-    cube-standard `Task` exposes the latter (a single Toolbox usually).
+    `streamer` is an `EventStreamer`; we read `.emit`, `.budget`, and
+    `.current_parent_event_id`. Looks up the env tool via `task.toolbox`
+    first, then `task.tool`. Returns None when the task exposes neither.
     """
     emit = streamer.emit
     budget = streamer.budget
     parent_event_id_getter = streamer.current_parent_event_id
     container = getattr(task, "toolbox", None) or getattr(task, "tool", None)
     if container is None:
-        return
-
-    if isinstance(container, (Toolbox, AsyncToolbox)):
-        _wrap_toolbox_in_place(container, emit, budget, parent_event_id_getter, task)
-        return
-
-    # Single tool. Wrap and stash it back on the attribute it came from.
-    wrapped = wrap_tool(container, emit, budget, parent_event_id_getter, task)
-    if hasattr(task, "toolbox") and getattr(task, "toolbox", None) is container:
-        task.toolbox = wrapped
-    elif hasattr(task, "tool") and getattr(task, "tool", None) is container:
-        # cube.task.Task stores the live tool on _tool (Pydantic
-        # PrivateAttr) and exposes it via the `tool` property. We
-        # write _tool when present so the property returns the wrapper.
-        if hasattr(task, "_tool"):
-            task._tool = wrapped
-        else:
-            task.tool = wrapped
+        return None
+    env_tool = _monitored_view(container, emit, budget, parent_event_id_getter, task)
+    _dedup_stop_actions(env_tool)
+    return env_tool
 
 
-def _wrap_toolbox_in_place(
-    toolbox: Toolbox | AsyncToolbox,
+def _dedup_stop_actions(env_tool: AbstractTool | AbstractAsyncTool) -> None:
+    """TEMP (F4 / design-debt): surface STOP_ACTION on exactly one monitored leaf.
+
+    `MonitoredTool.action_set` appends `STOP_ACTION` per leaf, so a multi-leaf
+    monitored toolbox advertises `stop` N times — which both trips
+    `AsyncToolbox.__init__`'s duplicate-name guard (crashing `parallel_actions`
+    on multi-tool cubes) and sends duplicate `stop` tool schemas to the LLM.
+    Keep STOP on the first monitored leaf and suppress it on the rest.
+
+    Proper fix (deferred): STOP is a task/container-level action, not a per-leaf
+    one — surface it once at the toolbox boundary (or have the toolbox treat
+    STOP_ACTION as a shared sentinel) and drop both this pass and the per-leaf
+    append. Tracked as design-debt F4.
+    """
+    seen_stop = False
+    stack: list = [env_tool]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (Toolbox, AsyncToolbox)):
+            stack.extend(node.tools)
+        elif isinstance(node, MonitoredTool):
+            if seen_stop:
+                node._suppress_stop = True
+            else:
+                seen_stop = True
+
+
+def _monitored_view(
+    container: AbstractTool | AbstractAsyncTool,
     emit: "Callable[[TrajectoryEvent], str]",
     budget: Budget,
     parent_event_id_getter: Callable[[], str] | None,
     task: Any | None = None,
-) -> None:
-    """Recursively wrap each leaf tool of a Toolbox / AsyncToolbox with
-    `MonitoredTool`, rebuilding the dispatch index so action-name
-    lookups resolve to the wrappers."""
-    new_tools: list = []
-    for tool in toolbox.tools:
-        if isinstance(tool, (Toolbox, AsyncToolbox)):
-            _wrap_toolbox_in_place(tool, emit, budget, parent_event_id_getter, task)
-            new_tools.append(tool)
-        else:
-            new_tools.append(wrap_tool(tool, emit, budget, parent_event_id_getter, task))
-    toolbox.tools = new_tools
-    # Rebuild action-name → tool index so dispatch resolves to the wrappers.
-    toolbox._action_name_to_tool = {action.name: tool for tool in toolbox.tools for action in tool.action_set}
+) -> AbstractTool | AbstractAsyncTool:
+    """Return a monitored view of `container` sharing its inner instances,
+    without mutating it. A `Toolbox` / `AsyncToolbox` is shallow-copied with
+    `MonitoredTool` leaves (nested toolboxes copied recursively); a single
+    tool is wrapped directly. Idempotent via `wrap_tool`."""
+    if isinstance(container, (Toolbox, AsyncToolbox)):
+        view = copy.copy(container)  # same type + attrs; we replace tools below
+        view.tools = [
+            _monitored_view(leaf, emit, budget, parent_event_id_getter, task)
+            if isinstance(leaf, (Toolbox, AsyncToolbox))
+            else wrap_tool(leaf, emit, budget, parent_event_id_getter, task)
+            for leaf in container.tools
+        ]
+        # Rebuild the dispatch index so action-name lookups resolve to the
+        # wrappers. Overwrite-style (last wins) — tolerant of leaves that each
+        # surface STOP_ACTION, matching the prior in-place behavior.
+        view._action_name_to_tool = {action.name: tool for tool in view.tools for action in tool.action_set}
+        return view
+    return wrap_tool(container, emit, budget, parent_event_id_getter, task)
 
 
 # ---------------------------------------------------------------------------
@@ -517,7 +536,7 @@ def as_async(tool: AbstractTool | AbstractAsyncTool) -> AbstractAsyncTool:
     """Return `tool` as an `AbstractAsyncTool` for `Agent.run`.
 
     `AbstractAsyncTool` instance passes through unchanged. A sync
-    `Toolbox` (post-`install_monitoring`, with `MonitoredTool` leaves)
+    `Toolbox` (post-`build_monitored_env_tool`, with `MonitoredTool` leaves)
     is rebuilt as an `AsyncToolbox` containing the same leaves —
     `AsyncToolbox` now accepts mixed sync + async leaves (cube-standard
     PR #152) and dispatches each through `async_execute_action`,
