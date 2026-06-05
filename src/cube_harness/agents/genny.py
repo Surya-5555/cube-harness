@@ -29,13 +29,14 @@ is a valid prefix of the next step, which starts the same way and appends one mo
 
 import json
 import logging
+from json import JSONDecodeError
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from cube_harness.streamer import EventStreamer
 
 from cube.benchmark import BenchmarkConfig
-from cube.core import Action, ActionSchema, Observation
+from cube.core import Action, ActionSchema, Observation, StepError
 from cube.task import STOP_ACTION
 from litellm import Message
 from pydantic import Field
@@ -105,7 +106,13 @@ def _decode_actions(response: "Message") -> "list[Action]":
     for tc in getattr(response, "tool_calls", None) or []:
         args = tc.function.arguments
         if isinstance(args, str):
-            args = json.loads(args)
+            try:
+                args = json.loads(args)
+            except JSONDecodeError as exc:
+                raise ValueError(
+                    f"Tool call {tc.id or '<unknown>'} for {tc.function.name or '<unknown>'} "
+                    f"has invalid JSON arguments: {exc.msg}"
+                ) from exc
         if tc.function.name:
             actions.append(Action(id=tc.id, name=tc.function.name, arguments=args))
     return actions
@@ -335,7 +342,10 @@ class Genny(Agent):
             self.summaries.append(summary)
 
         response = self._act(budget_msg)
-        actions = _decode_actions(response)
+        try:
+            actions = _decode_actions(response)
+        except ValueError as exc:
+            return AgentOutput(error=StepError.from_exception(exc))
 
         # Format error exhaustion: _act() retried max_format_errors times but still no tool calls.
         if not actions and self.config.max_format_errors > 0:

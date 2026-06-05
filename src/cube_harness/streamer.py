@@ -31,7 +31,7 @@ config fields without changing this surface.
 import logging
 import threading
 import time
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from cube.core import Action, EnvironmentOutput, StepError, TypedBaseModel
 from pydantic import Field
@@ -81,6 +81,7 @@ class EventStreamerConfig(TypedBaseModel):
 
     event_sinks: list[Any] = Field(default_factory=list, exclude=True)
     include_storage_sink: bool = True
+    sink_error_policy: Literal["continue", "raise"] = "continue"
 
 
 class EventStreamer:
@@ -136,6 +137,7 @@ class EventStreamer:
         # multi-counter read-modify-write under parallel dispatch.
         self._lock = threading.Lock()
         self._n_llm_calls = 0
+        self._n_agent_steps = 0
         self._n_tool_calls = 0
         self._n_evaluations = 0
         self._total_actions = 0
@@ -157,10 +159,11 @@ class EventStreamer:
         the Episode-only boundary helpers all funnel through here so
         every event flows through the same stats fold + sink fan-out.
 
-        Sink fan-out is sequential and best-effort: a sink that raises
-        is logged and skipped so a misbehaving downstream consumer
-        (slow HTTP, full disk) can't kill the trajectory. Sinks SHOULD
-        be cheap; for blocking I/O, queue inside the sink.
+        Sink fan-out is sequential. Default policy is best-effort: a sink
+        that raises is logged and skipped so a misbehaving optional consumer
+        can't kill the trajectory. Callers with required sinks (RL rollout
+        publishing) set `sink_error_policy="raise"` so the worker fails and
+        the executor can emit an error terminal.
         """
         with self._lock:
             self._fold_stats(te.output)
@@ -169,6 +172,8 @@ class EventStreamer:
                 sink.save_event(te, self.trajectory_id)
             except Exception:
                 logger.exception("EventStreamer sink %r raised; continuing.", sink)
+                if self.config.sink_error_policy == "raise":
+                    raise
         # EvaluationEvent doesn't carry an `id` field (parent_event_id
         # links it to a ToolCallEvent or it's terminal). Return empty
         # string for those so producers that don't need the id don't
@@ -244,6 +249,7 @@ class EventStreamer:
 
         Enforcement happens here so a `max_agent_steps` cap kicks in cleanly
         at the agent-step boundary."""
+        self._n_agent_steps += 1
         if self.budget is not None:
             self.budget.bump_agent_step()
             if self.budget.exhausted:
@@ -324,7 +330,7 @@ class EventStreamer:
         with self._lock:
             return {
                 "n_env_steps": self._n_tool_calls,
-                "n_agent_steps": self._n_llm_calls,
+                "n_agent_steps": self._n_agent_steps,
                 "total_actions": self._total_actions,
                 "total_llm_calls": self._n_llm_calls,
                 "duration": duration,

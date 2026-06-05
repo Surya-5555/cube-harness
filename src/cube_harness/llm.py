@@ -121,6 +121,11 @@ def _extract_usage(response) -> Usage:
     hidden_params = getattr(response, "_hidden_params", {})
     if isinstance(hidden_params, dict):
         cost = safe_float(hidden_params.get("response_cost", 0.0))
+    if cost == 0.0:
+        try:
+            cost = safe_float(litellm.completion_cost(completion_response=response))
+        except Exception:
+            cost = 0.0
 
     reasoning_tokens = 0
     completion_details = getattr(usage_data, "completion_tokens_details", None)

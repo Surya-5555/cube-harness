@@ -8,6 +8,7 @@ import time
 import pytest
 
 from cube_harness.rl import RayConfig, RolloutConfig, RolloutEngine, RolloutRequest
+from cube_harness.rl.llm import RolloutLLMConfig
 from tests.conftest import MockAgentConfig
 from tests.rollout_perf_helpers import SlowRolloutBenchmarkConfig
 
@@ -32,7 +33,12 @@ def test_rollout_throughput_increases_with_more_ray_workers(tmp_dir) -> None:
                     request_id=f"{prefix}-{idx}",
                     client_id=f"throughput-{num_workers}",
                     task_id="slow_rollout_task",
-                    llm_config={},
+                    llm_config=RolloutLLMConfig(
+                        model_name="served-model",
+                        api_base="http://localhost:8000/v1",
+                        api_key="EMPTY",
+                        tokenizer_name="mock-tokenizer",
+                    ),
                     rollout_index=idx,
                 )
                 for idx in range(batch_size)

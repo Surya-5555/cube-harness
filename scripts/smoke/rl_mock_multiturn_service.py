@@ -66,6 +66,13 @@ OUTPUT_DIR = Path(os.getenv("CUBE_HARNESS_ROLLOUT_OUTPUT_DIR", "tmp/cube_harness
 LOG_LEVEL = os.getenv("CUBE_HARNESS_LOG_LEVEL", "INFO")
 
 
+def _rollout_request_payload(request: RolloutRequest) -> dict[str, Any]:
+    payload = request.model_dump(mode="json")
+    payload["llm_config"] = request.llm_config.model_dump(mode="json")
+    payload["llm_config"]["api_key"] = request.llm_config.api_key.get_secret_value()
+    return payload
+
+
 class MockTool(Tool):
     def __init__(self, target_turns: int = 4) -> None:
         self.target_turns = target_turns
@@ -202,7 +209,9 @@ class MockAgent(Agent):
         completion_token_ids = [2000 + step_index * 10 + i for i in range(3)]
         llm_call = LLMCall(
             tag="act",
-            llm_config=RolloutLLMConfig(model_name="mock"),
+            llm_config=RolloutLLMConfig(
+                model_name="mock", api_base="http://localhost:8000/v1", api_key="EMPTY", tokenizer_name="mock-tokenizer"
+            ),
             prompt=Prompt(messages=[{"role": "user", "content": f"turn {step_index}"}], tools=[]),
             output=Message(role="assistant", content=f"advance turn {step_index}"),
             usage=Usage(
@@ -307,15 +316,18 @@ class RolloutEventConsumer:
         if self.session is None:
             raise RuntimeError("consumer has not started")
         request_id = f"mock-{uuid4().hex}"
-        payload = RolloutRequest(
+        request = RolloutRequest(
             request_id=request_id,
             client_id=CLIENT_ID,
             task_id="mock_multiturn",
-            llm_config=RolloutLLMConfig(model_name="mock"),
+            llm_config=RolloutLLMConfig(
+                model_name="mock", api_base="http://localhost:8000/v1", api_key="EMPTY", tokenizer_name="mock-tokenizer"
+            ),
             group_id="mock-group-0",
             rollout_index=0,
             max_steps=self.turns + 2,
-        ).model_dump()
+        )
+        payload = _rollout_request_payload(request)
         async with self.session.post(f"{BASE_URL}/rollouts", json=payload) as response:
             response.raise_for_status()
             await response.json()

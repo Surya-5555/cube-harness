@@ -41,15 +41,22 @@ MINIWOB_PORT = int(os.getenv("CUBE_HARNESS_MINIWOB_PORT", "8011"))
 LOG_LEVEL = os.getenv("CUBE_HARNESS_LOG_LEVEL", "INFO")
 
 
-def rollout_config() -> RolloutConfig:
-    agent = REACT_CONFIGS["default"]
-    agent.llm_config = RolloutLLMConfig(
-        model_name=MODEL,
+def _rollout_llm_config(*, model_name: str) -> RolloutLLMConfig:
+    return RolloutLLMConfig(
+        api_base=LLM_BASE_URL,
+        api_key=API_KEY,
+        model_name=model_name,
         temperature=1.0,
         timeout=3600.0,
         num_retries=1,
         tokenizer_name=TOKENIZER_NAME,
+        max_completion_tokens=int(os.getenv("CUBE_HARNESS_MAX_COMPLETION_TOKENS", "2048")),
     )
+
+
+def rollout_config() -> RolloutConfig:
+    agent = REACT_CONFIGS["default"]
+    agent.llm_config = _rollout_llm_config(model_name=MODEL)
     agent.max_actions = MAX_STEPS
     return RolloutConfig(
         name="local_miniwob_rollout",
@@ -65,7 +72,7 @@ def rollout_config() -> RolloutConfig:
                 "use_screenshot": False,
             },
         },
-        agent_config=agent.model_dump(mode="json", serialize_as_any=True),
+        agent_config=agent,
         max_steps=MAX_STEPS,
         execution_mode="local",
     )
@@ -76,14 +83,7 @@ def rollout_request(task_id, rollout_index) -> RolloutRequest:
         request_id=f"local-miniwob-{uuid4().hex}",
         client_id=CLIENT_ID,
         task_id=task_id,
-        llm_config=RolloutLLMConfig(
-            api_base=LLM_BASE_URL,
-            model_name=os.getenv("CUBE_HARNESS_SERVED_MODEL_NAME") or MODEL,
-            api_key=API_KEY,
-            temperature=1.0,
-            tokenizer_name=TOKENIZER_NAME,
-            max_completion_tokens=int(os.getenv("CUBE_HARNESS_MAX_COMPLETION_TOKENS", "2048")),
-        ),
+        llm_config=_rollout_llm_config(model_name=os.getenv("CUBE_HARNESS_SERVED_MODEL_NAME") or MODEL),
         model_version=0,
         group_id="local-miniwob-smoke",
         rollout_index=rollout_index,

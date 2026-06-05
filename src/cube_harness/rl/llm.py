@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 
 import cube_harness.llm as llm_core
 from cube_harness.llm import BaseLLM, BaseLLMConfig, LLMResponse, Prompt
@@ -42,9 +42,9 @@ class RolloutLLMConfig(BaseLLMConfig):
     small set of generation/logprob controls needed for RL data capture.
     """
 
-    api_base: str | None = None
-    api_key: str | None = "EMPTY"
-    tokenizer_name: str | None = None
+    api_base: str
+    api_key: SecretStr = Field(exclude=True)
+    tokenizer_name: str
     top_p: float | None = None
     top_k: int | None = None
     num_retries: int = 1
@@ -57,7 +57,7 @@ class RolloutLLMConfig(BaseLLMConfig):
 
     def make_counter(self) -> Callable[..., int]:
         """Get a token counter function for the LLM model."""
-        return RolloutTokenCounter(tokenizer_name=self.tokenizer_name or self.model_name).count_prompt_tokens
+        return RolloutTokenCounter(tokenizer_name=self.tokenizer_name).count_prompt_tokens
 
 
 def _safe_finish_reason(choice: Any) -> str | None:
@@ -75,7 +75,7 @@ class RolloutLLM(BaseLLM):
         kwargs: dict[str, Any] = {
             "model": self.config.model_name,
             "api_base": self.config.api_base,
-            "api_key": self.config.api_key,
+            "api_key": self.config.api_key.get_secret_value(),
             "messages": prompt.messages,
             "max_completion_tokens": self.config.max_completion_tokens,
             "max_tokens": self.config.max_completion_tokens,

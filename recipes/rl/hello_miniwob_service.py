@@ -281,25 +281,39 @@ async def discover_task_configs(session: aiohttp.ClientSession) -> dict[str, Any
     return payload
 
 
+def _rollout_llm_config(*, model_name: str) -> RolloutLLMConfig:
+    return RolloutLLMConfig(
+        api_base=LLM_BASE_URL,
+        api_key=API_KEY,
+        model_name=model_name,
+        temperature=1.0,
+        timeout=3600.0,
+        num_retries=1,
+        tokenizer_name=TOKENIZER_NAME,
+        max_completion_tokens=int(os.getenv("CUBE_HARNESS_MAX_COMPLETION_TOKENS", "2048")),
+    )
+
+
+def _rollout_request_payload(request: RolloutRequest) -> dict[str, Any]:
+    payload = request.model_dump(mode="json")
+    payload["llm_config"] = request.llm_config.model_dump(mode="json")
+    payload["llm_config"]["api_key"] = request.llm_config.api_key.get_secret_value()
+    return payload
+
+
 async def submit_rollout(session: aiohttp.ClientSession, rollout_index: int, group_id: str, task_id: str) -> str:
     request_id = f"mock-trainer-{uuid4().hex}"
-    payload = RolloutRequest(
+    request = RolloutRequest(
         request_id=request_id,
         client_id=CLIENT_ID,
         task_id=task_id,
-        llm_config=RolloutLLMConfig(
-            api_base=LLM_BASE_URL,
-            model_name=os.getenv("CUBE_HARNESS_SERVED_MODEL_NAME") or MODEL,
-            api_key=API_KEY,
-            temperature=1.0,
-            tokenizer_name=TOKENIZER_NAME,
-            max_completion_tokens=int(os.getenv("CUBE_HARNESS_MAX_COMPLETION_TOKENS", "2048")),
-        ),
+        llm_config=_rollout_llm_config(model_name=os.getenv("CUBE_HARNESS_SERVED_MODEL_NAME") or MODEL),
         model_version=0,
         group_id=group_id,
         rollout_index=rollout_index,
         max_steps=MAX_STEPS,
-    ).model_dump()
+    )
+    payload = _rollout_request_payload(request)
 
     async with session.post(f"{BASE_URL}/rollouts", json=payload) as response:
         response.raise_for_status()
@@ -479,13 +493,7 @@ async def wait_for_health(session: aiohttp.ClientSession, timeout_s: float = 15.
 
 def rollout_config() -> RolloutConfig:
     agent = REACT_CONFIGS["default"]
-    agent.llm_config = RolloutLLMConfig(
-        model_name=MODEL,
-        temperature=1.0,
-        timeout=3600.0,
-        num_retries=1,
-        tokenizer_name=TOKENIZER_NAME,
-    )
+    agent.llm_config = _rollout_llm_config(model_name=MODEL)
     agent.max_actions = MAX_STEPS
     ray_config = RayConfig(
         num_workers=4,
@@ -506,7 +514,7 @@ def rollout_config() -> RolloutConfig:
                 "use_screenshot": False,
             },
         },
-        agent_config=agent.model_dump(mode="json", serialize_as_any=True),
+        agent_config=agent,
         max_steps=MAX_STEPS,
         execution_mode="ray",
         ray=ray_config,

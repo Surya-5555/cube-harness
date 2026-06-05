@@ -41,6 +41,12 @@ hot path.
 benchmark once, accepts rollout requests, publishes realtime events, and supports
 ack/cancel control.
 
+The HTTP service is intended for trusted trainer clients. It accepts trainer-supplied
+LLM endpoint and tokenizer configuration, so deployments must keep it on a trusted
+network boundary (for example localhost, a private job network, or an authenticated
+control plane). Do not expose it directly to untrusted clients without adding
+authentication plus allowlists for endpoint/tokenizer choices.
+
 ### `RolloutConfig`
 
 ```python
@@ -102,8 +108,12 @@ carry aligned `prompt_token_ids`, `completion_token_ids`, and `logprobs`.
 
 Rollout LLM code lives in `cube_harness.rl.llm`. `RolloutLLMConfig` inherits
 shared fields from `BaseLLMConfig` and adds trainer-facing OpenAI/vLLM endpoint
-controls. `RolloutLLM` requests and validates token ids/logprobs needed for
-policy-gradient style training data.
+controls. `api_base`, `api_key`, and `tokenizer_name` are required because the
+trainer is selecting the served policy endpoint and tokenizer for data capture.
+`api_key` is secret/redacted at serialization boundaries and must not be written
+to rollout configs, episode configs, trajectory events, or logs. `RolloutLLM`
+requests and validates token ids/logprobs needed for policy-gradient style
+training data.
 
 ### Task Runner
 
@@ -165,8 +175,11 @@ Focused tests for the PR live in:
 ## Gotchas
 
 - `RLEventSink` publishes synchronously today so trainers can see partial
-  trajectories in real time. If publisher latency becomes a bottleneck, add an
-  ordered realtime async/actor-backed publisher; do not route through disk.
+  trajectories in real time. Rollout workers configure the sink as required, so
+  publisher failures fail the worker and the executor emits an error terminal
+  instead of silently producing a partial trajectory. If publisher latency becomes
+  a bottleneck, add an ordered realtime async/actor-backed publisher; do not route
+  through disk.
 - `rl/events.py` contains rollout control/publisher payloads, not a competing
   trajectory event model.
 - Keep unreleased RL compatibility shims out of the core runtime. Non-RL

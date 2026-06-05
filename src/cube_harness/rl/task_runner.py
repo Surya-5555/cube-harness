@@ -41,6 +41,7 @@ class RolloutTaskRunner:
         recorder_config = EventStreamerConfig(
             event_sinks=[rl_sink],
             include_storage_sink=persist_rollout,
+            sink_error_policy="raise",
         )
         episode = Episode(
             id=self.episode_id,

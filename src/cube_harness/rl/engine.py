@@ -297,8 +297,12 @@ class RolloutEngine:
         if self._benchmark is None:
             raise RuntimeError("rollout engine is closed")
         output_dir = Path(self.config.output_dir) / (request.client_id or "default") / request.request_id
+        request_payload = request.model_dump(mode="python")
+        llm_payload = request.llm_config.model_dump(mode="python")
+        llm_payload["api_key"] = request.llm_config.api_key.get_secret_value()
+        request_payload["llm_config"] = llm_payload
         return {
-            "request": request.model_dump(mode="python"),
+            "request": request_payload,
             "task_config": self._task_configs[request.task_id],
             "agent_config": self.config.agent_config.model_copy(deep=True),
             "runtime_context": getattr(self._benchmark, "_runtime_context", None),

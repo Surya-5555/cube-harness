@@ -4,6 +4,7 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 from cube.core import Action, Observation, StepError
 from fastapi.testclient import TestClient
 from litellm import Message
@@ -17,6 +18,15 @@ from cube_harness.rl.trajectory_sink import RLEventSink
 from cube_harness.streamer import EventStreamer, EventStreamerConfig
 from tests.conftest import MockAgentConfig, MockCubeBenchmarkConfig
 from tests.rollout_perf_helpers import SlowRolloutBenchmarkConfig
+
+
+def _rollout_llm_request_config() -> RolloutLLMConfig:
+    return RolloutLLMConfig(
+        model_name="served-model",
+        api_base="http://localhost:8000/v1",
+        api_key="EMPTY",
+        tokenizer_name="mock-tokenizer",
+    )
 
 
 def test_ray_config_defaults_to_fractional_rollout_cpu() -> None:
@@ -40,6 +50,40 @@ def test_rollout_config_preserves_pydantic_config_types(tmp_dir) -> None:
     assert isinstance(restored.benchmark_config, MockCubeBenchmarkConfig)
     assert isinstance(restored.agent_config, MockAgentConfig)
     assert restored.agent_config.name == "typed_agent"
+
+
+def test_rollout_request_redacts_api_key_but_worker_payload_keeps_transient_secret(tmp_dir) -> None:
+    request = RolloutRequest(
+        request_id="secret-request",
+        client_id="client-a",
+        task_id="mock_cube_task_1",
+        llm_config=RolloutLLMConfig(
+            model_name="served-model",
+            api_base="http://localhost:8000/v1",
+            api_key="super-secret",
+            tokenizer_name="mock-tokenizer",
+        ),
+    )
+
+    dumped = request.model_dump(mode="json")
+    assert "super-secret" not in json.dumps(dumped)
+    assert "api_key" not in dumped["llm_config"]
+
+    rollout = RolloutEngine(
+        config=RolloutConfig(
+            name="secret_payload_test",
+            output_dir=tmp_dir,
+            benchmark_config=MockCubeBenchmarkConfig(),
+            agent_config=MockAgentConfig(),
+            max_steps=1,
+            execution_mode="local",
+        )
+    )
+    try:
+        payload = rollout._rollout_payload(request)
+        assert payload["request"]["llm_config"]["api_key"] == "super-secret"
+    finally:
+        rollout.close()
 
 
 def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> None:
@@ -66,7 +110,7 @@ def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> 
             request_id="request-1",
             client_id="client-a",
             task_id="mock_cube_task_1",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
             rollout_index=2,
         )
 
@@ -120,7 +164,7 @@ def test_rollout_debug_persistence_is_opt_in(tmp_dir) -> None:
             request_id="debug-request",
             client_id="client-a",
             task_id="mock_cube_task_1",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
         )
 
         async def run_rollout() -> None:
@@ -156,7 +200,7 @@ def test_rollout_streaming_mode_does_not_construct_file_storage(tmp_dir) -> None
             request_id="streaming-no-file-storage",
             client_id="client-a",
             task_id="mock_cube_task_1",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
         )
 
         async def run_rollout() -> list[dict]:
@@ -276,7 +320,7 @@ def test_rollout_cancel_emits_single_cancelled_terminal(tmp_dir) -> None:
             request_id="cancel-request-1",
             client_id="client-a",
             task_id="slow_rollout_task",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
         )
 
         async def run_cancel() -> list[dict]:
@@ -323,7 +367,7 @@ def test_rollout_streams_events_without_http_service(tmp_dir) -> None:
             request_id="request-direct",
             client_id="client-a",
             task_id="mock_cube_task_1",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
             rollout_index=3,
         )
 
@@ -364,7 +408,7 @@ def test_duplicate_rollout_request_does_not_emit_second_accepted(tmp_dir) -> Non
             request_id="duplicate-request",
             client_id="client-a",
             task_id="mock_cube_task_1",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
         )
 
         async def run_duplicate() -> None:
@@ -397,7 +441,7 @@ def test_rollout_events_are_reconstructable_from_stream(tmp_dir) -> None:
             request_id="request-reconstruct",
             client_id="client-a",
             task_id="mock_cube_task_1",
-            llm_config={},
+            llm_config=_rollout_llm_request_config(),
         )
 
         async def run_rollout() -> list[dict]:
@@ -581,10 +625,18 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
     ]
 
     with patch("cube_harness.llm._completion_with_retry", return_value=response) as completion:
-        llm = RolloutLLM(RolloutLLMConfig(model_name="served-model", api_base="http://localhost:8000/v1"))
+        llm = RolloutLLM(
+            RolloutLLMConfig(
+                model_name="served-model",
+                api_base="http://localhost:8000/v1",
+                api_key="EMPTY",
+                tokenizer_name="mock-tokenizer",
+            )
+        )
         result = llm(Prompt(messages=[{"role": "user", "content": "hi"}]))
 
     kwargs = completion.call_args.kwargs
+    assert kwargs["api_key"] == "EMPTY"
     assert kwargs["logprobs"] == 1
     assert kwargs["skip_special_tokens"] is False
     assert kwargs["include_stop_str_in_output"] is True
@@ -610,6 +662,7 @@ def test_rollout_llm_config_applies_supported_overrides() -> None:
             api_base="http://127.0.0.1:8000",
             model_name="served-model",
             api_key="EMPTY",
+            tokenizer_name="mock-tokenizer",
             temperature=0.7,
             max_completion_tokens=128,
             extra_body={"custom": True},
@@ -622,3 +675,21 @@ def test_rollout_llm_config_applies_supported_overrides() -> None:
     assert agent_config.llm_config.max_completion_tokens == 128
     assert agent_config.llm_config.num_retries == 1
     assert not hasattr(agent_config.llm_config, "does_not_exist")
+
+
+def test_event_streamer_can_raise_required_sink_failure() -> None:
+    class FailingSink:
+        def save_event(self, event: TrajectoryEvent, trajectory_id: str) -> None:
+            raise RuntimeError("required sink down")
+
+    streamer = EventStreamer(
+        trajectory_id="task_ep0",
+        config=EventStreamerConfig(
+            event_sinks=[FailingSink()],
+            include_storage_sink=False,
+            sink_error_policy="raise",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="required sink down"):
+        streamer.emit(TrajectoryEvent(output=EvaluationEvent(reward=1.0, is_terminal=True)))

@@ -21,7 +21,7 @@ def apply_rollout_llm_config(agent_config: Any, rollout_llm: RolloutLLMConfig) -
             api_base += "/v1"
         llm_config.api_base = api_base
     if rollout_llm.api_key is not None and hasattr(llm_config, "api_key"):
-        llm_config.api_key = rollout_llm.api_key
+        llm_config.api_key = rollout_llm.api_key.get_secret_value()
     if rollout_llm.model_name:
         llm_config.model_name = _openai_model_name(str(rollout_llm.model_name))
     if hasattr(llm_config, "tokenizer_name") and rollout_llm.tokenizer_name:
