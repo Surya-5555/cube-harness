@@ -41,9 +41,12 @@ hot path.
 benchmark once, accepts rollout requests, publishes realtime events, and supports
 ack/cancel control.
 
-The HTTP service is intended for trusted trainer clients. It accepts trainer-supplied
-LLM endpoint and tokenizer configuration, so deployments must keep it on a trusted
-network boundary (for example localhost, a private job network, or an authenticated
+The HTTP service is intended for one trusted trainer client per benchmark-scoped
+rollout server. The event stream and acknowledgement cursor are server-global;
+run a dedicated service per cube/trainer pair rather than multiplexing trainers
+through one process. The service accepts trainer-supplied LLM endpoint and
+tokenizer configuration, so deployments must keep it on a trusted network
+boundary (for example localhost, a private job network, or an authenticated
 control plane). Do not expose it directly to untrusted clients without adding
 authentication plus allowlists for endpoint/tokenizer choices.
 
@@ -77,17 +80,14 @@ class RolloutRequest(BaseModel):
     group_id: str | None = None
     rollout_index: int = 0
     max_steps: int | None = None
-    client_id: str | None = None
     extras: dict = {}
 
 class AckRequest(BaseModel):
-    client_id: str
     offset: int
 
 class CancelRequest(BaseModel):
     request_id: str | None = None
     group_id: str | None = None
-    client_id: str | None = None
 ```
 
 ### Event Publisher / Sink
@@ -167,8 +167,8 @@ Focused tests for the PR live in:
 4. Terminal rollout events are emitted exactly once per request.
 5. Publisher failures surface as rollout terminal errors without corrupting the
    canonical episode/event path.
-6. Ray rollout tasks must be cancellable by request, group, or client. Stale
-   rollout work should not require process restart.
+6. Ray rollout tasks must be cancellable by request or group. Stale rollout work
+   should not require process restart.
 7. Rollout LLM code remains under `cube_harness.rl.llm`; `cube_harness.llm`
    contains shared and benchmark LLM primitives only.
 

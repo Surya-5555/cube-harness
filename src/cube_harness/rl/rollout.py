@@ -20,19 +20,16 @@ class RolloutRequest(BaseModel):
     group_id: str | None = None
     rollout_index: int = 0
     max_steps: int | None = None
-    client_id: str | None = None
     extras: dict[str, Any] = Field(default_factory=dict)
 
 
 class AckRequest(BaseModel):
-    client_id: str
     offset: int
 
 
 class CancelRequest(BaseModel):
     request_id: str | None = None
     group_id: str | None = None
-    client_id: str | None = None
 
 
 class RayConfig(BaseModel):

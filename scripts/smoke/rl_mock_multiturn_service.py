@@ -61,7 +61,6 @@ from cube_harness.rl.llm import RolloutLLMConfig
 HOST = os.getenv("CUBE_HARNESS_ROLLOUT_HOST", "127.0.0.1")
 PORT = int(os.getenv("CUBE_HARNESS_ROLLOUT_PORT", "8776"))
 BASE_URL = f"http://{HOST}:{PORT}"
-CLIENT_ID = "mock-multiturn-trainer"
 OUTPUT_DIR = Path(os.getenv("CUBE_HARNESS_ROLLOUT_OUTPUT_DIR", "tmp/cube_harness_results/mock_multiturn"))
 LOG_LEVEL = os.getenv("CUBE_HARNESS_LOG_LEVEL", "INFO")
 
@@ -318,7 +317,6 @@ class RolloutEventConsumer:
         request_id = f"mock-{uuid4().hex}"
         request = RolloutRequest(
             request_id=request_id,
-            client_id=CLIENT_ID,
             task_id="mock_multiturn",
             llm_config=RolloutLLMConfig(
                 model_name="mock", api_base="http://localhost:8000/v1", api_key="EMPTY", tokenizer_name="mock-tokenizer"
@@ -347,7 +345,7 @@ class RolloutEventConsumer:
     async def _consume_events(self) -> None:
         if self.session is None:
             raise RuntimeError("consumer has not started")
-        params = {"client_id": CLIENT_ID, "from_offset": "0"}
+        params = {"from_offset": "0"}
         async with self.session.get(
             f"{BASE_URL}/events", params=params, headers={"Accept": "text/event-stream"}
         ) as response:
@@ -361,7 +359,7 @@ class RolloutEventConsumer:
                         await self.reconstructor.add_event(event)
                         await self.session.post(
                             f"{BASE_URL}/acks",
-                            json=AckRequest(client_id=CLIENT_ID, offset=event["offset"]).model_dump(),
+                            json=AckRequest(offset=event["offset"]).model_dump(),
                         )
                         if event.get("type") == "terminal":
                             return

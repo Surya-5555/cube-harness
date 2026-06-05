@@ -254,8 +254,6 @@ class RayRolloutExecutor:
             return False
         if cancel.group_id is not None and request.group_id != cancel.group_id:
             return False
-        if cancel.client_id is not None and request.client_id != cancel.client_id:
-            return False
         return True
 
 
@@ -405,7 +403,5 @@ class LocalRolloutExecutor:
         if cancel.request_id is not None and request.request_id != cancel.request_id:
             return False
         if cancel.group_id is not None and request.group_id != cancel.group_id:
-            return False
-        if cancel.client_id is not None and request.client_id != cancel.client_id:
             return False
         return True

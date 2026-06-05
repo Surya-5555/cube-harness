@@ -55,7 +55,6 @@ def test_rollout_config_preserves_pydantic_config_types(tmp_dir) -> None:
 def test_rollout_request_redacts_api_key_but_worker_payload_keeps_transient_secret(tmp_dir) -> None:
     request = RolloutRequest(
         request_id="secret-request",
-        client_id="client-a",
         task_id="mock_cube_task_1",
         llm_config=RolloutLLMConfig(
             model_name="served-model",
@@ -108,7 +107,6 @@ def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> 
 
         request = RolloutRequest(
             request_id="request-1",
-            client_id="client-a",
             task_id="mock_cube_task_1",
             llm_config=_rollout_llm_request_config(),
             rollout_index=2,
@@ -135,7 +133,7 @@ def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> 
         assert terminals[0]["rollout_status"] == "completed"
         assert terminals[0]["env_name"] == "mock-cube"
         assert terminals[0]["trajectory_id"] == "mock_cube_task_1_ep2"
-        episode_dir = tmp_dir / "client-a" / "request-1" / "episodes" / "mock_cube_task_1_ep2"
+        episode_dir = tmp_dir / "request-1" / "episodes" / "mock_cube_task_1_ep2"
         assert not (episode_dir / "episode.log").exists()
         assert not (episode_dir / "episode.metadata.json").exists()
         assert not (episode_dir / "events").exists()
@@ -162,7 +160,6 @@ def test_rollout_debug_persistence_is_opt_in(tmp_dir) -> None:
 
         request = RolloutRequest(
             request_id="debug-request",
-            client_id="client-a",
             task_id="mock_cube_task_1",
             llm_config=_rollout_llm_request_config(),
         )
@@ -176,7 +173,7 @@ def test_rollout_debug_persistence_is_opt_in(tmp_dir) -> None:
             raise AssertionError("rollout did not emit a terminal event")
 
         asyncio.run(run_rollout())
-        episode_dir = tmp_dir / "client-a" / "debug-request" / "episodes" / "mock_cube_task_1_ep0"
+        episode_dir = tmp_dir / "debug-request" / "episodes" / "mock_cube_task_1_ep0"
         assert (episode_dir / "episode.log").exists()
         assert (episode_dir / "episode.metadata.json").exists()
         assert (episode_dir / "events").exists()
@@ -198,7 +195,6 @@ def test_rollout_streaming_mode_does_not_construct_file_storage(tmp_dir) -> None
     try:
         request = RolloutRequest(
             request_id="streaming-no-file-storage",
-            client_id="client-a",
             task_id="mock_cube_task_1",
             llm_config=_rollout_llm_request_config(),
         )
@@ -217,7 +213,7 @@ def test_rollout_streaming_mode_does_not_construct_file_storage(tmp_dir) -> None
         events = asyncio.run(run_rollout())
         terminal = [event for event in events if event["type"] == "terminal"][-1]
         assert terminal["rollout_status"] == "completed"
-        assert not (tmp_dir / "client-a" / "streaming-no-file-storage" / "episodes").exists()
+        assert not (tmp_dir / "streaming-no-file-storage" / "episodes").exists()
     finally:
         rollout.close()
 
@@ -318,7 +314,6 @@ def test_rollout_cancel_emits_single_cancelled_terminal(tmp_dir) -> None:
     try:
         request = RolloutRequest(
             request_id="cancel-request-1",
-            client_id="client-a",
             task_id="slow_rollout_task",
             llm_config=_rollout_llm_request_config(),
         )
@@ -365,7 +360,6 @@ def test_rollout_streams_events_without_http_service(tmp_dir) -> None:
     try:
         request = RolloutRequest(
             request_id="request-direct",
-            client_id="client-a",
             task_id="mock_cube_task_1",
             llm_config=_rollout_llm_request_config(),
             rollout_index=3,
@@ -375,7 +369,6 @@ def test_rollout_streams_events_without_http_service(tmp_dir) -> None:
             events: list[dict] = []
             await rollout.submit(request)
             async for event in rollout.events(
-                client_id="client-a",
                 from_offset=0,
                 stop_request_id="request-direct",
                 timeout_s=10.0,
@@ -406,7 +399,6 @@ def test_duplicate_rollout_request_does_not_emit_second_accepted(tmp_dir) -> Non
     try:
         request = RolloutRequest(
             request_id="duplicate-request",
-            client_id="client-a",
             task_id="mock_cube_task_1",
             llm_config=_rollout_llm_request_config(),
         )
@@ -439,7 +431,6 @@ def test_rollout_events_are_reconstructable_from_stream(tmp_dir) -> None:
     try:
         request = RolloutRequest(
             request_id="request-reconstruct",
-            client_id="client-a",
             task_id="mock_cube_task_1",
             llm_config=_rollout_llm_request_config(),
         )

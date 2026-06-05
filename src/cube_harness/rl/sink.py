@@ -25,7 +25,7 @@ class EventSink:
         self.config = config or EventSinkConfig()
         self._events: deque[dict] = deque()
         self._next_offset = 0
-        self._acks: dict[str, int] = defaultdict(lambda: -1)
+        self._ack_offset = -1
         self._terminal_events: dict[str, dict] = {}
         self._request_next_event_index: dict[str, int] = defaultdict(int)
         self._spilled_event_count = 0
@@ -119,23 +119,20 @@ class EventSink:
                     return []
                 self._condition.wait(timeout=min(remaining, 1.0))
 
-    def ack(self, client_id: str, offset: int) -> None:
+    def ack(self, offset: int) -> None:
         with self._condition:
-            self._acks[client_id] = max(self._acks[client_id], int(offset))
+            self._ack_offset = max(self._ack_offset, int(offset))
             self._compact_locked()
 
     def _compact_locked(self) -> None:
-        if not self._acks:
-            return
-        min_ack = min(self._acks.values())
-        while self._events and int(self._events[0]["offset"]) <= min_ack:
+        while self._events and int(self._events[0]["offset"]) <= self._ack_offset:
             self._spill(self._events.popleft())
 
     def health(self) -> dict:
         with self._condition:
             oldest_hot_offset = int(self._events[0]["offset"]) if self._events else None
             newest_hot_offset = int(self._events[-1]["offset"]) if self._events else None
-            min_ack = min(self._acks.values()) if self._acks else None
+            ack_offset = self._ack_offset if self._ack_offset >= 0 else None
             return {
                 "next_offset": self._next_offset,
                 "oldest_hot_offset": oldest_hot_offset,
@@ -146,8 +143,7 @@ class EventSink:
                 "hot_capacity_remaining": max(self.config.max_hot_events - len(self._events), 0),
                 "terminal_count": len(self._terminal_events),
                 "tracked_request_count": len(self._request_next_event_index),
-                "acks": dict(self._acks),
-                "min_ack": min_ack,
+                "ack_offset": ack_offset,
                 "spill_enabled": self.config.persist_events_dir is not None,
                 "persist_events_dir": str(self.config.persist_events_dir) if self.config.persist_events_dir else None,
                 "spilled_event_count": self._spilled_event_count,

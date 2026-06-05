@@ -145,14 +145,12 @@ class RolloutEngine:
     async def events(
         self,
         *,
-        client_id: str | None = None,
         from_offset: int = 0,
         stop_request_id: str | None = None,
         timeout_s: float | None = None,
         poll_timeout_s: float = 15.0,
     ) -> AsyncIterator[dict]:
         """Yield rollout events incrementally from the shared sink."""
-        del client_id
         next_offset = from_offset
         deadline = None if timeout_s is None else asyncio.get_running_loop().time() + timeout_s
         while True:
@@ -185,7 +183,7 @@ class RolloutEngine:
             await asyncio.sleep(self.config.ray.poll_interval_s)
 
     async def ack(self, request: AckRequest) -> None:
-        await asyncio.to_thread(self.sink.ack, request.client_id, request.offset)
+        await asyncio.to_thread(self.sink.ack, request.offset)
 
     def events_from(self, from_offset: int) -> list[dict]:
         return self.sink.events_from(from_offset)
@@ -296,7 +294,7 @@ class RolloutEngine:
     def _rollout_payload(self, request: RolloutRequest) -> dict[str, Any]:
         if self._benchmark is None:
             raise RuntimeError("rollout engine is closed")
-        output_dir = Path(self.config.output_dir) / (request.client_id or "default") / request.request_id
+        output_dir = Path(self.config.output_dir) / request.request_id
         request_payload = request.model_dump(mode="python")
         llm_payload = request.llm_config.model_dump(mode="python")
         llm_payload["api_key"] = request.llm_config.api_key.get_secret_value()

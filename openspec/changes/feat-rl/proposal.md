@@ -68,8 +68,8 @@ The service-oriented flow is:
 2. Query available task configs from each server through `GET /task-configs`.
    The trainer uses this response to choose task ids, build groups, and decide
    how many rollouts to request per task.
-3. Open `GET /events?client_id=...&from_offset=...` as an SSE stream for each
-   server the trainer is consuming.
+3. Open `GET /events?from_offset=...` as an SSE stream for each server
+   the trainer is consuming.
 4. Submit rollout work with `POST /rollouts`, including `task_id`,
    `llm_config`, `group_id`, `rollout_index`, and optional `max_steps`.
 5. Reconstruct partial trajectories from realtime `accepted`, `llm_call`,
@@ -78,7 +78,7 @@ The service-oriented flow is:
    offset it has processed.
 7. Convert trainable LLM events into training examples once enough rollout
    members for a task/group are available.
-8. Cancel stale work with `POST /cancel` by request, group, or client.
+8. Cancel stale work with `POST /cancel` by request or group.
 
 `recipes/rl/hello_miniwob_service.py` is the reference mock-trainer shape. It
 starts the service, discovers tasks, submits multiple rollout groups, consumes
@@ -146,10 +146,10 @@ Endpoints:
 - `GET /task-configs`: returns benchmark metadata and available task configs.
 - `POST /rollouts`: submits one `RolloutRequest`; returns immediately after the
   request is accepted/scheduled.
-- `GET /events?client_id=...&from_offset=...`: streams ordered events as
-  Server-Sent Events. Empty periods emit keepalives.
-- `POST /acks`: records the latest consumed offset for a client.
-- `POST /cancel`: cancels work by `request_id`, `group_id`, or `client_id`.
+- `GET /events?from_offset=...`: streams ordered events as Server-Sent
+  Events. Empty periods emit keepalives.
+- `POST /acks`: records the latest consumed offset for the server-global trainer stream.
+- `POST /cancel`: cancels work by `request_id` or `group_id`.
 
 The SSE event `id` is the publisher offset. Event payloads also include rollout
 identity fields such as `request_id`, `trajectory_id`, `task_id`, `group_id`,

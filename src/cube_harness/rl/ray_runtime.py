@@ -34,8 +34,8 @@ class _RayEventSinkActor:
     def wait_for_events(self, from_offset: int, timeout: float = 15.0) -> list[dict]:
         return self._sink.wait_for_events(from_offset, timeout)
 
-    def ack(self, client_id: str, offset: int) -> None:
-        self._sink.ack(client_id, offset)
+    def ack(self, offset: int) -> None:
+        self._sink.ack(offset)
 
     def has_terminal(self, request_id: str) -> bool:
         return self._sink.has_terminal(request_id)
@@ -82,8 +82,8 @@ class RayEventSink:
     def wait_for_events(self, from_offset: int, timeout: float = 15.0) -> list[dict]:
         return ray.get(self._actor.wait_for_events.remote(from_offset, timeout))
 
-    def ack(self, client_id: str, offset: int) -> None:
-        ray.get(self._actor.ack.remote(client_id, offset))
+    def ack(self, offset: int) -> None:
+        ray.get(self._actor.ack.remote(offset))
 
     def has_terminal(self, request_id: str) -> bool:
         return bool(ray.get(self._actor.has_terminal.remote(request_id)))

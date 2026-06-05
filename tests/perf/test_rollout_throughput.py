@@ -31,7 +31,6 @@ def test_rollout_throughput_increases_with_more_ray_workers(tmp_dir) -> None:
             requests = [
                 RolloutRequest(
                     request_id=f"{prefix}-{idx}",
-                    client_id=f"throughput-{num_workers}",
                     task_id="slow_rollout_task",
                     llm_config=RolloutLLMConfig(
                         model_name="served-model",

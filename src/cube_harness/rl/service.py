@@ -110,11 +110,8 @@ def serve(
 
     @app.get("/events")
     async def events(
-        client_id: str = Query(...),
         from_offset: int = Query(0),
     ) -> StreamingResponse:
-        del client_id
-
         async def stream_events():
             next_offset = from_offset
             while True:

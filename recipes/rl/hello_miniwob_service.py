@@ -47,7 +47,6 @@ from cube_harness.rl.llm import RolloutLLMConfig
 HOST = os.getenv("CUBE_HARNESS_ROLLOUT_HOST", "127.0.0.1")
 PORT = int(os.getenv("CUBE_HARNESS_ROLLOUT_PORT", "8765"))
 BASE_URL = f"http://{HOST}:{PORT}"
-CLIENT_ID = os.getenv("CUBE_HARNESS_CLIENT_ID", "mock-rl-trainer")
 MODEL = os.getenv("CUBE_HARNESS_MODEL", "qwen36_27b")
 TOKENIZER_NAME = os.getenv("CUBE_HARNESS_TOKENIZER_NAME", "/home/toolkit/huggingface/base_models/Qwen3.6-27B")
 LLM_BASE_URL = os.getenv("CUBE_HARNESS_LLM_BASE_URL", "http://localhost:8000")
@@ -305,7 +304,6 @@ async def submit_rollout(session: aiohttp.ClientSession, rollout_index: int, gro
     request_id = f"mock-trainer-{uuid4().hex}"
     request = RolloutRequest(
         request_id=request_id,
-        client_id=CLIENT_ID,
         task_id=task_id,
         llm_config=_rollout_llm_config(model_name=os.getenv("CUBE_HARNESS_SERVED_MODEL_NAME") or MODEL),
         model_version=0,
@@ -569,7 +567,7 @@ class RolloutEventConsumer:
         if self.session is None:
             raise RuntimeError("consumer has not started")
         completed = 0
-        params = {"client_id": CLIENT_ID, "from_offset": "0"}
+        params = {"from_offset": "0"}
         async with self.session.get(
             f"{BASE_URL}/events",
             params=params,
@@ -585,7 +583,7 @@ class RolloutEventConsumer:
                         await self.reconstructor.add_event(event)
                         await self.session.post(
                             f"{BASE_URL}/acks",
-                            json={"client_id": CLIENT_ID, "offset": event["offset"]},
+                            json={"offset": event["offset"]},
                         )
                         if event.get("type") == "terminal":
                             completed += 1

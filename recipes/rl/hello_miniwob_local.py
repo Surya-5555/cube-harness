@@ -30,7 +30,6 @@ from cube_harness.agents.react_configs import REACT_CONFIGS
 from cube_harness.rl import AckRequest, RolloutConfig, RolloutEngine, RolloutRequest, configure_terminal_logging
 from cube_harness.rl.llm import RolloutLLMConfig
 
-CLIENT_ID = os.getenv("CUBE_HARNESS_CLIENT_ID", "local-rollout-smoke")
 MODEL = os.getenv("CUBE_HARNESS_MODEL", "qwen36_27b")
 TOKENIZER_NAME = os.getenv("CUBE_HARNESS_TOKENIZER_NAME", "/home/toolkit/huggingface/base_models/Qwen3.6-27B")
 LLM_BASE_URL = os.getenv("CUBE_HARNESS_LLM_BASE_URL", "http://localhost:8000")
@@ -81,7 +80,6 @@ def rollout_config() -> RolloutConfig:
 def rollout_request(task_id, rollout_index) -> RolloutRequest:
     return RolloutRequest(
         request_id=f"local-miniwob-{uuid4().hex}",
-        client_id=CLIENT_ID,
         task_id=task_id,
         llm_config=_rollout_llm_config(model_name=os.getenv("CUBE_HARNESS_SERVED_MODEL_NAME") or MODEL),
         model_version=0,
@@ -152,7 +150,6 @@ async def run(num_rollouts: int, task_ids: list[str] | None) -> None:
             request = rollout_request(task_id, i)
             submit_task = asyncio.create_task(rollout.submit(request))
             async for event in rollout.events(
-                client_id=CLIENT_ID,
                 from_offset=0,
                 stop_request_id=request.request_id,
                 timeout_s=3600.0,
@@ -160,7 +157,7 @@ async def run(num_rollouts: int, task_ids: list[str] | None) -> None:
             ):
                 print_event(event)
                 if event.get("type") == "terminal":
-                    await rollout.ack(AckRequest(client_id=CLIENT_ID, offset=event["offset"]))
+                    await rollout.ack(AckRequest(offset=event["offset"]))
                 await submit_task
     finally:
         rollout.close()
