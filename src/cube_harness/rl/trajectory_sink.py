@@ -170,7 +170,7 @@ class RLEventSink:
         payload.update(
             {
                 "rollout_status": status,
-                "outcome_success": bool(final_reward),
+                "outcome_success": final_reward is not None and final_reward > 0,
                 "final_reward": final_reward,
                 "rollout_valid": valid,
                 "trainable": valid and self.rollout_trainable,

@@ -201,12 +201,19 @@ class RolloutEngine:
                 "task_count": len(self._task_configs),
             },
             "task_configs": [
-                {
-                    "task_id": task_id,
-                    "config": task_config.model_dump(mode="json", serialize_as_any=True),
-                }
+                self._task_descriptor(task_id, task_config)
                 for task_id, task_config in sorted(self._task_configs.items())
             ],
+        }
+
+    def _task_descriptor(self, task_id: str, task_config: TaskConfig) -> dict[str, Any]:
+        metadata = getattr(task_config, "metadata", None)
+        metadata_payload = (
+            metadata.model_dump(mode="json", serialize_as_any=True) if hasattr(metadata, "model_dump") else None
+        )
+        return {
+            "task_id": task_id,
+            "metadata": metadata_payload,
         }
 
     def stats(self) -> dict[str, Any]:
@@ -244,7 +251,7 @@ class RolloutEngine:
                 event_index=-1,
                 **self.event_context(request).model_dump(),
                 rollout_status=status,  # type: ignore[arg-type]
-                outcome_success=bool(final_reward),
+                outcome_success=final_reward is not None and final_reward > 0,
                 final_reward=final_reward,
                 rollout_valid=rollout_valid,
                 trainable=trainable,

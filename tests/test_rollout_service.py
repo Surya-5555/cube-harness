@@ -9,6 +9,7 @@ from cube.core import Action, Observation, StepError
 from fastapi.testclient import TestClient
 from litellm import Message
 
+from cube_harness.agents.react_configs import REACT_CONFIGS
 from cube_harness.core import AgentErrorEvent, EvaluationEvent, LLMCallEvent, ToolCallEvent, TrajectoryEvent
 from cube_harness.llm import LLMCall, LLMConfig, Prompt, Usage
 from cube_harness.rl import RayConfig, RolloutConfig, RolloutEngine, RolloutRequest, serve
@@ -262,7 +263,8 @@ def test_rollout_service_exposes_task_configs(tmp_dir) -> None:
         payload = service.task_configs()
         assert payload["benchmark"] == {"name": "mock-cube", "task_count": 2}
         assert [task["task_id"] for task in payload["task_configs"]] == ["mock_cube_task_1", "mock_cube_task_2"]
-        assert payload["task_configs"][0]["config"]["metadata"]["id"] == "mock_cube_task_1"
+        assert payload["task_configs"][0]["metadata"]["id"] == "mock_cube_task_1"
+        assert "config" not in payload["task_configs"][0]
 
         with TestClient(app) as client:
             response = client.get("/task-configs")
@@ -590,20 +592,18 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
     assert kwargs["include_stop_str_in_output"] is True
     assert kwargs["extra_body"]["return_token_ids"] is True
     assert kwargs["extra_body"]["return_tokens_as_token_ids"] is True
+    assert kwargs["max_completion_tokens"] == 8192
+    assert "max_tokens" not in kwargs
     assert result.prompt_token_ids == [1, 2, 3]
     assert result.completion_token_ids == [4, 5]
     assert result.logprobs == [-0.1, -0.2]
 
 
-def test_rollout_llm_config_applies_supported_overrides() -> None:
-    from cube_harness.llm import LLMConfig
+def test_rollout_llm_config_replaces_plain_agent_llm_config() -> None:
     from cube_harness.rl import RolloutLLMConfig
     from cube_harness.rl.utils import apply_rollout_llm_config
 
-    class AgentConfigWithLLM:
-        llm_config = LLMConfig(model_name="openai/original", api_base="http://old/v1", api_key="old")
-
-    agent_config = AgentConfigWithLLM()
+    agent_config = REACT_CONFIGS["default"]
     apply_rollout_llm_config(
         agent_config,
         RolloutLLMConfig(
@@ -614,14 +614,17 @@ def test_rollout_llm_config_applies_supported_overrides() -> None:
             temperature=0.7,
             max_completion_tokens=128,
             extra_body={"custom": True},
-            overrides={"num_retries": 1, "does_not_exist": "ignored"},
+            overrides={"num_retries": 3, "does_not_exist": "ignored"},
         ),
     )
 
+    assert isinstance(agent_config.llm_config, RolloutLLMConfig)
     assert agent_config.llm_config.model_name == "openai/served-model"
+    assert agent_config.llm_config.api_base == "http://127.0.0.1:8000/v1"
     assert agent_config.llm_config.temperature == 0.7
     assert agent_config.llm_config.max_completion_tokens == 128
-    assert agent_config.llm_config.num_retries == 1
+    assert agent_config.llm_config.num_retries == 3
+    assert agent_config.llm_config.extra_body == {"custom": True}
     assert not hasattr(agent_config.llm_config, "does_not_exist")
 
 

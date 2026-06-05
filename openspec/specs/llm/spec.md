@@ -85,7 +85,7 @@ live runs (`LLMResponse.reasoning_text`) and offline trajectory analysis.
 class LLM:
     def __init__(self, config: LLMConfig)
     def __call__(self, prompt: Prompt) -> LLMResponse
-    # Uses litellm.completion_with_retries under the hood with config.retry_strategy.
+    # Uses cube-harness retry handling around litellm.completion with config.retry_strategy.
 ```
 
 ### `LLMCall` (logged record)

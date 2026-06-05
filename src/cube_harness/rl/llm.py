@@ -42,6 +42,10 @@ class RolloutLLMConfig(BaseLLMConfig):
     small set of generation/logprob controls needed for RL data capture.
     """
 
+    model_name: str
+    temperature: float = 1.0
+    max_completion_tokens: int = 8192
+    max_tokens: int | None = None
     api_base: str
     api_key: SecretStr = Field(exclude=True)
     tokenizer_name: str
@@ -77,14 +81,16 @@ class RolloutLLM(BaseLLM):
             "api_base": self.config.api_base,
             "api_key": self.config.api_key.get_secret_value(),
             "messages": prompt.messages,
-            "max_completion_tokens": self.config.max_completion_tokens,
-            "max_tokens": self.config.max_completion_tokens,
             "temperature": self.config.temperature,
             "logprobs": 1,
             "skip_special_tokens": False,
             "include_stop_str_in_output": True,
             "timeout": self.config.timeout,
         }
+        if self.config.max_completion_tokens is not None:
+            kwargs["max_completion_tokens"] = self.config.max_completion_tokens
+        if self.config.max_tokens is not None:
+            kwargs["max_tokens"] = self.config.max_tokens
 
         if self.config.top_p is not None:
             kwargs["top_p"] = self.config.top_p

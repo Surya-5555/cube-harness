@@ -16,6 +16,7 @@ from cube_harness.llm import (
     Prompt,
     Usage,
     _build_cache_injection_points,
+    _completion_with_retry,
     _is_anthropic_model,
     _mark_last_tool_for_cache,
     get_reasoning,
@@ -108,6 +109,18 @@ class TestLLMConfig:
         """Test creating token counter from config."""
         counter = sample_llm_config.make_counter()
         assert callable(counter)
+
+    @patch("cube_harness.llm.tenacity.Retrying")
+    def test_completion_retry_strategy_is_configurable(self, retrying) -> None:
+        """Retry strategy should affect the Tenacity wait policy."""
+        retryer = MagicMock()
+        retrying.return_value = retryer
+
+        _completion_with_retry(2, retry_strategy="constant_retry", model="m", messages=[])
+
+        wait_policy = retrying.call_args.kwargs["wait"]
+        assert isinstance(wait_policy, tenacity.wait_fixed)
+        retryer.assert_called_once()
 
     def test_llm_config_serialization(self, sample_llm_config):
         """Test LLMConfig JSON serialization."""

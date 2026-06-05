@@ -4,10 +4,11 @@
 
 ## Purpose
 
-An `Episode` runs one agent against one task and produces a `Trajectory`. It owns the
-main loop (reset → step*  → close), incremental trajectory persistence, OpenTelemetry
-tracing, and error recovery. Workers receive an `EpisodeConfig` (serializable) and
-materialize the `Episode` locally.
+An `Episode` runs one agent against one task and produces a trajectory view. It owns
+task setup/reset/finalization, event streaming, OpenTelemetry tracing, and error
+recovery. The agent owns the per-turn loop and emits through `EventStreamer`-attached
+LLMs/tools. Workers receive an `EpisodeConfig` (serializable) and materialize the
+`Episode` locally.
 
 ## Public API
 
@@ -62,35 +63,25 @@ class Episode:
 ```
 
 ### `summary_stats`
-`Trajectory.summary_stats` is accumulated incrementally by `SummaryProcessor`
-(`cube_harness.summary`) as steps stream in, then written at end-of-episode. Includes
+`Trajectory.summary_stats` is accumulated incrementally by `EventStreamer` as events
+stream in, then written at end-of-episode. Includes
 `n_env_steps`, `n_agent_steps`, `total_actions`, `total_llm_calls`, token counts,
 `cost`, `duration`, `final_reward`, `error_type`. It is the only per-episode aggregate the
 runner needs — no end-of-run walk over the steps.
 
 ## Main loop semantics
 
-1. Enter `tracer.episode(task_id, experiment=exp_name)` span
-2. `_open_status` writes RUNNING `status.json` with `current_step=0`. This is the
-   **phase signal** the runner's `_kill_stale_workers` reads — `current_step == 0`
-   means setup hasn't completed yet, so the setup-phase budget applies.
-3. `task_config.make(runtime_context=..., container_backend=...)` → live Task
-4. `setup_fn()` → first `EnvironmentOutput` from `task.reset()`
-5. Save initial trajectory + episode_config on disk
-6. While not done and turns < max_steps:
-   - Heartbeat: write `status.json` with `current_step = turns + 1` and fresh
-     `last_heartbeat_at`. Heartbeat write is **fail-open** (logs warning, does
-     not abort the run on transient I/O errors).
-   - `agent.step(obs)` → `AgentOutput`
-     - On exception: save the failed agent step, re-raise (trajectory is preserved)
-   - Stream the agent step to disk (`save_step` + `SummaryProcessor.on_step`); not retained
-   - If empty actions and no error → log and break
-   - `step_fn(agent_output.actions)` → `EnvironmentOutput`
-     - On exception: save failed env step (with prior obs), re-raise
-   - Stream the env step to disk; not retained in memory
-7. `finally`: call `task.close()` and `tracer.shutdown()`
-8. Take `summary_stats` from `SummaryProcessor`, persist final metadata, return the
-   step-less trajectory
+1. Enter `tracer.episode(task_id, experiment=exp_name)` span.
+2. `_open_status` writes RUNNING `status.json` with `current_step=0`.
+3. `task_config.make(runtime_context=...)` → live Task, then `task.reset()` → initial observation.
+4. Save start-of-episode metadata and `episode_config`.
+5. Build `Budget` + `EventStreamer`, install monitored tools, and record the reset event.
+6. Attach the streamer to the agent and run `await agent.run(initial.obs, env_tool)`.
+   The agent owns the turn loop; LLM calls, tool calls, failures, and evaluations stream
+   as canonical `TrajectoryEvent`s.
+7. Run terminal `task.evaluate()`, record a terminal `EvaluationEvent`, persist final
+   metadata/summary/eval-log, and update status.
+8. `finally`: call `task.close()` and `tracer.shutdown()`.
 
 Final episode status is `OK` if `final_reward > 0`, else `ERROR` (sets OTel span status).
 

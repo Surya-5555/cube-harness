@@ -88,6 +88,8 @@ class EventSink:
             return payload
 
     def _spill(self, event: dict) -> None:
+        # TODO(replay-gap): signal an explicit gap to clients that resume from
+        # an offset older than the hot buffer when spill persistence is disabled.
         if self.config.persist_events_dir is None:
             self._dropped_event_count += 1
             return

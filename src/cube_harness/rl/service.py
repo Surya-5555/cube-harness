@@ -77,6 +77,8 @@ def serve(
         yield
         service.close()
 
+    # TODO(auth): add optional bearer-token auth plus endpoint/tokenizer allowlists
+    # before supporting non-local or untrusted rollout clients.
     app = FastAPI(title="cube-harness rollouts", lifespan=lifespan)
     app.state.service = service
 

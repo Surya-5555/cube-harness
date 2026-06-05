@@ -64,13 +64,12 @@ class Usage(TypedBaseModel):
     cost: float = 0.0  # cost in USD from LiteLLM pricing
 
 
-def _completion_with_retry(num_retries: int, **kwargs: Any) -> Any:
-    """Call litellm.completion with exponential backoff on transient errors.
-
-    litellm's completion_with_retries caps its backoff at 10 s, which is too
-    short for Anthropic overloaded_error responses under heavy load. We own the
-    retry loop here to get a proper 120 s ceiling.
-    """
+def _completion_with_retry(
+    num_retries: int,
+    retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry",
+    **kwargs: Any,
+) -> Any:
+    """Call litellm.completion with configurable retry behavior on transient errors."""
     _RETRIABLE = (
         InternalServerError,
         ServiceUnavailableError,
@@ -78,8 +77,13 @@ def _completion_with_retry(num_retries: int, **kwargs: Any) -> Any:
         Timeout,
         APIConnectionError,
     )
+    wait_strategy = (
+        tenacity.wait_fixed(1)
+        if retry_strategy == "constant_retry"
+        else tenacity.wait_exponential(multiplier=2, max=120)
+    )
     retryer = tenacity.Retrying(
-        wait=tenacity.wait_exponential(multiplier=2, max=120),
+        wait=wait_strategy,
         stop=tenacity.stop_after_attempt(num_retries),
         retry=tenacity.retry_if_exception_type(_RETRIABLE),
         reraise=True,
@@ -518,7 +522,11 @@ class LLM(BaseLLM):
             # reject tool_choice without a tools list) or when the caller opted out (None).
             kwargs.pop("tool_choice", None)
             kwargs.pop("parallel_tool_calls", None)
-        response = _completion_with_retry(self.config.num_retries, **kwargs)
+        response = _completion_with_retry(
+            self.config.num_retries,
+            retry_strategy=self.config.retry_strategy,
+            **kwargs,
+        )
         usage = _extract_usage(response)
         return LLMResponse(message=response.choices[0].message, usage=usage)
 

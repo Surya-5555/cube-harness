@@ -47,8 +47,8 @@ run a dedicated service per cube/trainer pair rather than multiplexing trainers
 through one process. The service accepts trainer-supplied LLM endpoint and
 tokenizer configuration, so deployments must keep it on a trusted network
 boundary (for example localhost, a private job network, or an authenticated
-control plane). Do not expose it directly to untrusted clients without adding
-authentication plus allowlists for endpoint/tokenizer choices.
+control plane). TODO(auth): do not expose it directly to untrusted clients
+without adding authentication plus allowlists for endpoint/tokenizer choices.
 
 ### `RolloutConfig`
 
@@ -187,6 +187,8 @@ Focused unit tests for the PR live in:
   through disk.
 - `rl/events.py` contains rollout control/publisher payloads, not a competing
   trajectory event model.
+- TODO(replay-gap): when `EventSink` drops hot events without a spill directory,
+  clients resuming from older offsets need an explicit gap signal.
 - Keep unreleased RL compatibility shims out of the core runtime. Non-RL
   compatibility belongs in the existing `agent`, `episode`, `storage`, and
   `llm` specs.
