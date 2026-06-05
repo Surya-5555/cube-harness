@@ -39,6 +39,7 @@ from cube_harness.episode_status import TERMINAL_STATUSES as _EPISODE_TERMINAL_S
 from cube_harness.exp_runner import DEFAULT_CANCEL_GRACE_S, DEFAULT_STEP_TIMEOUT_S
 from cube_harness.experiment_status import EXPERIMENT_STATUS_FILENAME, ExperimentStatus, is_driver_alive
 from cube_harness.llm import LLMCall
+from cube_harness.reproducibility import scan, submissions
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,7 @@ _STATUS_HTML: dict[str, str] = {
     "max_steps": "<span title='Max steps reached — step budget exhausted'>🎬</span>",
     "failed": "<span title='Failed — worker crashed'>⛔</span>",
     "stale": "<span title='Stale — heartbeat lost, dead worker'>👻</span>",
-    "cancelled": "<span title='Cancelled'>🚫</span>",
+    "cancelled": "<span title='Cancelled — deliberately stopped'>⏹️</span>",
     # Legacy heuristic (no status.json — pre-PR#315 experiments)
     "system_error": "<span title='System error — crashed (legacy inferred status)' style='color:#dc3545;font-weight:bold;font-size:14px'>✕</span>",
 }
@@ -159,7 +160,7 @@ _STATUS_LABEL: dict[str, str] = {
     "max_steps": "🎬 Max steps reached",
     "failed": "⛔ Failed",
     "stale": "👻 Stale",
-    "cancelled": "🚫 Cancelled",
+    "cancelled": "⏹️ Cancelled",
     "system_error": "✕ System error (legacy)",
 }
 
@@ -480,6 +481,23 @@ def _parse_experiment_config(exp_dir: Path) -> dict[str, str]:
 
 GHOST_TIMEOUT = DEFAULT_STEP_TIMEOUT_S + DEFAULT_CANCEL_GRACE_S  # mirrors runner's kill threshold
 _XRAY_CACHE_FILENAME = ".xray_summary.json"
+# Bump when the cached row schema/semantics change so stale caches recompute.
+# v3: added _category (eligibility) + _ran/_total for the incomplete badge.
+# v4: added _subs_mtime so the cache invalidates when submissions.json is
+#     written, updated, OR deleted (a submit, or a rollback that clears it).
+# v5: dropped the `incomplete` category (#491 records subset n_tasks at the
+#     source); replaced _ran/_total with _is_official (drives Archive auto-select).
+_EXP_ROW_VERSION = 5
+
+
+def _subs_mtime(exp_dir: Path) -> float:
+    """mtime of submissions.json, or 0.0 when absent. Stored on the cached row so
+    it invalidates whenever the submission state changes — including deletion
+    (absent → 0.0 ≠ the stored mtime), which an mtime-vs-cache check would miss."""
+    try:
+        return (exp_dir / submissions.SUBMISSIONS_FILENAME).stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _promote_ghost_episodes(exp_dir: Path) -> None:
@@ -558,6 +576,10 @@ def _is_cache_valid(exp_dir: Path, cache_mtime: float) -> bool:
     - Episode relaunched: runner archives old dir and creates new one → episodes/ mtime.
     - Status.json written: EpisodeStatus.write() creates a .tmp sibling first, which
       updates the episode dir mtime via the tmp-file creation step.
+
+    Does NOT cover submissions.json (it lives outside episodes/ and can be
+    *deleted*, which an mtime-vs-cache comparison misses) — that's handled
+    separately in get_experiments_table_rows via the cached `_subs_mtime`.
     """
     episodes_dir = exp_dir / "episodes"
     if not episodes_dir.exists():
@@ -571,6 +593,103 @@ def _is_cache_valid(exp_dir: Path, cache_mtime: float) -> bool:
     return True
 
 
+# --- Submission eligibility (clean + submit) -------------------------------
+# Compact badges for the Experiments-table "eligibility" column. The raw
+# category (stored on the hidden `_category` key) drives the Garbage-collect /
+# Check-submit auto-selection.
+
+_ELIGIBILITY_BADGES: dict[str, str] = {
+    "submittable": "<span title='Clean run — ready to submit'>🟢 submittable</span>",
+    "subset_review": "<span title='Passed integrity checks but the subset shape needs a human look (submit with review / mark is_official)'>🔍 review</span>",
+    "unfinished": "<span title='Episodes still queued/running, or tasks missing a status file — state may change'>⏳ unfinished</span>",
+    "broken": "<span title='Cannot produce a meaningful score'>💥 broken</span>",
+    # Neutral fallback only: a real journal decision is always resolved to ✅
+    # submitted or 🚫 rejected by eligibility_badge's fresh submissions read, so
+    # this never renders in practice — keep it neutral (not a green ✅) so a
+    # stray decided-but-unresolved state can't be mistaken for a success.
+    "already_submitted": "<span title='Has a prior submission decision' style='color:#888'>• decided</span>",
+}
+
+
+def scan_category(exp_dir: Path, *, sweep_stale: bool = False) -> str:
+    """The `ScanCategory` value for one experiment (``"broken"`` on any error).
+
+    The expensive part (reads `experiment_record.json` + per-episode statuses),
+    so it's cached on the row's hidden `_category` key. `sweep_stale=True` lets a
+    cleanup pass reclassify dead RUNNING/QUEUED episodes as broken first."""
+    try:
+        return scan.classify(exp_dir, sweep_stale=sweep_stale).category.value
+    except Exception:  # pragma: no cover - defensive
+        return "broken"
+
+
+def eligibility_badge(exp_dir: Path, category: str) -> str:
+    """Badge for the eligibility column. The persisted submission state (read
+    fresh, cheap) takes precedence over the cached scan `category`: a successful
+    submission shows ✅; a recorded rejection shows 🚫 rejected (with its reason),
+    so a previously-rejected/broken run is never mistaken for a success."""
+    subs = submissions.read(exp_dir)
+    submitted = [d for d in ("journal", "eee") if subs.get(d, {}).get("status") == "submitted"]
+    if submitted:
+        names = " + ".join({"journal": "registry", "eee": "eee"}[d] for d in submitted)
+        return f"<span title='Submitted to {names}'>✅ {names}</span>"
+    rejected = next((subs[d] for d in ("journal", "eee") if subs.get(d, {}).get("status") == "rejected"), None)
+    if rejected is not None:
+        reason = html_lib.escape(rejected.get("reason", "previously rejected"))
+        return f"<span title='{reason}'>🚫 rejected</span>"
+    if any(subs.get(d, {}).get("status") == "pending" for d in ("journal", "eee")):
+        return "<span title='Submission in progress'>📤 submitting…</span>"
+    failed = next((subs[d] for d in ("journal", "eee") if subs.get(d, {}).get("status") == "failed"), None)
+    if failed is not None:
+        reason = html_lib.escape(failed.get("reason", "submission failed"))
+        return f"<span title='Last submit attempt failed (retryable): {reason}'>❌ submit failed</span>"
+    return _ELIGIBILITY_BADGES.get(category, f"<span>{html_lib.escape(category)}</span>")
+
+
+def is_archivable(exp_dir: Path, category: str, is_official: bool | None = None) -> bool:
+    """True for runs the Archive auto-select should tick: a broken scan, a run
+    recorded as rejected (e.g. an all-ghost run), or one explicitly marked debug
+    (``is_official is False``).
+
+    ``is_official is True`` is an absolute keep — the operator vouched for / pinned
+    the run (e.g. a reference submission), so it is *never* auto-archived, even if
+    broken or rejected. A bare ``subset_review`` is also kept (it may be a legit
+    subset awaiting a `--yes` submission)."""
+    if is_official is True:
+        return False
+    if category == "broken" or is_official is False:
+        return True
+    subs = submissions.read(exp_dir)
+    return any(subs.get(d, {}).get("status") == "rejected" for d in ("journal", "eee"))
+
+
+def is_submittable_pick(exp_dir: Path, category: str) -> bool:
+    """True for the Submit auto-select: a submittable run that has NOT already
+    been submitted and is NOT mid-submission. Reads submissions.json *fresh* so a
+    run submitted earlier in this session is never re-ticked — the cached scan
+    `category` can lag a submit (submissions.json lives outside episodes/)."""
+    if category != "submittable":
+        return False
+    subs = submissions.read(exp_dir)
+    return not any(subs.get(d, {}).get("status") in ("submitted", "pending") for d in ("journal", "eee"))
+
+
+def persist_broken_rejection(exp_dir: Path) -> bool:
+    """If *exp_dir* classifies as broken and has no prior journal decision, stamp
+    a rejection into submissions.json (mirrors ``scan_experiments.py
+    --persist-broken``). Called on archive so a broken run's verdict is durable
+    and travels with the dir into ``_archive/``. Returns True when newly written."""
+    try:
+        result = scan.classify(exp_dir, sweep_stale=False)
+    except Exception:  # pragma: no cover - defensive
+        return False
+    if result.category is not scan.ScanCategory.broken or submissions.has_decision(exp_dir, "journal"):
+        return False
+    reason = result.reasons[0] if result.reasons else "broken (archived from XRay)"
+    submissions.record_rejected(exp_dir, "journal", reason=f"broken: {reason}")
+    return True
+
+
 def _compute_exp_row(exp_dir: Path) -> dict[str, Any]:
     """Compute display fields for one experiment by reading per-episode status.json files.
 
@@ -579,9 +698,53 @@ def _compute_exp_row(exp_dir: Path) -> dict[str, Any]:
     Returns: {date, agent, model, benchmark, status, avg_reward}.
     """
     cfg_info = _parse_experiment_config(exp_dir)
+
+    # Single source of truth: one classification pass reads the per-episode
+    # statuses AND yields the eligibility category. For record-bearing runs it
+    # also returns the status breakdown + rewards, so we don't re-read the status
+    # files here. Record-less / V1 layouts (which the scanner can't classify) fall
+    # back to a direct read.
+    result = scan.classify(exp_dir, sweep_stale=False)
+    if result.status_counts:
+        statuses = [
+            display
+            for raw, n in result.status_counts.items()
+            for display in [_RAW_STATUS_MAP.get(raw, "system_error")] * n
+        ]
+        rewards = list(result.rewards)
+    else:
+        statuses, rewards = _read_display_statuses(exp_dir)
+
+    status_html = _build_status_cell(statuses) if statuses else "—"
+    mean, stderr = _reward_mean_stderr(rewards)
+    avg_reward_str = f"{mean:.3f} ± {stderr:.3f}" if rewards else "—"
+
+    return {
+        "date": _parse_exp_date(exp_dir),
+        "agent": cfg_info["agent"],
+        "model": cfg_info["model"],
+        "benchmark": cfg_info["benchmark"],
+        "status": status_html,
+        "avg_reward": avg_reward_str,
+        # Cached scan category (stable for terminal runs); the displayed badge is
+        # derived fresh in get_experiments_table_rows so submissions stay current.
+        "_category": result.category.value,
+        # Operator run-intent (None/True/False) — drives the Archive auto-select
+        # (is_official=False ⇒ explicit debug ⇒ archivable).
+        "_is_official": result.is_official,
+        # Submission state at compute time, so the cache invalidates on a later
+        # submit / rollback (see _subs_mtime).
+        "_subs_mtime": _subs_mtime(exp_dir),
+        "_v": _EXP_ROW_VERSION,
+    }
+
+
+def _read_display_statuses(exp_dir: Path) -> tuple[list[str], list[float]]:
+    """Fallback per-episode read for layouts the scanner can't classify
+    (record-less V2, or V1 flat ``*.metadata.json``). Returns
+    ``(display_statuses, rewards)``."""
     statuses: list[str] = []
     rewards: list[float] = []
-
     episodes_dir = exp_dir / "episodes"
     if episodes_dir.exists():
         for ep_dir in episodes_dir.iterdir():
@@ -597,7 +760,6 @@ def _compute_exp_row(exp_dir: Path) -> dict[str, Any]:
             else:
                 statuses.append("queued")
     else:
-        # V1: read flat *.metadata.json for status and reward
         for search_dir in (exp_dir, exp_dir / "trajectories"):
             if not search_dir.exists():
                 continue
@@ -618,19 +780,7 @@ def _compute_exp_row(exp_dir: Path) -> dict[str, Any]:
                 except Exception as exc:
                     logger.debug("Failed to parse %s: %s", meta_file, exc)
                     statuses.append("system_error")
-
-    status_html = _build_status_cell(statuses) if statuses else "—"
-    mean, stderr = _reward_mean_stderr(rewards)
-    avg_reward_str = f"{mean:.3f} ± {stderr:.3f}" if rewards else "—"
-
-    return {
-        "date": _parse_exp_date(exp_dir),
-        "agent": cfg_info["agent"],
-        "model": cfg_info["model"],
-        "benchmark": cfg_info["benchmark"],
-        "status": status_html,
-        "avg_reward": avg_reward_str,
-    }
+    return statuses, rewards
 
 
 def get_experiments_table_rows(results_dir: Path) -> list[dict[str, Any]]:
@@ -649,26 +799,36 @@ def get_experiments_table_rows(results_dir: Path) -> list[dict[str, Any]]:
         if not _is_experiment_dir(dir_path):
             continue
         cache_path = dir_path / _XRAY_CACHE_FILENAME
+        row: dict[str, Any] | None = None
         if cache_path.exists():
             try:
                 cache_mtime = cache_path.stat().st_mtime
+                # Older-schema caches are treated as stale (recompute + rewrite).
                 if _is_cache_valid(dir_path, cache_mtime):
                     with open(cache_path) as f:
                         cached = json.load(f)
-                    rows.append({"selected": False, "experiment": dir_path.name, **cached})
-                    continue
+                    # Valid only if the schema matches AND the submission state is
+                    # unchanged since the cache was written (a submit or a rollback
+                    # that deletes submissions.json must force a reclassify).
+                    if cached.get("_v") == _EXP_ROW_VERSION and cached.get("_subs_mtime") == _subs_mtime(dir_path):
+                        row = {"selected": False, "experiment": dir_path.name, **cached}
             except Exception as exc:
                 logger.debug("Cache read failed for %s: %s", cache_path, exc)
-        _promote_ghost_episodes(dir_path)
-        summary = _compute_exp_row(dir_path)
-        if _all_episodes_terminal(dir_path):
-            try:
-                tmp = cache_path.parent / (cache_path.name + ".tmp")
-                tmp.write_text(json.dumps(summary, indent=2))
-                os.replace(tmp, cache_path)
-            except Exception as exc:
-                logger.debug("Cache write failed for %s: %s", cache_path, exc)
-        rows.append({"selected": False, "experiment": dir_path.name, **summary})
+        if row is None:
+            _promote_ghost_episodes(dir_path)
+            summary = _compute_exp_row(dir_path)
+            if _all_episodes_terminal(dir_path):
+                try:
+                    tmp = cache_path.parent / (cache_path.name + ".tmp")
+                    tmp.write_text(json.dumps(summary, indent=2))
+                    os.replace(tmp, cache_path)
+                except Exception as exc:
+                    logger.debug("Cache write failed for %s: %s", cache_path, exc)
+            row = {"selected": False, "experiment": dir_path.name, **summary}
+        # Derive the eligibility badge fresh (submissions.json is cheap and can
+        # change after a submit without invalidating the mtime-based cache).
+        row["eligibility"] = eligibility_badge(dir_path, row.get("_category", "broken"))
+        rows.append(row)
     rows.sort(key=lambda r: r["date"], reverse=True)
     return rows
 

@@ -8,7 +8,8 @@ the script classifies it into one of:
   • already_submitted  — ``submissions.json`` already has a 'journal' decision
   • broken             — cannot produce a meaningful submission (silent
                           rejection persisted into ``submissions.json``)
-  • unfinished         — still running; state may change, re-scan later
+  • unfinished         — still running, or tasks missing a status file; state
+                          may change, re-scan later
   • subset_review      — passed integrity but not a "complete named subset";
                           requires ``--yes`` to submit
   • submittable        — clean run of a full benchmark or a complete named

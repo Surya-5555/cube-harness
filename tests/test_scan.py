@@ -53,6 +53,25 @@ class TestSubmissions:
         second = submissions.read(tmp_path)["journal"]["decided_at"]
         assert first == second
 
+    def test_pending_is_not_a_decision(self, tmp_path: Path) -> None:
+        submissions.record_pending(tmp_path, "journal")
+        assert submissions.read(tmp_path)["journal"]["status"] == "pending"
+        # Transient — must not block a later (re)submission.
+        assert not submissions.has_decision(tmp_path, "journal")
+
+    def test_failed_is_not_a_decision(self, tmp_path: Path) -> None:
+        submissions.record_failed(tmp_path, "journal", reason="push timed out")
+        entry = submissions.read(tmp_path)["journal"]
+        assert entry["status"] == "failed" and entry["reason"] == "push timed out"
+        # Retryable, unlike rejected — stays eligible.
+        assert not submissions.has_decision(tmp_path, "journal")
+
+    def test_submitted_overwrites_pending(self, tmp_path: Path) -> None:
+        submissions.record_pending(tmp_path, "journal")
+        submissions.record_submitted(tmp_path, "journal", evaluation_id="j/1", schema_version="1.0")
+        assert submissions.has_decision(tmp_path, "journal")
+        assert submissions.read(tmp_path)["journal"]["status"] == "submitted"
+
     def test_journal_and_eee_coexist(self, tmp_path: Path) -> None:
         submissions.record_submitted(
             tmp_path,
@@ -173,6 +192,38 @@ class TestClassifierUnfinished:
         result = classify(exp_dir)
         assert result.category is ScanCategory.unfinished
         assert "have no status file" in result.reasons[0]
+
+
+class TestClassifierLiveStragglerStaysUnfinished:
+    """A run with a *live* in-flight episode stays unfinished even if heavily
+    stale — the per-episode heartbeat is the liveness signal, and in ray mode a
+    worker can outlive a crashed driver. (We deliberately do NOT auto-archive on
+    stale fraction.) Once the sweep promotes the straggler, err-rate marks it
+    broken; see test_high_system_error_rate_is_broken."""
+
+    def test_stale_heavy_run_with_in_flight_is_unfinished(self, tmp_path: Path) -> None:
+        exp_dir = tmp_path / "running_straggler"
+        _populate_clean_run(exp_dir, n_tasks=4, n_success=4)
+        _set_subset_field(exp_dir, n_tasks=4)
+        # 3 STALE + 1 RUNNING → 75% stale, but the RUNNING episode is still live.
+        _add_status(exp_dir, "t0", "STALE")
+        _add_status(exp_dir, "t1", "STALE")
+        _add_status(exp_dir, "t2", "STALE")
+        _add_status(exp_dir, "t3", "RUNNING")
+        result = classify(exp_dir, sweep_stale=False)
+        assert result.category is ScanCategory.unfinished
+
+    def test_stale_heavy_run_no_in_flight_is_broken(self, tmp_path: Path) -> None:
+        # Same run once the straggler is swept/finished: no in-flight, stale
+        # dominates → broken (archivable) via the system-error rate.
+        exp_dir = tmp_path / "abandoned"
+        _populate_clean_run(exp_dir, n_tasks=4, n_success=4)
+        _set_subset_field(exp_dir, n_tasks=4)
+        _add_status(exp_dir, "t0", "STALE")
+        _add_status(exp_dir, "t1", "STALE")
+        _add_status(exp_dir, "t2", "STALE")  # 3/4 = 75% stale, nothing in-flight
+        result = classify(exp_dir, sweep_stale=False)
+        assert result.category is ScanCategory.broken
 
 
 class TestClassifierSubsetReview:

@@ -14,6 +14,8 @@ import argparse
 import html as html_lib
 import json
 import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +29,7 @@ from cube_harness.analyze import inspect_results, xray_utils
 from cube_harness.analyze.xray_events import EpisodeEvents
 from cube_harness.core import Trajectory
 from cube_harness.experiment_status import EXPERIMENT_STATUS_FILENAME, ExperimentStatus
+from cube_harness.reproducibility import submissions
 from cube_harness.storage import FileStorage
 
 # ---------------------------------------------------------------------------
@@ -461,8 +464,9 @@ html {
     border-radius: 8px;
     border: 1px solid #e2e8f0;
 }
-/* Tiny, tight prev/next nav buttons, centred and hugging the rail. */
-#xray_prev_btn, #xray_next_btn {
+/* Tiny, tight nav buttons (jump-to-first ⤒ · prev ◀ · next ▶ · jump-to-last ⤓),
+   centred and hugging the rail. */
+#xray_first_btn, #xray_prev_btn, #xray_next_btn, #xray_last_btn {
     min-width: 28px !important;
     max-width: 34px;
     padding: 2px 6px !important;
@@ -473,6 +477,63 @@ html {
     gap: 6px !important;
     margin-bottom: 2px !important;
     min-height: 0 !important;
+}
+/* Experiments toolbar: one row that never wraps. Dir controls on the left; the
+   growing dir label pushes the two action split-buttons (Archive 🤖✓ · Submit 🤖✓)
+   to the right. Each (action, auto-select) pair renders as one split-button. */
+.xray-exp-toolbar {
+    gap: 0 !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    width: 100%;
+}
+/* The dir label grows to fill, right-aligning the actions; ellipsis if long. */
+#exp_dir_label {
+    flex: 1 1 auto !important;
+    min-width: 30px;
+    margin: 0 10px !important;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+#exp_refresh_btn {
+    min-width: 34px !important;
+    max-width: 40px;
+    padding: 2px 8px !important;
+    flex: 0 0 auto;
+    margin-left: 6px !important;
+}
+/* auto-select buttons: stretch to the action button's height (so the split-
+   button halves match) and fit "🤖✓" on ONE line (no vertical wrap). */
+#exp_pick_archivable_btn, #exp_pick_submittable_btn {
+    min-width: 0 !important;
+    flex: 0 0 auto;
+    align-self: stretch !important;
+}
+#exp_pick_archivable_btn button, #exp_pick_submittable_btn button {
+    height: 100% !important;
+    padding: 2px 10px !important;
+    white-space: nowrap !important;
+}
+/* gap between the Archive split-button and the Submit cluster */
+#exp_submit_registry_btn {
+    margin-left: 16px !important;
+}
+/* Submit cluster = [Registry | EEE | 🤖✓] joined into one unit. Left segment
+   (Registry) keeps its left radius; the middle (EEE) is square; the 🤖✓ keeps
+   the right radius (handled by the shared pick-button rule below). */
+#exp_archive_btn button, #exp_submit_registry_btn button {
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+#exp_submit_eee_btn button {
+    border-radius: 0 !important;
+    border-left: 1px solid rgba(0, 0, 0, 0.18) !important;
+}
+#exp_pick_archivable_btn button, #exp_pick_submittable_btn button {
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+    border-left: 1px solid rgba(0, 0, 0, 0.18) !important;
 }
 .compact-header {
     padding: 8px 16px;
@@ -622,8 +683,9 @@ th {
 """
 
 # Runs once on app load (Blocks js=): force light theme + bind keyboard event
-# navigation. Arrow keys (←/→ or ↑/↓) move to the previous/next event — plain
-# arrows, not Shift+arrow (which the browser steals for text selection). Gradio
+# navigation. Plain arrows (←/→ or ↑/↓) step to the previous/next event; Shift+↑/↓
+# (or Home/End) jump to the first/last step. preventDefault + the input/textarea
+# guard keep Shift+arrow from extending a browser text selection. Gradio
 # puts `elem_id` on the <button> itself, so the selectors are `#xray_prev_btn`,
 # NOT `#xray_prev_btn button`. Tooltips advertise the shortcut. (Rail scroll is
 # preserved by the CSS overflow living on the stable `#xray_rail` container, so
@@ -633,10 +695,24 @@ _INIT_JS = """
     document.body.classList.remove('dark');
     if (window.__xrayInit) return;
     window.__xrayInit = true;
+    const TIPS = {
+        '#xray_first_btn': 'Jump to first step (Shift+↑ or Home)',
+        '#xray_prev_btn': 'Previous event (← or ↑)',
+        '#xray_next_btn': 'Next event (→ or ↓)',
+        '#xray_last_btn': 'Jump to last step / end (Shift+↓ or End)',
+        '#exp_browse_btn': 'Pick a different results directory',
+        '#exp_refresh_btn': 'Re-scan the results directory (cached — fast)',
+        '#exp_archive_btn': 'Archive all checked experiments (moves them to _archive/)',
+        '#exp_pick_archivable_btn': 'Auto-select broken + rejected + explicit-debug (is_official=False) experiments to archive',
+        '#exp_submit_registry_btn': 'Submit checked experiments to the cube-registry reproducibility journal — opens an auto-validating, auto-merging PR. For publishing REFERENCE values (cross-infra drift detection), NOT a leaderboard.',
+        '#exp_submit_eee_btn': 'Submit checked experiments to EEE (the eval results store) — for showcasing agent/model performance. Runs scripts/submit_to_eee.py.',
+        '#exp_pick_submittable_btn': 'Auto-select submittable, not-yet-submitted experiments (applies to whichever submit button you click next)',
+    };
     const setTip = () => {
-        const pb = document.querySelector('#xray_prev_btn'), nb = document.querySelector('#xray_next_btn');
-        if (pb) pb.title = 'Previous event (← or ↑)';
-        if (nb) nb.title = 'Next event (→ or ↓)';
+        for (const [sel, tip] of Object.entries(TIPS)) {
+            const el = document.querySelector(sel);
+            if (el) el.title = tip;
+        }
     };
     setTip();
     setTimeout(setTip, 1000);
@@ -645,7 +721,13 @@ _INIT_JS = """
         if (tag === 'input' || tag === 'textarea' || tag === 'select' || t.isContentEditable) return;
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         let sel = null;
-        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') sel = '#xray_prev_btn';
+        // Shift+↑/↓ and Home/End jump to the first/last step; plain arrows step.
+        if (e.shiftKey) {
+            if (e.key === 'ArrowUp') sel = '#xray_first_btn';
+            else if (e.key === 'ArrowDown') sel = '#xray_last_btn';
+        } else if (e.key === 'Home') sel = '#xray_first_btn';
+        else if (e.key === 'End') sel = '#xray_last_btn';
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') sel = '#xray_prev_btn';
         else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') sel = '#xray_next_btn';
         if (!sel) return;
         const b = document.querySelector(sel);
@@ -789,9 +871,15 @@ def run_xray(
         hierarchy = _load_and_build_hierarchy()
         return (*hierarchy, gr.Timer(active=state.should_poll()))
 
-    def on_archive_selected() -> tuple[Any, str, Any, Any, Any, StepId, gr.Tab, gr.Tab, gr.Tab, str, str, gr.Timer]:
+    def on_archive_selected() -> tuple[
+        Any, str, Any, Any, Any, StepId, gr.Tab, gr.Tab, gr.Tab, str, str, gr.Timer, Any
+    ]:
         """Archive all currently selected experiments and reset state."""
-        for name in list(state._selected_exp_names):
+        names = list(state._selected_exp_names)
+        for name in names:
+            # Stamp a durable rejection for broken runs before moving them, so the
+            # verdict travels into _archive/ (mirrors scan_experiments --persist-broken).
+            xray_utils.persist_broken_rejection(state.results_dir / name)
             xray_utils.archive_experiment(state.results_dir, name)
         state._selected_exp_names = []
         state.trajectories = []
@@ -807,7 +895,13 @@ def run_xray(
             "",
             gr.Timer(active=False),
         )
-        return (_exp_table_rows(), *_empty_hierarchy)
+        # Replace the now-stale "Selected N…" line with a result (or clear it).
+        status = (
+            gr.update(value=f"🗃 Archived **{len(names)}** experiment(s) to `_archive/`.", visible=True)
+            if names
+            else gr.update(value="", visible=False)
+        )
+        return (_exp_table_rows(), *_empty_hierarchy, status)
 
     def on_select_agent(evt: gr.SelectData, agent_df: Any) -> tuple[Any, Any, StepId, gr.Tab, gr.Tab, str, str]:
         if evt is None or evt.index is None or agent_df is None or len(agent_df) == 0:
@@ -931,6 +1025,20 @@ def run_xray(
         if state.current_events is None:
             return StepId(step=state.selected)
         state.selected = state.current_events.next_group_root(state.selected)
+        return StepId(step=state.selected)
+
+    def navigate_first() -> StepId:
+        """Jump to the first step (group after the initial observation)."""
+        if state.current_events is None or len(state.current_events) == 0:
+            return StepId(step=state.selected)
+        state.selected = state.current_events.first_group_root()
+        return StepId(step=state.selected)
+
+    def navigate_last() -> StepId:
+        """Jump to the last group (end of the episode)."""
+        if state.current_events is None or len(state.current_events) == 0:
+            return StepId(step=state.selected)
+        state.selected = state.current_events.last_group_root()
         return StepId(step=state.selected)
 
     def handle_timeline_click(clicked_index: int | None) -> StepId:
@@ -1178,7 +1286,7 @@ def run_xray(
         active_tab = gr.State(value="Chat")
         step_id = gr.State(value=StepId())
 
-        with gr.Tabs():
+        with gr.Tabs(selected="experiments_tab"):
             with gr.Tab("Help"):
                 gr.Markdown(
                     """\
@@ -1228,18 +1336,50 @@ def run_xray(
 """,
                     elem_classes="help-content",
                 )
-            with gr.Tab("Experiments"):
-                with gr.Row():
-                    exp_browse_btn = gr.Button("📁 Browse…", scale=0, size="sm", variant="secondary")
-                    exp_refresh_btn = gr.Button("↺ Refresh", scale=0, size="sm")
-                    exp_archive_btn = gr.Button("🗃 Archive selected", scale=0, size="sm", variant="secondary")
-                results_dir_md = gr.Markdown(f"📂 `{state.results_dir}`")
+            with gr.Tab("Experiments", id="experiments_tab"):
+                # One toolbar row: directory controls on the left, the action
+                # clusters (Archive 🤖✓ · Registry EEE 🤖✓) pushed to the right by
+                # the growing directory label. Each 🤖✓ auto-selects the rows its
+                # action applies to; the user reviews, then clicks Registry or EEE.
+                # Tooltips are set in _INIT_JS.
+                with gr.Row(elem_classes="xray-exp-toolbar"):
+                    exp_browse_btn = gr.Button(
+                        "📁 Browse…", scale=0, size="sm", variant="secondary", elem_id="exp_browse_btn"
+                    )
+                    exp_refresh_btn = gr.Button("↺", scale=0, size="sm", elem_id="exp_refresh_btn", min_width=0)
+                    results_dir_md = gr.Markdown(f"📂 `{state.results_dir}`", elem_id="exp_dir_label")
+                    exp_archive_btn = gr.Button(
+                        "🗃 Archive", scale=0, size="sm", variant="secondary", elem_id="exp_archive_btn"
+                    )
+                    exp_pick_archivable_btn = gr.Button(
+                        "🤖✓", scale=0, size="sm", elem_id="exp_pick_archivable_btn", min_width=0
+                    )
+                    exp_submit_registry_btn = gr.Button(
+                        "⬆️ Registry", scale=0, size="sm", variant="primary", elem_id="exp_submit_registry_btn"
+                    )
+                    exp_submit_eee_btn = gr.Button(
+                        "⬆️ EEE", scale=0, size="sm", variant="primary", elem_id="exp_submit_eee_btn"
+                    )
+                    exp_pick_submittable_btn = gr.Button(
+                        "🤖✓", scale=0, size="sm", elem_id="exp_pick_submittable_btn", min_width=0
+                    )
+                exp_action_status = gr.Markdown("", visible=False)
                 exp_table = gr.DataFrame(
-                    headers=["", "experiment", "date", "agent", "model", "benchmark", "status", "avg_reward"],
-                    datatype=["bool", "str", "str", "str", "str", "str", "html", "str"],
-                    col_count=(8, "fixed"),
+                    headers=[
+                        "",
+                        "experiment",
+                        "date",
+                        "agent",
+                        "model",
+                        "benchmark",
+                        "status",
+                        "avg_reward",
+                        "eligibility",
+                    ],
+                    datatype=["bool", "str", "str", "str", "str", "str", "html", "str", "html"],
+                    col_count=(9, "fixed"),
                     interactive=True,
-                    static_columns=[1, 2, 3, 4, 5, 6, 7],
+                    static_columns=[1, 2, 3, 4, 5, 6, 7, 8],
                     max_height=260,
                     show_label=False,
                     elem_id="exp_table",
@@ -1316,8 +1456,10 @@ def run_xray(
         with gr.Row(equal_height=False):
             with gr.Column(scale=1, min_width=240):
                 with gr.Row(elem_classes="xray-nav-row"):
+                    first_btn = gr.Button("⤒", size="sm", elem_id="xray_first_btn", min_width=0, scale=0)
                     prev_btn = gr.Button("◀", size="sm", elem_id="xray_prev_btn", min_width=0, scale=0)
                     next_btn = gr.Button("▶", size="sm", elem_id="xray_next_btn", min_width=0, scale=0)
+                    last_btn = gr.Button("⤓", size="sm", elem_id="xray_last_btn", min_width=0, scale=0)
                 timeline_html = gr.HTML(elem_id="xray_rail")
             with gr.Column(scale=3):
                 # Reasoning (the LLM's thinking) beside the dispatched action.
@@ -1360,10 +1502,7 @@ def run_xray(
         # Event wiring
         # ------------------------------------------------------------------
 
-        def _exp_table_rows(auto_select_first: bool = False) -> list[list[Any]]:
-            rows = xray_utils.get_experiments_table_rows(state.results_dir)
-            if auto_select_first and rows:
-                rows[0]["selected"] = True
+        def _to_exp_table(rows: list[dict[str, Any]]) -> list[list[Any]]:
             return [
                 [
                     r["selected"],
@@ -1374,12 +1513,124 @@ def run_xray(
                     r["benchmark"],
                     r["status"],
                     r.get("avg_reward", "—"),
+                    r.get("eligibility", "—"),
                 ]
                 for r in rows
             ]
 
+        def _exp_table_rows(auto_select_first: bool = False) -> list[list[Any]]:
+            rows = xray_utils.get_experiments_table_rows(state.results_dir)
+            if auto_select_first and rows:
+                rows[0]["selected"] = True
+            return _to_exp_table(rows)
+
         def _exp_table_value() -> list[list[Any]]:
             return _exp_table_rows(auto_select_first=False)
+
+        def _select_rows(predicate: Callable[[dict[str, Any], Path], bool], label: str) -> tuple[list[list[Any]], Any]:
+            """Tick rows for which ``predicate(row, exp_dir)`` is true. Routes
+            through the same cached `get_experiments_table_rows` as Refresh (status +
+            ghost heartbeat + eligibility, all cached), so it is as fast as a refresh."""
+            rows = xray_utils.get_experiments_table_rows(state.results_dir)
+            n = 0
+            for r in rows:
+                hit = predicate(r, state.results_dir / r["experiment"])
+                r["selected"] = hit
+                n += int(hit)
+            msg = f"🎯 Selected **{n}** {label} experiment(s). Review the ticks, then click the action button."
+            return _to_exp_table(rows), gr.update(value=msg, visible=True)
+
+        def on_pick_archivable() -> tuple[list[list[Any]], Any]:
+            """Auto-tick non-keepers for Archive: broken runs, runs recorded as
+            rejected (e.g. all-ghost), and explicit debug runs (is_official=False).
+            The user reviews the ticks before archiving."""
+            return _select_rows(
+                lambda r, d: xray_utils.is_archivable(d, r.get("_category", "broken"), r.get("_is_official")),
+                "broken / rejected / debug",
+            )
+
+        def on_pick_submittable() -> tuple[list[list[Any]], Any]:
+            """Auto-tick submittable experiments that aren't already submitted or
+            mid-submission (reads submissions.json fresh, so a just-submitted run
+            is not re-ticked even if its cached category lags)."""
+            return _select_rows(
+                lambda r, d: xray_utils.is_submittable_pick(d, r.get("_category", "broken")), "submittable"
+            )
+
+        def _selected_exp_dirs(table: Any) -> list[Path]:
+            """Experiment dirs whose checkbox is ticked in the current table value."""
+            records = table.values.tolist() if hasattr(table, "values") else (table or [])
+            return [state.results_dir / row[1] for row in records if row and bool(row[0])]
+
+        def _run_submitter(script: str, exp_dir: Path, extra: list[str]) -> tuple[bool, str]:
+            """Invoke a submit script for one experiment; return (ok, last-meaningful-line).
+
+            On failure the tail is taken from stderr (where the traceback /
+            CalledProcessError lands) so the recorded failure reason is the actual
+            error, not the last incidental stdout line."""
+            cmd = [sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / script), str(exp_dir), *extra]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            ok = proc.returncode == 0
+            stream = proc.stdout if ok else (proc.stderr or proc.stdout)
+            tail = next((ln for ln in reversed(stream.strip().splitlines()) if ln.strip()), "")
+            return ok, tail
+
+        def on_submit(table: Any, destination: str) -> tuple[Any, ...]:
+            """Submit the checked experiments to EEE or the cube-registry journal.
+
+            Outputs: [exp_table, *_hierarchy_outputs, exp_action_status]. After
+            submitting, the just-submitted rows are no longer ticked, so we re-
+            select the first experiment and rebuild the detail panel — otherwise
+            the table would show no selection while the panel still displays the
+            previous experiment."""
+            dirs = _selected_exp_dirs(table)
+            if not dirs:
+                skip_hierarchy = tuple(gr.skip() for _ in _hierarchy_outputs)
+                return (
+                    _exp_table_value(),
+                    *skip_hierarchy,
+                    gr.update(value="Nothing selected to submit.", visible=True),
+                )
+            if destination == "eee":
+                script, extra = "submit_to_eee.py", []
+            else:
+                script, extra = "submit_to_journal.py", ["--auto-pr", "--i-understand-this-is-not-a-leaderboard"]
+            dest_key = "eee" if destination == "eee" else "journal"
+            lines = [f"### Submit → {destination.upper()} ({len(dirs)} experiment(s))"]
+            for d in dirs:
+                # Mark in-progress so the row reads "submitting…" and the auto-
+                # selector won't re-tick it. The submitter writes `submitted` on
+                # success (overwriting pending); we record `failed` otherwise so
+                # the failure persists in submissions.json instead of vanishing.
+                submissions.record_pending(d, dest_key)
+                ok, tail = _run_submitter(script, d, extra)
+                if not ok:
+                    submissions.record_failed(d, dest_key, reason=tail or "submission failed")
+                lines.append(f"- {'✅' if ok else '❌'} `{d.name}` — {tail or ('done' if ok else 'failed')}")
+            status = gr.update(value="\n".join(lines), visible=True)
+            # Re-select the first experiment so the table + detail panel stay in sync.
+            rows = xray_utils.get_experiments_table_rows(state.results_dir)
+            if not rows:
+                state._selected_exp_names = []
+                state.trajectories = []
+                state.selected_agent_key = None
+                empty_hierarchy = (
+                    "",
+                    None,
+                    None,
+                    StepId(),
+                    gr.Tab(label="Agents (0)"),
+                    gr.Tab(label="Trajectories (0)"),
+                    "",
+                    "",
+                    gr.Timer(active=False),
+                )
+                return (_to_exp_table(rows), *empty_hierarchy, status)
+            rows[0]["selected"] = True
+            first = rows[0]["experiment"]
+            state._selected_exp_names = [first]
+            state.load_experiments([state.results_dir / first])
+            return (_to_exp_table(rows), *_load_and_build_hierarchy(), gr.Timer(active=state.should_poll()), status)
 
         def on_browse_dir() -> tuple[list[list[Any]], str]:
             """Open a native folder picker; on choice, switch the results dir and
@@ -1405,7 +1656,19 @@ def run_xray(
         exp_table.change(fn=on_experiments_change, inputs=exp_table, outputs=_hierarchy_outputs)
         exp_browse_btn.click(fn=on_browse_dir, outputs=[exp_table, results_dir_md])
         exp_refresh_btn.click(fn=_exp_table_value, outputs=exp_table)
-        exp_archive_btn.click(fn=on_archive_selected, outputs=[exp_table, *_hierarchy_outputs])
+        exp_pick_archivable_btn.click(fn=on_pick_archivable, outputs=[exp_table, exp_action_status])
+        exp_pick_submittable_btn.click(fn=on_pick_submittable, outputs=[exp_table, exp_action_status])
+        exp_submit_registry_btn.click(
+            fn=lambda t: on_submit(t, "journal"),
+            inputs=exp_table,
+            outputs=[exp_table, *_hierarchy_outputs, exp_action_status],
+        )
+        exp_submit_eee_btn.click(
+            fn=lambda t: on_submit(t, "eee"),
+            inputs=exp_table,
+            outputs=[exp_table, *_hierarchy_outputs, exp_action_status],
+        )
+        exp_archive_btn.click(fn=on_archive_selected, outputs=[exp_table, *_hierarchy_outputs, exp_action_status])
 
         bg_timer.tick(
             fn=on_bg_load_tick,
@@ -1440,8 +1703,10 @@ def run_xray(
 
         # Navigation buttons — handlers read state.step from closure (inputs=[]) so that
         # JS button.click() also works without Gradio losing the gr.State value.
+        first_btn.click(fn=navigate_first, inputs=[], outputs=step_id)
         prev_btn.click(fn=navigate_prev, inputs=[], outputs=step_id)
         next_btn.click(fn=navigate_next, inputs=[], outputs=step_id)
+        last_btn.click(fn=navigate_last, inputs=[], outputs=step_id)
 
         # Always-rendered on step change
         step_id.change(fn=get_compact_header_info, outputs=header_info)
