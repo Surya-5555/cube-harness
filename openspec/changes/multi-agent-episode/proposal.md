@@ -43,6 +43,13 @@ traps. `async` (N concurrent loops over serialized world state) and `batch` (bar
 joint resolution) are **deferred**; the task can already gate legality ("not your turn" →
 `StepError`).
 
+**Legality lives in the cube, scheduling in the arena.** Per upstream, `TaskTool.action_set`
+is a **dynamic property** (recomputed per turn) — so phase gating, legal-action masking, and
+real-time observe/no-op are expressed by the *cube*, and the arena only decides *who it polls
+next*. Harness implication: **the agent re-reads `action_set` each turn** (rebuilds its tool
+schema per turn) rather than caching it at `make()` — a small change to the agent loop that
+single-agent inherits too.
+
 ### 4. Trajectory gains an `agent_id` dimension
 `ToolCallEvent` / `LLMCallEvent` (and the `Streamer`/`EventStreamer`) carry **`agent_id`**.
 The env half comes from each `TaskTool`'s `on_action`/`on_eval`; the agent half (LLM /
