@@ -51,11 +51,11 @@ schema per turn) rather than caching it at `make()` — a small change to the ag
 single-agent inherits too.
 
 ### 4. Trajectory gains an `agent_id` dimension
-`ToolCallEvent` / `LLMCallEvent` (and the `Streamer`/`EventStreamer`) carry **`agent_id`**.
-The env half comes from each `TaskTool`'s `on_action`/`on_eval`; the agent half (LLM /
-reasoning) from each agent's connector — both into one sink, tagged per agent. The
-trajectory is then a unified timeline **and** per-agent slices. (XRay per-agent lanes:
-later.)
+Capture is harness-side (no standard `Streamer`, per upstream): each agent loop **self-emits
+its own tool + LLM events** (it has `(action, obs)` from `execute_action`), and the arena
+**recovers reward from `task.evaluate()`** (it holds the task). `ToolCallEvent` /
+`LLMCallEvent` / eval carry **`agent_id`**; the `EventStreamer` is one sink, so the
+trajectory is a unified timeline **and** per-agent slices. (XRay per-agent lanes: later.)
 
 ### 5. Termination + budget — start simple
 - **Termination:** the episode ends on the global `task.finished()`/terminal `evaluate`;
@@ -76,10 +76,11 @@ flowchart TB
   TASK -->|agent_tools| TTS["TaskTool · 1..N<br/>per-agent id + action_set"]
   AC -->|"make(per TaskTool)"| AGS["Agent · 1..N"]
   AR -->|polls| AGS
-  AGS -->|execute_action| TTS
-  TTS -. "on_action / on_eval · agent_id" .-> ST[["Streamer"]]
-  AGS -. "LLM events · agent_id" .-> ST
-  ST -. implemented by .-> SINK[("FileStorage · XRay")]
+  AGS -->|execute_action → obs| TTS
+  AR -->|"evaluate() → reward"| TASK
+  AGS -. "tool + LLM events · agent_id" .-> ST[("Recorder · EventStreamer")]
+  AR -. "reward · agent_id" .-> ST
+  ST -. writes .-> SINK[("FileStorage · XRay")]
 ```
 
 ## v1 scope (the multi-agent CUBE next week)

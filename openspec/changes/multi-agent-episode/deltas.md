@@ -10,8 +10,9 @@
   finalizes per-agent + episode. Single-agent `Episode` = the N=1 fast path.
 - **Scheduler** (`episode` spec) — v1 `turn-based` (round-robin, sequential, sync).
   `async` / `batch` deferred.
-- **`agent_id` on trajectory events** (`core`/`eval_log`) — `ToolCallEvent` /
-  `LLMCallEvent` carry `agent_id`; the `EventStreamer` tags env + LLM events per agent.
+- **`agent_id` on trajectory events** (`core`/`eval_log`) — capture is harness-side (no
+  standard `Streamer`): each agent loop self-emits its tool + LLM events; the arena recovers
+  reward via `task.evaluate()`. `ToolCallEvent` / `LLMCallEvent` / eval carry `agent_id`.
 
 ## MODIFIED (provisional)
 
