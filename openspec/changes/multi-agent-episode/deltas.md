@@ -16,9 +16,11 @@
 
 ## MODIFIED (provisional)
 
-- **`AgentConfig.make()`** (`agent` spec) — takes per-agent identity from the `TaskTool`
-  (`agent_id` + that seat's `action_set`), so one `AgentConfig` yields N correctly-shaped
-  agents. (Signature: decision (1).)
+- **`AgentConfig.make()`** (`agent` spec) — takes per-seat identity from the `TaskTool`
+  (`action_set` + `agent_id` + `role`), so one `AgentConfig` yields N correctly-shaped agents.
+  `role`/`agent_id` come from cube-standard's `agent_roles()` seam (`role=None`→`"agent"`, else
+  `"{role}-{seat}"`). v1 agents ignore `role` (homogeneous); per-role heterogeneous configs
+  (a different `AgentConfig` per role) are a forward extension.
 - **`EpisodeConfig` / experiment recipe** (`episode`/`experiment` spec) — carries the
   (single, v1) `AgentConfig` consumed once per `TaskTool`. Fixed N agents in v1.
 - **(Forward extension, NOT in v1) Agent loop re-reads `action_set` per turn.**
