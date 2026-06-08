@@ -4,6 +4,9 @@
 **Author:** Alexandre Lacoste (w/ Claude)
 **Date:** 2026-06-05
 **Upstream:** `cube-standard/openspec/changes/streamable-task` (#214) — defines the task side.
+**Lands with #214 (same change, not a follow-up):** single-agent is N=1 of `agent_tools()`,
+so the arena ships **together** with the single-agent `TaskTool` rewire — only `async` /
+`batch` / real-time schedulers are left for later.
 
 ## Context
 
@@ -90,6 +93,11 @@ Fixed N agents · turn-based · homogeneous (one `AgentConfig` parameterized per
 
 ## Open decisions
 
+0. **Where `pre_step`/`post_step` + per-step `evaluate` fire.** The agent owns `agent.run`
+   and holds only a `TaskTool`, so the harness must call `task.pre_step()`/`post_step()` +
+   per-step `evaluate()` at each agent-step boundary. **Proposed:** reuse `Agent.run`'s
+   existing per-step hook (`recorder.on_step()` each turn) — fire `pre_step` before /
+   `post_step` + `evaluate` after, there. (= #214 open decision (3).)
 1. `AgentConfig.make` signature: `make(action_set, agent_id)` vs `make(task_tool)`
    (hand the whole `TaskTool`).
 2. Termination policy (global `finished` vs all-seats-retired vs coordinator).
