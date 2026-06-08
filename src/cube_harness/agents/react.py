@@ -65,14 +65,14 @@ class ReactAgent(Agent):
         super().__init__(config)
         self.llm = config.llm_config.make()
         self.token_counter = config.llm_config.make_counter()
+        # STOP (`final_step`) is part of the task's `action_set` when it accepts the
+        # agent stopping (`accept_agent_stop`, default True) — already Anthropic-safe
+        # (`{"type": "object", "properties": {}}`). We no longer append it manually
+        # (that produced a duplicate stop tool). `can_finish=False` opts the agent out
+        # of offering STOP to the LLM even when the task would accept it.
         self.tools: list[dict] = [tool.as_dict() for tool in tools]
-        if config.can_finish:
-            stop_tool = STOP_ACTION.as_dict()
-            # Ensure parameters has "type": "object" — some LLM APIs (e.g. Anthropic)
-            # require it even for tools with no parameters.
-            if not stop_tool["function"]["parameters"].get("type"):
-                stop_tool["function"]["parameters"] = {"type": "object", "properties": {}}
-            self.tools.append(stop_tool)
+        if not config.can_finish:
+            self.tools = [t for t in self.tools if t["function"]["name"] != STOP_ACTION.name]
         apply_description_overrides(self.tools, config.description_overrides)
 
         self.history: list[dict | Message] = []

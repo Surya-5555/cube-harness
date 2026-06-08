@@ -2,12 +2,12 @@
 
 import logging
 import time
-from typing import Any, List, Literal, override
+from typing import Any, Literal, override
 
 import browsergym.workarena
 from browsergym.workarena.tasks.base import AbstractServiceNowTask
 from cube.benchmark import RuntimeContext
-from cube.core import Action, EnvironmentOutput, Observation
+from cube.core import Observation
 from cube.task import Task, TaskConfig, TaskMetadata
 from cube.tool import Toolbox
 from cube.tools.browser import BrowserTool
@@ -152,9 +152,14 @@ class WorkArenaTask(Task):
         return self._validate_cache  # type: ignore[return-value]
 
     @override
-    def step(self, action: Action | List[Action]) -> EnvironmentOutput:
+    def obs_postprocess(self, obs: Observation) -> Observation:
+        # Invalidate the per-action validate cache at the post-action boundary that
+        # BOTH views share: the gym `step` runs obs_postprocess once per batch, and
+        # the agent's `TaskTool.execute_action` runs it once per action. So the next
+        # `finished()` / `evaluate()` always re-validates against the latest world
+        # state. Replaces the old `step()` override, which the agent path never called.
         self._validate_cache = None
-        return super().step(action)
+        return super().obs_postprocess(obs)
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
         """Score the current task state via WorkArena's validate()."""

@@ -174,8 +174,9 @@ class Agent(ABC):
 
         Termination (shared by both bodies):
           * Graceful: `step` returns empty actions with no error.
-          * `TaskDone` from a MonitoredTool (task `finished()` or STOP_ACTION).
-          * `BudgetExceeded` from a MonitoredTool.
+          * `AgentStop` from the `RecordingTaskTool` (agent emitted STOP /
+            `final_step`, or `task.finished()` returned True after an action).
+          * `BudgetExceeded` from the `RecordingTaskTool`.
         """
         if self.config.parallel_actions:
             # Event loop scoped to just the parallel gather — not the whole episode.

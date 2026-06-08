@@ -933,9 +933,11 @@ class GenericAgent(Agent):
         self.llm = config.llm_config.make()
         self.token_counter = config.llm_config.make_counter()
 
-        # Build action set with stop action
+        # STOP (final_step) is already in the task's action_set when accept_agent_stop
+        # is set (default); append only if missing, to avoid a duplicate stop tool.
         self.action_set = list(action_set)
-        self.action_set.append(STOP_ACTION)
+        if not any(a.name == STOP_ACTION.name for a in self.action_set):
+            self.action_set.append(STOP_ACTION)
 
         # Convert action schemas to tool dicts for LLM tool calling
         self.tools: list[dict] = [a.as_dict() for a in self.action_set]
