@@ -21,9 +21,11 @@
   agents. (Signature: decision (1).)
 - **`EpisodeConfig` / experiment recipe** (`episode`/`experiment` spec) — carries the
   (single, v1) `AgentConfig` consumed once per `TaskTool`. Fixed N agents in v1.
-- **Agent loop re-reads `action_set` per turn** (`agent`/`episode` spec) — `TaskTool.action_set`
-  is dynamic upstream, so the agent rebuilds its tool schema each turn instead of caching it
-  at `make()`. Enables legal-action masking / phase gating / real-time; single-agent inherits it.
+- **(Forward extension, NOT in v1) Agent loop re-reads `action_set` per turn.**
+  `TaskTool.action_set` is dynamic upstream, so an agent *could* rebuild its tool schema
+  each turn (legal-action masking / phase gating / real-time). Today agents **snapshot the
+  set at `make()`** — fine because no current cube varies it. Wire the per-turn re-read only
+  when a cube actually needs a changing action set.
 
 ## OPEN (block firming up)
 
