@@ -124,7 +124,9 @@ class MultiAgentEpisode:
 
         seats: list[Seat] = []
         for env_tool in env_tools:
-            agent = self.agent_config.make(env_tool.action_set, agent_id=env_tool.agent_id)
+            # role is forwarded for heterogeneous (per-role) agent configs later; today's
+            # homogeneous agents ignore it.
+            agent = self.agent_config.make(env_tool.action_set, agent_id=env_tool.agent_id, role=env_tool.role)
             agent.attach_recorder(self.streamer)
             seats.append(Seat(agent_id=env_tool.agent_id, agent=agent, env_tool=env_tool, obs=obs))
 

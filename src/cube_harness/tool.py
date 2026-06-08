@@ -59,6 +59,7 @@ class RecordingTaskTool:
         budget: Budget,
         parent_event_id_getter: Callable[[], str] | None = None,
         agent_id: str = "agent",
+        role: str | None = None,
     ) -> None:
         self._task_tool = task_tool
         self._task = task
@@ -66,6 +67,7 @@ class RecordingTaskTool:
         self._budget = budget
         self._parent_event_id_getter = parent_event_id_getter
         self.agent_id = agent_id
+        self.role = role
         self._last_tool_event_id = "no-parent"
 
     # --- delegation ---
@@ -177,6 +179,7 @@ def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
             budget,
             parent_event_id_getter,
             agent_id=getattr(task_tool, "agent_id", "agent"),
+            role=getattr(task_tool, "role", None),
         )
         for task_tool in task.agent_tools()
     ]

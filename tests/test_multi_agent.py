@@ -7,7 +7,7 @@ all-retired-or-exhausted termination, and per-agent reward from the global evalu
 
 from cube.container import Container
 from cube.core import Action, ActionSchema, Observation
-from cube.task import Task, TaskConfig, TaskMetadata, TaskTool
+from cube.task import Task, TaskConfig, TaskMetadata
 from cube.tool import Tool, ToolConfig, tool_action
 from pydantic import Field
 
@@ -43,15 +43,15 @@ class _TwoSeatTask(Task):
     n_seats: int = 2
     done_at: int = 4
 
-    def agent_tools(self) -> list[TaskTool]:
-        return [TaskTool(self, agent_id=f"p{i}") for i in range(self.n_seats)]
+    def agent_roles(self) -> dict[str | None, int]:
+        return {"player": self.n_seats}
 
     def reset(self) -> tuple[Observation, dict]:
         return Observation.from_text("go"), {}
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict]:
         c = self.tool.counter
-        return float(c), {"counter": c, "per_agent": {f"p{i}": float(c) for i in range(self.n_seats)}}
+        return float(c), {"counter": c, "per_agent": {f"player-{i}": float(c) for i in range(self.n_seats)}}
 
     def finished(self, obs: Observation | None = None) -> bool:
         return self.tool.counter >= self.done_at
@@ -134,20 +134,20 @@ def test_round_robin_retires_one_seat_independently() -> None:
     ending p1's participation."""
     task = _TwoSeatTaskConfig(n_seats=2, done_at=100).make()
     budget = Budget(max_agent_steps=1000)
-    p0 = _ScriptedAgent(_ScriptedAgentConfig(n_inc=0), agent_id="p0")  # stops on first step
-    p1 = _ScriptedAgent(_ScriptedAgentConfig(n_inc=3), agent_id="p1")
-    seats = _seats(task, budget, {"p0": p0, "p1": p1})
+    p0 = _ScriptedAgent(_ScriptedAgentConfig(n_inc=0), agent_id="player-0")  # stops on first step
+    p1 = _ScriptedAgent(_ScriptedAgentConfig(n_inc=3), agent_id="player-1")
+    seats = _seats(task, budget, {"player-0": p0, "player-1": p1})
     rounds, exhausted = run_turn_based(seats, budget)
     assert not exhausted
-    assert {s.agent_id for s in seats if not s.active} == {"p0", "p1"}  # both eventually retired
-    assert task.tool.counter == 3  # only p1's three incs landed
+    assert {s.agent_id for s in seats if not s.active} == {"player-0", "player-1"}  # both eventually retired
+    assert task.tool.counter == 3  # only player-1's three incs landed
 
 
 def test_joint_budget_ends_episode_for_everyone() -> None:
     """A shared budget cap stops ALL seats, not just the one that tripped it."""
     task = _TwoSeatTaskConfig(n_seats=2, done_at=1000).make()
     budget = Budget(max_agent_steps=1000, max_tool_calls=2)
-    agents = {f"p{i}": _ScriptedAgent(_ScriptedAgentConfig(n_inc=1000), agent_id=f"p{i}") for i in range(2)}
+    agents = {f"player-{i}": _ScriptedAgent(_ScriptedAgentConfig(n_inc=1000), agent_id=f"player-{i}") for i in range(2)}
     seats = _seats(task, budget, agents)
     _rounds, exhausted = run_turn_based(seats, budget)
     assert exhausted
@@ -168,7 +168,7 @@ def test_multi_agent_episode_per_agent_reward() -> None:
         streamer=_streamer(budget),
     )
     result = ep.run()
-    assert set(result.rewards) == {"p0", "p1"}
+    assert set(result.rewards) == {"player-0", "player-1"}
     assert all(r >= 4.0 for r in result.rewards.values())  # counter reached done_at
     assert not result.budget_exhausted
     assert result.rounds >= 2
@@ -183,4 +183,4 @@ def test_multi_agent_episode_three_seats() -> None:
         streamer=_streamer(budget),
     )
     result = ep.run()
-    assert set(result.rewards) == {"p0", "p1", "p2"}
+    assert set(result.rewards) == {"player-0", "player-1", "player-2"}
