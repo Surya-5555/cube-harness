@@ -23,9 +23,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cube.core import EnvironmentOutput, Observation
+from cube.task import TaskConfig
 
-from cube_harness.agent import Agent
+from cube_harness.agent import Agent, AgentConfig
 from cube_harness.budget import Budget, BudgetExceeded
+from cube_harness.streamer import EventStreamer
 from cube_harness.tool import AgentStop, RecordingTaskTool, build_agent_tools
 
 logger = logging.getLogger(__name__)
@@ -67,13 +69,17 @@ def run_turn_based(seats: list[Seat], budget: Budget, max_rounds: int = 1000) ->
         for seat in seats:
             if not seat.active:
                 continue
-            agent_output = seat.agent.step(seat.obs)
-            if seat.agent._recorder is not None:
-                seat.agent._recorder.on_step()
-            if agent_output.error is not None or not agent_output.actions:
-                seat.active = False
-                continue
+            # The whole per-seat body is budget-guarded: BudgetExceeded can come from
+            # the tool dispatch, from on_step() (max_agent_steps), or from inside
+            # step() (an LLM call tripping a token/cost cap) — any of them ends the
+            # episode for EVERY seat (joint budget).
             try:
+                agent_output = seat.agent.step(seat.obs)
+                if seat.agent._recorder is not None:
+                    seat.agent._recorder.on_step()
+                if agent_output.error is not None or not agent_output.actions:
+                    seat.active = False
+                    continue
                 last_obs: Observation | None = None
                 for action in agent_output.actions:
                     last_obs = seat.env_tool.execute_action(action)
@@ -82,7 +88,6 @@ def run_turn_based(seats: list[Seat], budget: Budget, max_rounds: int = 1000) ->
             except AgentStop:
                 seat.active = False
             except BudgetExceeded:
-                # Joint budget exhausted — end the episode for everyone.
                 for other in seats:
                     other.active = False
                 return rounds, True
@@ -103,7 +108,9 @@ class MultiAgentEpisode:
     `evaluate()`.
     """
 
-    def __init__(self, task_config: Any, agent_config: Any, streamer: Any, max_rounds: int = 1000) -> None:
+    def __init__(
+        self, task_config: TaskConfig, agent_config: AgentConfig, streamer: EventStreamer, max_rounds: int = 1000
+    ) -> None:
         self.task_config = task_config
         self.agent_config = agent_config
         self.streamer = streamer
@@ -127,6 +134,11 @@ class MultiAgentEpisode:
         # outcome to per-agent reward via info["per_agent"]; fall back to the scalar
         # reward for every seat when the task is single-reward.
         reward, info = task.evaluate()
+        # Record one terminal EvaluationEvent (global reward + per_agent in info) so the
+        # stream carries the outcome. NB v1: all seats share one streamer and only
+        # ToolCall/Evaluation events are agent_id-tagged — full per-agent trajectory
+        # persistence (per-seat metadata, LLM-event tagging, demux) is deferred.
+        self.streamer.record_evaluation(reward, info, is_terminal=True)
         per_agent = info.get("per_agent") if isinstance(info, dict) else None
         rewards = {
             seat.agent_id: float(per_agent[seat.agent_id])

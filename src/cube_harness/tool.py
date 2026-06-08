@@ -26,8 +26,8 @@ import logging
 import time
 from typing import Any, Callable
 
-from cube.core import Action, Observation
-from cube.task import AgentStop
+from cube.core import Action, ActionSchema, Observation
+from cube.task import AgentStop, Task, TaskTool
 
 from cube_harness.budget import Budget, BudgetExceeded
 from cube_harness.core import EvaluationEvent, ToolCallEvent, TrajectoryEvent
@@ -53,8 +53,8 @@ class RecordingTaskTool:
 
     def __init__(
         self,
-        task_tool: Any,
-        task: Any,
+        task_tool: TaskTool,
+        task: Task,
         emit: "Callable[[TrajectoryEvent], str]",
         budget: Budget,
         parent_event_id_getter: Callable[[], str] | None = None,
@@ -66,11 +66,12 @@ class RecordingTaskTool:
         self._budget = budget
         self._parent_event_id_getter = parent_event_id_getter
         self.agent_id = agent_id
+        self._last_tool_event_id = "no-parent"
 
     # --- delegation ---
 
     @property
-    def action_set(self) -> list:
+    def action_set(self) -> list[ActionSchema]:
         """The actions legal right now — delegates to the `TaskTool` (dynamic;
         already includes STOP when the task accepts it)."""
         return self._task_tool.action_set
@@ -111,15 +112,17 @@ class RecordingTaskTool:
         return "no-parent"
 
     def _record_tool_call(self, action: Action, obs: Observation, start: float, end: float) -> str:
-        """Emit one `ToolCallEvent` and bump the budget. A tool error is already
-        folded into `obs` by `TaskTool` (errors are observations now), so the
-        event carries no separate error field."""
+        """Emit one `ToolCallEvent` and bump the budget. The error text is folded into
+        `obs` (errors are observations, non-terminal); the *structured* error is also
+        recorded on the event for telemetry/stats — `Task._last_action_error` holds it
+        for the action just dispatched (None when it succeeded)."""
         event = ToolCallEvent(
             parent_event_id=self._parent_event_id(),
             action_id=action.id,
             action=action,
             obs=obs,
-            error=None,
+            error=getattr(self._task, "_last_action_error", None),
+            agent_id=self.agent_id,
         )
         self._emit(TrajectoryEvent(output=event, start_time=start, end_time=end))
         self._budget.bump_tool_calls()
@@ -141,6 +144,7 @@ class RecordingTaskTool:
                             info=dict(info),
                             is_terminal=False,
                             parent_event_id=self._last_tool_event_id,
+                            agent_id=self.agent_id,
                         ),
                         start_time=eval_start,
                         end_time=time.time(),
@@ -154,7 +158,7 @@ class RecordingTaskTool:
             raise AgentStop(obs)
 
 
-def build_agent_tools(task: Any, streamer: Any) -> list[RecordingTaskTool]:
+def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
     """Build one `RecordingTaskTool` per agent seat from `task.agent_tools()`.
 
     Single-agent tasks return a one-element list (the default `agent_tools()` =

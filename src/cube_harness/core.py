@@ -46,7 +46,7 @@ class TrajectoryStep(TypedBaseModel):
 # --- Event-stream model (RFC: agent-owns-loop + auto-recorder) -------------
 # LLMCallEvent / ToolCallEvent / EvaluationEvent are the canonical trajectory
 # stream. LLM auto-emits LLMCallEvent on every `.call()` / `.acall()` (when
-# a recorder is attached); MonitoredTool auto-emits ToolCallEvent on every
+# a recorder is attached); RecordingTaskTool auto-emits ToolCallEvent on every
 # dispatch. The agent never explicitly records anything — its loop is just
 # `llm.acall(...) + env_tool.execute_action(...)`.
 
@@ -83,7 +83,7 @@ class LLMCallEvent(TypedBaseModel):
 
     - `id` becomes the `parent_event_id` of any `ToolCallEvent` dispatched
       as a direct consequence of this LLM call. The recorder stashes the
-      most recent `LLMCallEvent.id`; subsequent `MonitoredTool.execute_action`
+      most recent `LLMCallEvent.id`; subsequent `RecordingTaskTool.execute_action`
       calls inherit it via the recorder's `parent_event_id_getter`. Parallel
       tool calls in one turn share the same `parent_event_id` — that's how
       a UI groups them exactly (no separate `turn_id` field needed).
@@ -109,12 +109,12 @@ class LLMCallEvent(TypedBaseModel):
 class ToolCallEvent(TypedBaseModel):
     """One tool invocation — agent's action and what came back to the agent.
 
-    The agent receives `obs` (or `error`) from `MonitoredTool.execute_action`.
+    The agent receives `obs` (or `error`) from `RecordingTaskTool.execute_action`.
     Reward / done / info are NOT part of this event:
 
-    - `done` propagates as a `TaskDone(BaseException)` raised by
-      `MonitoredTool` when `task.finished()` returns True. There is no
-      `done` field anywhere in the trajectory.
+    - `done` propagates as an `AgentStop(BaseException)` raised by the
+      underlying `TaskTool` (cube-standard) when `task.finished()` returns
+      True. There is no `done` field anywhere in the trajectory.
     - Step-wise reward (when `task.validate_per_step=True`) lives on a
       separate `EvaluationEvent` whose `parent_event_id` references this
       `ToolCallEvent.id` and whose `is_terminal` is False.
@@ -135,8 +135,9 @@ class ToolCallEvent(TypedBaseModel):
     parent_event_id: str
     action_id: str | None = None  # echoes Action.id; nullable for legacy actions
     action: Action | None = None  # full action payload (nullable for legacy decode)
-    obs: Observation = Field(default_factory=Observation)  # empty when error is set
-    error: StepError | None = None
+    obs: Observation = Field(default_factory=Observation)  # carries the error text too (errors are observations)
+    error: StepError | None = None  # structured error for telemetry; non-terminal (also folded into obs)
+    agent_id: str | None = None  # which seat emitted this (multi-agent); None / "agent" for single-agent
 
 
 class EvaluationEvent(TypedBaseModel):
@@ -150,7 +151,7 @@ class EvaluationEvent(TypedBaseModel):
       reward attaches to its agent turn; `None` only when no tool call
       ran at all (e.g. agent crashed during the first LLM call).
     - **Step-wise** (`is_terminal=False`, `parent_event_id=<ToolCallEvent.id>`):
-      `MonitoredTool` emits one after each tool call when
+      `RecordingTaskTool` emits one after each tool call when
       `task.validate_per_step=True`. Carries the per-step reward / info
       so step-eval data is preserved on disk without bleeding back to
       the agent (the agent only ever sees `obs` from `execute_action`).
@@ -160,6 +161,7 @@ class EvaluationEvent(TypedBaseModel):
     info: dict = Field(default_factory=dict)
     is_terminal: bool = False
     parent_event_id: str | None = None
+    agent_id: str | None = None  # which seat this reward is for (multi-agent); None for single-agent
 
 
 TrajectoryEventOutput = LLMCallEvent | ToolCallEvent | EvaluationEvent | AgentErrorEvent

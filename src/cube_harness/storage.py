@@ -193,7 +193,7 @@ def _events_to_legacy_steps(events: list[TrajectoryEvent]) -> list[TrajectorySte
             # Synthesize an EnvironmentOutput from the slim ToolCallEvent
             # (obs + error). reward/done/info are not on ToolCallEvent
             # anymore — reward lives on step-wise EvaluationEvents,
-            # done is signalled by TaskDone (no longer stored). The
+            # done is signalled by AgentStop (no longer stored). The
             # legacy XRay view sees zeros for those, which is fine —
             # the new event-card UI (follow-up PR) renders the proper
             # event types directly.
@@ -389,7 +389,7 @@ class TrajectoryView:
         `EnvironmentOutput` for legacy callers that expect that shape;
         `reward` / `done` / `info` are zero/empty since those no longer
         live on `ToolCallEvent` (reward is on the sibling
-        `EvaluationEvent`, done is a TaskDone signal)."""
+        `EvaluationEvent`, done is an AgentStop signal)."""
         for i in range(len(self._index) - 1, -1, -1):
             if self._index[i].kind == "tool_call":
                 ev = self[i]

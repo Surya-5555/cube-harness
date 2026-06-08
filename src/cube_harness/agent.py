@@ -55,9 +55,9 @@ class AgentConfig(ValidatedConfig, ABC):
         default=False,
         description=(
             "If True, `Agent.run` dispatches to `_arun` (async body, fans out the "
-            "N actions per step via `asyncio.gather` over `MonitoredTool.async_execute_action`). "
+            "N actions per step via `asyncio.gather` over `RecordingTaskTool.async_execute_action`). "
             "If False (default), dispatches to `_run` (sync body, sequential dispatch via "
-            "`MonitoredTool.execute_action` — no `await`, single-stack pdb). Pair with "
+            "`RecordingTaskTool.execute_action` — no `await`, single-stack pdb). Pair with "
             "`LLMConfig.parallel_tool_calls=True` so the model emits multiple tool calls "
             "per turn; otherwise parallel dispatch fans out over a one-element list and "
             "wins nothing."
@@ -118,7 +118,7 @@ class Agent(ABC):
                    budget = self._recorder.budget
                    if budget is not None and budget.exhausted:
                        # Soft self-stop — friendly path that returns a
-                       # STOP_ACTION rather than letting MonitoredTool
+                       # STOP_ACTION rather than letting RecordingTaskTool
                        # raise BudgetExceeded mid-call.
                        return AgentOutput(actions=[STOP_ACTION])
                    # Inject budget summary into the prompt every K turns

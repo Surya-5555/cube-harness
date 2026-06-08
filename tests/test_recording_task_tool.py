@@ -125,8 +125,12 @@ def test_tool_error_becomes_observation_non_terminal() -> None:
     obs = env_tool.execute_action(Action(id="b", name="boom", arguments={}))
     assert isinstance(obs, Observation)
     assert "ValueError" in obs.to_markdown()
-    # Still recorded a ToolCallEvent; no exception raised.
-    assert sum(1 for e in storage.outputs() if isinstance(e, ToolCallEvent)) == 1
+    # Recorded a ToolCallEvent; the structured error is preserved for telemetry (the
+    # error stays visible in stats) even though it is non-terminal and folded into obs.
+    tool_calls = [e for e in storage.outputs() if isinstance(e, ToolCallEvent)]
+    assert len(tool_calls) == 1
+    assert tool_calls[0].error is not None and tool_calls[0].error.error_type == "ValueError"
+    assert tool_calls[0].agent_id == "agent"
 
 
 def test_stop_action_raises_agent_stop() -> None:

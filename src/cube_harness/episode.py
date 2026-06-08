@@ -154,8 +154,8 @@ class Episode:
 
         Flow:
             1. setup (status, task, action_set, agent, trajectory, dirs).
-            2. build the monitored env_tool the agent drives
-               (build_monitored_env_tool) — task keeps its concrete tool.
+            2. build the agent-facing env_tool the agent drives
+               (build_agent_tools) — task keeps its concrete tool.
             3. build EventStreamer bound to trajectory + storage + summary.
             4. record initial obs (streamer.record_reset).
             5. agent.run(initial.obs, env_tool) — sync dispatch. For
@@ -223,7 +223,7 @@ class Episode:
 
                 # 3. Build budget + streamer + install monitoring. The
                 # streamer is the single event fan-out: producers (LLM,
-                # MonitoredTool) emit through `streamer.emit(...)`, which
+                # RecordingTaskTool) emit through `streamer.emit(...)`, which
                 # folds stats counters AND forwards to sinks (today
                 # FileStorage; OTel + RL HTTP plug in additively via
                 # EventStreamerConfig). Event numbering is owned by
@@ -288,7 +288,7 @@ class Episode:
                 # `step()`). Errors propagate so callers see the real
                 # exception; `finally` still finalizes the metadata.
                 # is_terminal=True distinguishes this from any step-wise
-                # EvaluationEvents emitted by MonitoredTool during the run.
+                # EvaluationEvents emitted by RecordingTaskTool during the run.
                 # If evaluate raises, record the failure as an AgentEvent
                 # (so the trajectory carries the error) before re-raising —
                 # the outer except below tags status and propagates to the
