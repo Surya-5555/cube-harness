@@ -64,89 +64,6 @@ class Usage(TypedBaseModel):
     cost: float = 0.0  # cost in USD from LiteLLM pricing
 
 
-def _completion_with_retry(
-    num_retries: int,
-    retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry",
-    **kwargs: Any,
-) -> Any:
-    """Call litellm.completion with configurable retry behavior on transient errors."""
-    _RETRIABLE = (
-        InternalServerError,
-        ServiceUnavailableError,
-        RateLimitError,
-        Timeout,
-        APIConnectionError,
-    )
-    wait_strategy = (
-        tenacity.wait_fixed(1)
-        if retry_strategy == "constant_retry"
-        else tenacity.wait_exponential(multiplier=2, max=120)
-    )
-    retryer = tenacity.Retrying(
-        wait=wait_strategy,
-        stop=tenacity.stop_after_attempt(num_retries),
-        retry=tenacity.retry_if_exception_type(_RETRIABLE),
-        reraise=True,
-    )
-    return retryer(litellm.completion, **kwargs)
-
-
-def _extract_usage(response) -> Usage:
-    """Extract usage info from LiteLLM response."""
-    usage_data = getattr(response, "usage", None)
-    if usage_data is None:
-        return Usage()
-
-    def safe_int(value: object) -> int:
-        """Safely convert a value to int, returning 0 for non-numeric types."""
-        if isinstance(value, int):
-            return value
-        return 0
-
-    def safe_float(value: object) -> float:
-        """Safely convert a value to float, returning 0.0 for non-numeric types."""
-        if isinstance(value, (int, float)):
-            return float(value)
-        return 0.0
-
-    cached_tokens = 0
-    cache_creation_tokens = 0
-
-    prompt_details = getattr(usage_data, "prompt_tokens_details", None)
-    if prompt_details:
-        cached_tokens = safe_int(getattr(prompt_details, "cached_tokens", 0))
-
-    cache_creation_tokens = safe_int(getattr(usage_data, "cache_creation_input_tokens", 0))
-    cache_read = safe_int(getattr(usage_data, "cache_read_input_tokens", 0))
-    if cache_read > 0:
-        cached_tokens = cache_read
-
-    cost = 0.0
-    hidden_params = getattr(response, "_hidden_params", {})
-    if isinstance(hidden_params, dict):
-        cost = safe_float(hidden_params.get("response_cost", 0.0))
-    if cost == 0.0:
-        try:
-            cost = safe_float(litellm.completion_cost(completion_response=response))
-        except Exception:
-            cost = 0.0
-
-    reasoning_tokens = 0
-    completion_details = getattr(usage_data, "completion_tokens_details", None)
-    if completion_details:
-        reasoning_tokens = safe_int(getattr(completion_details, "reasoning_tokens", 0))
-
-    return Usage(
-        prompt_tokens=safe_int(getattr(usage_data, "prompt_tokens", 0)),
-        completion_tokens=safe_int(getattr(usage_data, "completion_tokens", 0)),
-        total_tokens=safe_int(getattr(usage_data, "total_tokens", 0)),
-        cached_tokens=cached_tokens,
-        cache_creation_tokens=cache_creation_tokens,
-        reasoning_tokens=reasoning_tokens,
-        cost=cost,
-    )
-
-
 def is_permanent_llm_error(exc: BaseException) -> bool:
     """True iff `exc` is an LLM provider error that will fail identically on retry.
 
@@ -476,6 +393,89 @@ class BaseLLM:
     def __call__(self, prompt: Prompt) -> LLMResponse:
         raise NotImplementedError
 
+    def _completion_with_retry(
+        self,
+        num_retries: int,
+        retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry",
+        **kwargs: Any,
+    ) -> Any:
+        """Call litellm.completion with configurable retry behavior on transient errors."""
+        _RETRIABLE = (
+            InternalServerError,
+            ServiceUnavailableError,
+            RateLimitError,
+            Timeout,
+            APIConnectionError,
+        )
+        wait_strategy = (
+            tenacity.wait_fixed(1)
+            if retry_strategy == "constant_retry"
+            else tenacity.wait_exponential(multiplier=2, max=120)
+        )
+        retryer = tenacity.Retrying(
+            wait=wait_strategy,
+            stop=tenacity.stop_after_attempt(num_retries),
+            retry=tenacity.retry_if_exception_type(_RETRIABLE),
+            reraise=True,
+        )
+        return retryer(litellm.completion, **kwargs)
+
+
+    def _extract_usage(self, response) -> Usage:
+        """Extract usage info from LiteLLM response."""
+        usage_data = getattr(response, "usage", None)
+        if usage_data is None:
+            return Usage()
+
+        def safe_int(value: object) -> int:
+            """Safely convert a value to int, returning 0 for non-numeric types."""
+            if isinstance(value, int):
+                return value
+            return 0
+
+        def safe_float(value: object) -> float:
+            """Safely convert a value to float, returning 0.0 for non-numeric types."""
+            if isinstance(value, (int, float)):
+                return float(value)
+            return 0.0
+
+        cached_tokens = 0
+        cache_creation_tokens = 0
+
+        prompt_details = getattr(usage_data, "prompt_tokens_details", None)
+        if prompt_details:
+            cached_tokens = safe_int(getattr(prompt_details, "cached_tokens", 0))
+
+        cache_creation_tokens = safe_int(getattr(usage_data, "cache_creation_input_tokens", 0))
+        cache_read = safe_int(getattr(usage_data, "cache_read_input_tokens", 0))
+        if cache_read > 0:
+            cached_tokens = cache_read
+
+        cost = 0.0
+        hidden_params = getattr(response, "_hidden_params", {})
+        if isinstance(hidden_params, dict):
+            cost = safe_float(hidden_params.get("response_cost", 0.0))
+        if cost == 0.0:
+            try:
+                cost = safe_float(litellm.completion_cost(completion_response=response))
+            except Exception:
+                cost = 0.0
+
+        reasoning_tokens = 0
+        completion_details = getattr(usage_data, "completion_tokens_details", None)
+        if completion_details:
+            reasoning_tokens = safe_int(getattr(completion_details, "reasoning_tokens", 0))
+
+        return Usage(
+            prompt_tokens=safe_int(getattr(usage_data, "prompt_tokens", 0)),
+            completion_tokens=safe_int(getattr(usage_data, "completion_tokens", 0)),
+            total_tokens=safe_int(getattr(usage_data, "total_tokens", 0)),
+            cached_tokens=cached_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            reasoning_tokens=reasoning_tokens,
+            cost=cost,
+        )
+
 
 class LLM(BaseLLM):
     config: LLMConfig
@@ -522,12 +522,12 @@ class LLM(BaseLLM):
             # reject tool_choice without a tools list) or when the caller opted out (None).
             kwargs.pop("tool_choice", None)
             kwargs.pop("parallel_tool_calls", None)
-        response = _completion_with_retry(
+        response = self._completion_with_retry(
             self.config.num_retries,
             retry_strategy=self.config.retry_strategy,
             **kwargs,
         )
-        usage = _extract_usage(response)
+        usage = self._extract_usage(response)
         return LLMResponse(message=response.choices[0].message, usage=usage)
 
 

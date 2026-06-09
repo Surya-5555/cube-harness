@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from pydantic import Field, SecretStr
-
-import cube_harness.llm as llm_core
 from cube_harness.llm import BaseLLM, BaseLLMConfig, LLMResponse, Prompt
 
 try:
@@ -102,8 +100,8 @@ class RolloutLLM(BaseLLM):
         extra_body["return_tokens_as_token_ids"] = True
         kwargs["extra_body"] = extra_body
 
-        response = llm_core._completion_with_retry(self.config.num_retries, **kwargs)
-        usage = llm_core._extract_usage(response)
+        response = self._completion_with_retry(self.config.num_retries, **kwargs)
+        usage = self._extract_usage(response)
         prompt_token_ids = self._extract_prompt_token_ids(response)
         completion_logprobs = self._extract_completion_logprobs(response)
         completion_token_ids = self._extract_completion_token_ids(
