@@ -45,6 +45,7 @@ _PERMANENT_LLM_ERRORS: tuple[type[BaseException], ...] = (
     BadRequestError,  # 400/422 — incl. ContextWindowExceeded, ContentPolicyViolation
 )
 _PERMANENT_HTTP_STATUS = frozenset({400, 401, 403, 404, 422})
+_RETRY_TYPES = Literal["exponential_backoff_retry", "constant_retry"]
 
 
 class Usage(TypedBaseModel):
@@ -111,21 +112,18 @@ class Prompt(TypedBaseModel):
 class BaseLLMConfig(ValidatedConfig):
     """Shared LiteLLM configuration fields used by harness LLM wrappers."""
 
-    model_name: str | None = None
-    temperature: float | None = None
-    max_tokens: int | None = None
-    max_completion_tokens: int | None = None
+    model_name: str
+    temperature: float = 1.0
+    max_tokens: int = 128000
+    max_completion_tokens: int = 8192
     timeout: float | None = 120.0
     num_retries: int = 5
+    retry_strategy: _RETRY_TYPES = "exponential_backoff_retry"
 
 
 class LLMConfig(BaseLLMConfig):
     """Thin benchmark LLM wrapper around LiteLLM completion API."""
 
-    model_name: str
-    temperature: float = 1.0
-    max_tokens: int = 128000
-    max_completion_tokens: int = 8192
     reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
     # Thinking cadence (Anthropic only — OpenAI/Azure gpt-5 reasoning is server-managed,
     # this flag is a no-op there). Combined with ``reasoning_effort`` you get three modes:
@@ -156,7 +154,6 @@ class LLMConfig(BaseLLMConfig):
     # the framework will then dispatch sequentially. Default is False
     # — conservative.
     parallel_tool_calls: bool = False
-    retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry"
     # Anthropic prompt caching. "auto" places ephemeral cache_control breakpoints at the
     # system message and the last assistant message, plus the last tool definition. This
     # gives a stable anchor (system + tools) and a rolling boundary (last assistant) that

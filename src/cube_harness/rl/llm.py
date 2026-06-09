@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 from pydantic import Field, SecretStr
 
-from cube_harness.llm import BaseLLM, BaseLLMConfig, LLMResponse, Prompt
+from cube_harness.llm import _RETRY_TYPES, BaseLLM, BaseLLMConfig, LLMResponse, Prompt
 
 try:
     from transformers import AutoTokenizer
@@ -41,16 +41,13 @@ class RolloutLLMConfig(BaseLLMConfig):
     small set of generation/logprob controls needed for RL data capture.
     """
 
-    model_name: str
-    temperature: float = 1.0
-    max_completion_tokens: int = 8192
-    max_tokens: int | None = None
     api_base: str
     api_key: SecretStr = Field(exclude=True)
     tokenizer_name: str
     top_p: float | None = None
     top_k: int | None = None
     num_retries: int = 1
+    retry_strategy: _RETRY_TYPES = "constant_retry"
     extra_body: dict[str, Any] = Field(default_factory=dict)
     overrides: dict[str, Any] = Field(default_factory=dict)
 
