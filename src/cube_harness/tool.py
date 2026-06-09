@@ -69,6 +69,15 @@ class RecordingTaskTool:
         self.agent_id = agent_id
         self.role = role
         self._last_tool_event_id = "no-parent"
+        # The per-step eval now fires inside TaskTool.execute_action (cube-standard);
+        # we recuperate (reward, info) through this callback and emit the EvaluationEvent
+        # AFTER recording the ToolCallEvent so its parent id is correct. The harness no
+        # longer reaches into task.validate_per_step / task.evaluate for the per-step case.
+        self._pending_eval: tuple[float, dict] | None = None
+        self._task_tool.set_eval_callback(self._on_eval)
+
+    def _on_eval(self, reward: float, info: dict) -> None:
+        self._pending_eval = (reward, info)
 
     # --- delegation ---
 
@@ -82,26 +91,28 @@ class RecordingTaskTool:
 
     def execute_action(self, action: Action) -> Observation:
         """Sync dispatch. Budget -> `TaskTool.execute_action` (which may raise
-        `AgentStop` on STOP) -> record -> per-action finished/evaluate cadence.
-        Returns the observation only (no reward bleeds back to the agent)."""
+        `AgentStop` on STOP and may fire the eval callback) -> record -> emit any
+        per-step eval -> finished check. Returns the observation only."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
+        self._pending_eval = None
         start = time.time()
         obs = self._task_tool.execute_action(action)
         end = time.time()
         self._record_tool_call(action, obs, start, end)
-        self._post_action(action, obs)
+        self._post_action(obs)
         return obs
 
     async def async_execute_action(self, action: Action) -> Observation:
         """Async (parallel-safe) twin of `execute_action`."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
+        self._pending_eval = None
         start = time.time()
         obs = await self._task_tool.async_execute_action(action)
         end = time.time()
         self._record_tool_call(action, obs, start, end)
-        self._post_action(action, obs)
+        self._post_action(obs)
         return obs
 
     # --- recording / cadence ---
@@ -131,31 +142,28 @@ class RecordingTaskTool:
         self._last_tool_event_id = event.id
         return event.id
 
-    def _post_action(self, action: Action, obs: Observation) -> None:
-        """The runtime cadence after each action: optional per-action evaluate
-        (when `task.validate_per_step`) emitted as a step-wise `EvaluationEvent`,
-        then the `finished()` check that ends the episode via `AgentStop`."""
-        if getattr(self._task, "validate_per_step", False):
-            try:
-                eval_start = time.time()
-                reward, info = self._task.evaluate(obs)
-                self._emit(
-                    TrajectoryEvent(
-                        output=EvaluationEvent(
-                            reward=float(reward),
-                            info=dict(info),
-                            is_terminal=False,
-                            parent_event_id=self._last_tool_event_id,
-                            agent_id=self.agent_id,
-                        ),
-                        start_time=eval_start,
-                        end_time=time.time(),
-                    )
+    def _post_action(self, obs: Observation) -> None:
+        """The runtime cadence after each action: emit the step-wise `EvaluationEvent`
+        the TaskTool's eval callback just handed us (when `validate_per_step`), parented
+        to the ToolCallEvent just recorded; then the `finished()` check that ends the
+        episode via `AgentStop` (termination stays the runtime's call)."""
+        if self._pending_eval is not None:
+            reward, info = self._pending_eval
+            self._pending_eval = None
+            now = time.time()
+            self._emit(
+                TrajectoryEvent(
+                    output=EvaluationEvent(
+                        reward=reward,
+                        info=info,
+                        is_terminal=False,
+                        parent_event_id=self._last_tool_event_id,
+                        agent_id=self.agent_id,
+                    ),
+                    start_time=now,
+                    end_time=now,
                 )
-            except Exception:  # noqa: BLE001
-                # Step-eval failures don't stop the run; the terminal evaluate in
-                # Episode.finally re-attempts.
-                pass
+            )
         if self._task.finished(obs):
             raise AgentStop(obs)
 
