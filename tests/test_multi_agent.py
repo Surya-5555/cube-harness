@@ -46,6 +46,11 @@ class _TwoSeatTask(Task):
     def agent_roles(self) -> dict[str | None, int]:
         return {"player": self.n_seats}
 
+    def make_tool(self, role=None):
+        # Shared-world topology: every seat acts through the ONE shared counter tool
+        # (the task's own self.tool); role=None makes the real instance (memoized).
+        return super().make_tool(role) if role is None else self.tool
+
     def reset(self) -> tuple[Observation, dict]:
         return Observation.from_text("go"), {}
 
