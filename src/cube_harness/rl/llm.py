@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from pydantic import Field, SecretStr
+
 from cube_harness.llm import BaseLLM, BaseLLMConfig, LLMResponse, Prompt
 
 try:

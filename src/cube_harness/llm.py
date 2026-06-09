@@ -420,7 +420,6 @@ class BaseLLM:
         )
         return retryer(litellm.completion, **kwargs)
 
-
     def _extract_usage(self, response) -> Usage:
         """Extract usage info from LiteLLM response."""
         usage_data = getattr(response, "usage", None)
