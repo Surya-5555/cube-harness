@@ -29,14 +29,13 @@ is a valid prefix of the next step, which starts the same way and appends one mo
 
 import json
 import logging
-from json import JSONDecodeError
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from cube_harness.streamer import EventStreamer
 
 from cube.benchmark import BenchmarkConfig
-from cube.core import Action, ActionSchema, Observation, StepError
+from cube.core import Action, ActionSchema, Observation
 from cube.task import STOP_ACTION
 from litellm import Message
 from pydantic import Field
@@ -106,13 +105,7 @@ def _decode_actions(response: "Message") -> "list[Action]":
     for tc in getattr(response, "tool_calls", None) or []:
         args = tc.function.arguments
         if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except JSONDecodeError as exc:
-                raise ValueError(
-                    f"Tool call {tc.id or '<unknown>'} for {tc.function.name or '<unknown>'} "
-                    f"has invalid JSON arguments: {exc.msg}"
-                ) from exc
+            args = json.loads(args)
         if tc.function.name:
             actions.append(Action(id=tc.id, name=tc.function.name, arguments=args))
     return actions
@@ -236,6 +229,20 @@ class GennyConfig(AgentConfig):
         )
 
     def make(self, action_set: list[ActionSchema] | None = None, task_id: str | None = None, **kwargs) -> "Genny":
+        # If the agent opted into parallel action dispatch, force the LLM to
+        # actually emit multiple tool calls per turn. Otherwise the agent's
+        # `_arun` body fans out over a one-element list — same wall-clock as
+        # sequential, no win. Caught by the agent-owns-loop reference
+        # baseline (gpt-5.4-mini on TerminalBench-2): parity with sequential
+        # because nothing flipped the flag. Force it here on the config
+        # that needs it, not the caller.
+        if isinstance(self.llm_config, LLMConfig) and self.parallel_actions and not self.llm_config.parallel_tool_calls:
+            logger.info(
+                "GennyConfig.parallel_actions=True: forcing llm_config.parallel_tool_calls=True "
+                "(was False — without it the LLM emits one tool call per turn and parallel "
+                "dispatch would be a no-op)."
+            )
+            self.llm_config = self.llm_config.model_copy(update={"parallel_tool_calls": True})
         return Genny(config=self, action_schemas=action_set or [], task_id=task_id)
 
 
@@ -342,10 +349,7 @@ class Genny(Agent):
             self.summaries.append(summary)
 
         response = self._act(budget_msg)
-        try:
-            actions = _decode_actions(response)
-        except ValueError as exc:
-            return AgentOutput(error=StepError.from_exception(exc))
+        actions = _decode_actions(response)
 
         # Format error exhaustion: _act() retried max_format_errors times but still no tool calls.
         if not actions and self.config.max_format_errors > 0:
