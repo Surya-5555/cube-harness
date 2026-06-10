@@ -1,4 +1,4 @@
-# Tasks: PR 487 RL Rollout System
+# Tasks: PR 478 RL Rollout System
 
 - [x] Rebase `feat/rl` onto `dev`.
 - [x] Remove old RL loop/recorder stack.

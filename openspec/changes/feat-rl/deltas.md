@@ -1,6 +1,6 @@
-# Deltas: PR 487 RL Rollout System
+# Deltas: PR 478 RL Rollout System
 
-These deltas describe the full `pull/487/head:feat/rl` PR, not only the event
+These deltas describe the full `pull/478/head:feat/rl` PR, not only the event
 streaming part of the rollout path.
 
 ## ADDED — `openspec/specs/rl/spec.md`
@@ -10,7 +10,7 @@ Defines the new RL rollout subsystem:
 - `RolloutConfig`, `RolloutRequest`, `AckRequest`, `CancelRequest`, `RayConfig`
 - `RolloutEngine`, service, executor, Ray runtime
 - `RolloutLLMConfig` / `RolloutLLM`
-- `EventPublisher` and `RLEventSink`
+- `EventSink` (ordered in-memory publisher) and `RLEventSink` (event conversion)
 - optional storage/debug behavior
 - recipes and smoke expectations
 

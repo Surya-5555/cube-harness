@@ -1,12 +1,12 @@
-# Feature: PR 487 RL Rollout System
+# Feature: PR 478 RL Rollout System
 
 **Status:** DRAFT
 **Date:** 2026-06-04
-**PR:** `pull/487/head:feat/rl`
+**PR:** `pull/478/head:feat/rl`
 
 ## Problem
 
-PR 487 adds the first RL rollout collection path to cube-harness. The feature is
+PR 478 adds the first RL rollout collection path to cube-harness. The feature is
 broader than event streaming alone: it introduces a trainer-facing rollout
 service, local and Ray execution, rollout-specific LLM metadata capture,
 examples, and a deterministic smoke.
@@ -116,7 +116,7 @@ RolloutEngine / executor
     |
 Episode + EventStreamer
     |
-RLEventSink / EventPublisher
+RLEventSink (convert) -> EventSink (publish)
     |
 trainer
 ```
@@ -174,6 +174,8 @@ The main throughput controls are:
   globally or per request.
 - `RayConfig.num_workers`: default Ray CPU capacity when this process initializes
   Ray.
+- `RayConfig.init_kwargs`: extra keyword arguments forwarded to `ray.init()` when
+  this process initializes Ray.
 - `RayConfig.task_num_cpus`: CPU reservation per rollout task. Lower values allow
   more concurrent rollout tasks when the bottleneck is remote inference or tool
   I/O rather than local CPU.
@@ -223,13 +225,18 @@ The RL implementation should stay split along these boundaries:
   scheduling, lifecycle, cancellation, and result bookkeeping.
 - **Task runner** (`task_runner.py`): per-rollout bridge from a request to a
   normal `Episode` run.
-- **Event sink/payloads** (`sink.py`, `events.py`): conversion from canonical
-  `TrajectoryEvent` objects to trainer-facing rollout events. This is not a
+- **Event conversion** (`trajectory_sink.py`): `RLEventSink` converts canonical
+  `TrajectoryEvent` objects into trainer-facing rollout payloads. This is not a
   second trajectory model.
+- **Event publisher / payloads** (`sink.py`, `events.py`): `EventSink`
+  (`rl/sink.py`) holds the ordered in-memory event stream — offset assignment,
+  ack cursor, keepalives, and optional spill; `events.py` holds the rollout
+  control/publisher payload models. (Note: distinct from the structural
+  `EventSink` Protocol in `cube_harness.streamer`.)
 - **LLM runtime** (`rl/llm.py`): rollout endpoint behavior and validation for
   token ids/logprobs. Shared LLM primitives remain in `cube_harness.llm`.
-- **Storage/debug sinks** (`storage.py`, `trajectory_sink.py`): optional replay
-  and inspection support. They must not be required for rollout publishing.
+- **Storage/debug** (`storage.py`): optional `InMemoryStorage` / `FileStorage`
+  replay and inspection support. Must not be required for rollout publishing.
 - **Recipes/smokes** (`recipes/rl`, `scripts/smoke`): executable examples that
   document real trainer usage and catch integration regressions.
 

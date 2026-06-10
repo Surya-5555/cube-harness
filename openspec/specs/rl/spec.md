@@ -5,7 +5,7 @@
 ## Purpose
 
 Run high-throughput rollout collection for RL trainers while reusing the
-cube-harness runtime. This spec covers the whole PR 487 RL surface:
+cube-harness runtime. This spec covers the whole PR 478 RL surface:
 
 - rollout service, engine, executor, Ray runtime, local mode, and CLI;
 - realtime rollout event publishing from the canonical event stream;
@@ -54,7 +54,7 @@ without adding authentication plus allowlists for endpoint/tokenizer choices.
 
 ```python
 class RolloutConfig(BaseModel):
-    name: str
+    name: str = "rollout"
     output_dir: Path
     persist_rollout: bool = False
     benchmark_config: BenchmarkConfig
@@ -62,8 +62,12 @@ class RolloutConfig(BaseModel):
     infra: InfraConfig | None = None
     max_steps: int = MAX_STEPS
     execution_mode: Literal["ray", "local"] = "ray"
-    ray: RayConfig
+    ray: RayConfig = RayConfig()
 ```
+
+`RayConfig` controls Ray execution: `num_workers` (default `1`), `init_kwargs`
+(forwarded to `ray.init()`), `task_num_cpus` (default `0.25`), `task_options`,
+`sink_options`, and `poll_interval_s` (default `0.05`).
 
 - `execution_mode="ray"` runs rollout tasks as Ray work.
 - `execution_mode="local"` is for debugging/tests without Ray scheduling.
@@ -80,7 +84,7 @@ class RolloutRequest(BaseModel):
     group_id: str | None = None
     rollout_index: int = 0
     max_steps: int | None = None
-    extras: dict = {}
+    extras: dict[str, Any] = {}
 
 class AckRequest(BaseModel):
     offset: int
@@ -92,9 +96,12 @@ class CancelRequest(BaseModel):
 
 ### Event Publisher / Sink
 
-`EventPublisher` stores an ordered in-memory event stream for clients and trainer
-consumers. `RLEventSink` is an `EventStreamer` sink that transforms canonical
-trajectory events into rollout payloads:
+`EventSink` (`rl/sink.py`) stores an ordered in-memory event stream for clients
+and trainer consumers — offset assignment, ack cursor, keepalives, optional
+spill. (Distinct from the structural `EventSink` Protocol in
+`cube_harness.streamer`.) `RLEventSink` (`rl/trajectory_sink.py`) is an
+`EventStreamer` sink that transforms canonical trajectory events into rollout
+payloads, then publishes them to the `EventSink`:
 
 - `LLMCallEvent` → `llm_call`
 - `ToolCallEvent` → `tool_call`
@@ -125,6 +132,7 @@ rl_sink = RLEventSink(...)
 recorder_config = EventStreamerConfig(
     event_sinks=[rl_sink],
     include_storage_sink=persist_rollout,
+    sink_error_policy="raise",  # required sink: publisher failure fails the worker
 )
 Episode(..., recorder_config=recorder_config, write_eval_log=persist_rollout)
 ```
@@ -160,6 +168,10 @@ runners are resource constrained and can make Ray scheduling tests flaky.
 Focused unit tests for the PR live in:
 
 - `tests/test_rollout_service.py`
+
+The PR also extends `tests/test_llm.py` (retry strategy + cost fallback for the
+shared LLM refactor) and `tests/test_default_agent_run.py` (agent-step counting
+in `EventStreamer.summary_stats`).
 
 
 ## Invariants
