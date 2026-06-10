@@ -574,15 +574,15 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
         )
     ]
 
-    with patch("cube_harness.llm._completion_with_retry", return_value=response) as completion:
-        llm = RolloutLLM(
-            RolloutLLMConfig(
-                model_name="served-model",
-                api_base="http://localhost:8000/v1",
-                api_key="EMPTY",
-                tokenizer_name="mock-tokenizer",
-            )
-        )
+    config = RolloutLLMConfig(
+        model_name="served-model",
+        api_base="http://localhost:8000/v1",
+        api_key="EMPTY",
+        tokenizer_name="mock-tokenizer",
+    )
+
+    with patch.object(RolloutLLM, "_completion_with_retry", return_value=response) as completion:
+        llm = RolloutLLM(config=config)
         result = llm(Prompt(messages=[{"role": "user", "content": "hi"}]))
 
     kwargs = completion.call_args.kwargs
@@ -592,8 +592,8 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
     assert kwargs["include_stop_str_in_output"] is True
     assert kwargs["extra_body"]["return_token_ids"] is True
     assert kwargs["extra_body"]["return_tokens_as_token_ids"] is True
-    assert kwargs["max_completion_tokens"] == 8192
-    assert "max_tokens" not in kwargs
+    assert kwargs["max_completion_tokens"] == config.max_completion_tokens
+    assert kwargs["max_tokens"] == config.max_tokens
     assert result.prompt_token_ids == [1, 2, 3]
     assert result.completion_token_ids == [4, 5]
     assert result.logprobs == [-0.1, -0.2]
