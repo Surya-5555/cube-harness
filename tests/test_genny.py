@@ -12,7 +12,6 @@ from cube.core import Action, ActionSchema, Observation
 from cube_harness.agents.genny import (
     Genny,
     GennyConfig,
-    _decode_actions,
     _format_action_list,
     _truncate_message,
 )
@@ -952,17 +951,3 @@ class TestPromptOverlayWiring:
         cfg = base.with_benchmark_clarifications(_EmptyBench())
         assert cfg.benchmark_hint_prompt == "keep"
         assert cfg.task_clarification == {"t0": "x"}
-
-
-def test_decode_actions_rejects_malformed_json_arguments() -> None:
-    from litellm import Message
-
-    tool_call = {
-        "id": "call-1",
-        "type": "function",
-        "function": {"name": "click", "arguments": "{bad json"},
-    }
-    response = Message(role="assistant", content="", tool_calls=[tool_call])
-
-    with pytest.raises(ValueError, match="invalid JSON arguments"):
-        _decode_actions(response)

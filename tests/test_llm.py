@@ -16,7 +16,6 @@ from cube_harness.llm import (
     Prompt,
     Usage,
     _build_cache_injection_points,
-    _completion_with_retry,
     _is_anthropic_model,
     _mark_last_tool_for_cache,
     get_reasoning,
@@ -116,7 +115,18 @@ class TestLLMConfig:
         retryer = MagicMock()
         retrying.return_value = retryer
 
-        _completion_with_retry(2, retry_strategy="constant_retry", model="m", messages=[])
+        llm = LLM(
+            LLMConfig(
+                model_name="served-model",
+            )
+        )
+
+        llm._completion_with_retry(
+            2,
+            retry_strategy="constant_retry",
+            model="m",
+            messages=[],
+        )
 
         wait_policy = retrying.call_args.kwargs["wait"]
         assert isinstance(wait_policy, tenacity.wait_fixed)
