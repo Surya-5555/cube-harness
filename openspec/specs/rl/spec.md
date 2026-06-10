@@ -108,8 +108,42 @@ payloads, then publishes them to the `EventPublisher`:
 - `EvaluationEvent` → `evaluation` and terminal summary when terminal
 - `AgentErrorEvent` → `agent_error` and terminal failure when needed
 
+Trajectory-derived rollout payloads use a stable envelope plus canonical event
+body:
+
+```python
+{
+    "type": "llm_call" | "tool_call" | "evaluation" | "agent_error",
+    "offset": int,                 # assigned by EventPublisher
+    "event_index": int,            # per-rollout event order
+    "request_id": str,
+    "trajectory_id": str,
+    "env_name": str | None,
+    "task_id": str | None,
+    "group_id": str | None,
+    "rollout_index": int,
+    "model_version": int | None,
+    "timestamp": float,
+    "event": dict,                # dump_for_event(TrajectoryEvent.output)
+    "rl": dict,                   # RL-only annotations, when applicable
+    "trajectory_event": dict,     # start_time/end_time when needed
+}
+```
+
+`event` is the canonical `LLMCallEvent` / `ToolCallEvent` / `EvaluationEvent` /
+`AgentErrorEvent` dump and should evolve with `cube_harness.core`. RL-only fields
+such as `llm_call_index`, `tool_call_index`, `trainable_call_index`, `trainable`,
+and `state_ref` live under `rl`; trainers must not treat them as canonical
+trajectory fields. Tool-call timing from the outer `TrajectoryEvent` is carried
+under `trajectory_event` when present.
+
+Accepted and terminal events are rollout control events, so they remain flat
+`AcceptedEvent` / `TerminalEvent` payloads rather than canonical trajectory-event
+wrappers.
+
 Trainable LLM calls are selected by tag (`""` and `"act"` by default) and must
-carry aligned `prompt_token_ids`, `completion_token_ids`, and `logprobs`.
+carry aligned `event.call.prompt_token_ids`, `event.call.completion_token_ids`,
+and `event.call.logprobs`.
 
 ### Rollout LLM
 

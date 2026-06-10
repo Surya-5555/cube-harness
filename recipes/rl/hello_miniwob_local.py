@@ -41,6 +41,21 @@ MINIWOB_PORT = int(os.getenv("CUBE_HARNESS_MINIWOB_PORT", "8011"))
 LOG_LEVEL = os.getenv("CUBE_HARNESS_LOG_LEVEL", "INFO")
 
 
+def event_body(event: dict[str, Any]) -> dict[str, Any]:
+    body = event.get("event")
+    return body if isinstance(body, dict) else {}
+
+
+def rl_body(event: dict[str, Any]) -> dict[str, Any]:
+    body = event.get("rl")
+    return body if isinstance(body, dict) else {}
+
+
+def llm_call_body(event: dict[str, Any]) -> dict[str, Any]:
+    call = event_body(event).get("call")
+    return call if isinstance(call, dict) else {}
+
+
 def _rollout_llm_config(*, model_name: str) -> RolloutLLMConfig:
     return RolloutLLMConfig(
         api_base=LLM_BASE_URL,
@@ -100,25 +115,28 @@ def print_event(event: dict[str, Any]) -> None:
             flush=True,
         )
     elif event_type == "llm_call":
+        call = llm_call_body(event)
         print(
-            f"[{offset}/{event_index}] llm_call tag={event.get('llm_call_tag')!r} "
-            f"trainable={event.get('trainable')} tokens={len(event.get('completion_token_ids') or [])}",
+            f"[{offset}/{event_index}] llm_call tag={call.get('tag')!r} "
+            f"trainable={rl_body(event).get('trainable')} tokens={len(call.get('completion_token_ids') or [])}",
             flush=True,
         )
     elif event_type == "tool_call":
-        action = event.get("action") or {}
+        body = event_body(event)
+        action = body.get("action") or {}
         print(
-            f"[{offset}/{event_index}] tool_call index={event.get('tool_call_index')} "
-            f"action={action.get('name')} parent={event.get('parent_event_id')}",
+            f"[{offset}/{event_index}] tool_call index={rl_body(event).get('tool_call_index')} "
+            f"action={action.get('name')} parent={body.get('parent_event_id')}",
             flush=True,
         )
     elif event_type == "evaluation":
+        body = event_body(event)
         print(
-            f"[{offset}/{event_index}] evaluation terminal={event.get('is_terminal')} reward={event.get('reward')}",
+            f"[{offset}/{event_index}] evaluation terminal={body.get('is_terminal')} reward={body.get('reward')}",
             flush=True,
         )
     elif event_type == "agent_error":
-        error = event.get("error") or {}
+        error = event_body(event).get("error") or {}
         print(
             f"[{offset}/{event_index}] agent_error type={error.get('error_type') or error.get('type')}",
             flush=True,

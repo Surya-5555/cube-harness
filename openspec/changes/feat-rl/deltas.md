@@ -11,6 +11,8 @@ Defines the new RL rollout subsystem:
 - `RolloutEngine`, service, executor, Ray runtime
 - `RolloutLLMConfig` / `RolloutLLM`
 - `EventPublisher` (ordered in-memory publisher) and `RLEventSink` (event conversion)
+- rollout event payload shape: context envelope plus canonical event dump under
+  `event`, with RL-only annotations under `rl`
 - optional storage/debug behavior
 - recipes and smoke expectations
 

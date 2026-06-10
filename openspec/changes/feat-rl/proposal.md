@@ -73,7 +73,9 @@ The service-oriented flow is:
 4. Submit rollout work with `POST /rollouts`, including `task_id`,
    `llm_config`, `group_id`, `rollout_index`, and optional `max_steps`.
 5. Reconstruct partial trajectories from realtime `accepted`, `llm_call`,
-   `tool_call`, `evaluation`, `agent_error`, and `terminal` events.
+   `tool_call`, `evaluation`, `agent_error`, and `terminal` events. Trajectory-derived
+   events carry canonical event data under `event` and rollout-only annotations
+   such as trainable/index metadata under `rl`.
 6. Ack consumed offsets with `POST /acks` so a trainer can resume from the next
    offset it has processed.
 7. Convert trainable LLM events into training examples once enough rollout
@@ -83,11 +85,13 @@ The service-oriented flow is:
 `recipes/rl/hello_miniwob_service.py` is the reference mock-trainer shape. It
 starts the service, discovers tasks, submits multiple rollout groups, consumes
 SSE events, reconstructs partial trajectories, validates trainable metadata, and
-writes one JSONL SFT-style record per trainable LLM call:
+writes one JSONL SFT-style record per trainable LLM call. Token IDs and
+logprobs come from the canonical `event.call` dump, while call indices and
+`trainable` live under the `rl` annotation:
 
 ```text
-input_ids = prompt_token_ids + completion_token_ids
-labels    = [-100] * len(prompt_token_ids) + completion_token_ids
+input_ids = event.call.prompt_token_ids + event.call.completion_token_ids
+labels    = [-100] * len(event.call.prompt_token_ids) + event.call.completion_token_ids
 reward    = group/trajectory reward
 ```
 
@@ -226,8 +230,9 @@ The RL implementation should stay split along these boundaries:
 - **Task runner** (`task_runner.py`): per-rollout bridge from a request to a
   normal `Episode` run.
 - **Event conversion** (`trajectory_sink.py`): `RLEventSink` converts canonical
-  `TrajectoryEvent` objects into trainer-facing rollout payloads. This is not a
-  second trajectory model.
+  `TrajectoryEvent` objects into trainer-facing rollout payloads with a stable
+  context envelope, canonical event dump under `event`, and RL-only annotations
+  under `rl`. This is not a second trajectory model.
 - **Event publisher / payloads** (`event_publisher.py`, `events.py`): `EventPublisher`
   (`rl/event_publisher.py`) holds the ordered in-memory event stream — offset assignment,
   ack cursor, keepalives, and optional spill; `events.py` holds the rollout

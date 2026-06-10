@@ -57,6 +57,21 @@ MINIWOB_PORT = int(os.getenv("CUBE_HARNESS_MINIWOB_PORT", "8011"))
 LOG_LEVEL = os.getenv("CUBE_HARNESS_LOG_LEVEL", "INFO")
 
 
+def event_body(event: dict[str, Any]) -> dict[str, Any]:
+    body = event.get("event")
+    return body if isinstance(body, dict) else {}
+
+
+def rl_body(event: dict[str, Any]) -> dict[str, Any]:
+    body = event.get("rl")
+    return body if isinstance(body, dict) else {}
+
+
+def llm_call_body(event: dict[str, Any]) -> dict[str, Any]:
+    call = event_body(event).get("call")
+    return call if isinstance(call, dict) else {}
+
+
 @dataclass
 class PartialTrajectory:
     request_id: str
@@ -89,7 +104,7 @@ class PartialTrajectory:
             "trajectory_id": self.trajectory_id,
             "events": ordered,
             "llm_calls": sorted(self.llm_calls, key=lambda item: int(item["event_index"])),
-            "tool_calls": sorted(self.tool_calls, key=lambda item: int(item["tool_call_index"])),
+            "tool_calls": sorted(self.tool_calls, key=lambda item: int(rl_body(item)["tool_call_index"])),
             "evaluations": sorted(self.evaluations, key=lambda item: int(item["event_index"])),
             "agent_errors": sorted(self.agent_errors, key=lambda item: int(item["event_index"])),
             "terminal": self.terminal,
@@ -152,7 +167,7 @@ def _float_value(value: Any) -> float | None:
 
 
 def _event_step_index(event: dict[str, Any]) -> int | None:
-    value = event.get("llm_call_index")
+    value = rl_body(event).get("llm_call_index")
     return int(value) if isinstance(value, int) else None
 
 
@@ -184,7 +199,7 @@ def _validate_trajectory(trajectory: dict[str, Any]) -> TrajectoryDiscard | None
     for event in trajectory.get("agent_errors") or []:
         return TrajectoryDiscard(trajectory_id, "agent error event present", "agent_error")
     for event in trajectory.get("tool_calls") or []:
-        if event.get("error") is not None:
+        if event_body(event).get("error") is not None:
             return TrajectoryDiscard(trajectory_id, "tool call has an error", "tool_call")
 
     llm_calls = trajectory.get("llm_calls") or []
@@ -193,15 +208,16 @@ def _validate_trajectory(trajectory: dict[str, Any]) -> TrajectoryDiscard | None
 
     for event in llm_calls:
         step_index = _event_step_index(event)
-        if not event.get("trainable"):
+        if not rl_body(event).get("trainable"):
             return TrajectoryDiscard(trajectory_id, "LLM call is marked non-trainable", "llm_call", step_index)
-        prompt_token_ids = _token_ids(event.get("prompt_token_ids"))
-        completion_token_ids = _token_ids(event.get("completion_token_ids"))
+        call = llm_call_body(event)
+        prompt_token_ids = _token_ids(call.get("prompt_token_ids"))
+        completion_token_ids = _token_ids(call.get("completion_token_ids"))
         if prompt_token_ids is None:
             return TrajectoryDiscard(trajectory_id, "LLM call is missing prompt_token_ids", "llm_call", step_index)
         if completion_token_ids is None:
             return TrajectoryDiscard(trajectory_id, "LLM call is missing completion_token_ids", "llm_call", step_index)
-        logprobs = event.get("logprobs")
+        logprobs = call.get("logprobs")
         if not isinstance(logprobs, list) or len(logprobs) != len(completion_token_ids):
             return TrajectoryDiscard(
                 trajectory_id,
@@ -224,8 +240,9 @@ def _training_examples_for_trajectory(
     step_rewards = _step_reward_by_llm_call(trajectory)
     examples: list[dict[str, Any]] = []
     for event in trajectory["llm_calls"]:
-        prompt_token_ids = _token_ids(event.get("prompt_token_ids"))
-        completion_token_ids = _token_ids(event.get("completion_token_ids"))
+        call = llm_call_body(event)
+        prompt_token_ids = _token_ids(call.get("prompt_token_ids"))
+        completion_token_ids = _token_ids(call.get("completion_token_ids"))
         if prompt_token_ids is None or completion_token_ids is None:
             raise ValueError(f"trajectory {trajectory.get('trajectory_id')} has incomplete token ids")
 
@@ -241,9 +258,9 @@ def _training_examples_for_trajectory(
                 "group_id": event.get("group_id"),
                 "rollout_index": event.get("rollout_index", 0),
                 "step_index": step_index,
-                "llm_call_id": event.get("llm_call_id"),
-                "llm_call_index": event.get("llm_call_index"),
-                "trainable_call_index": event.get("trainable_call_index"),
+                "llm_call_id": call.get("id", event_body(event).get("id")),
+                "llm_call_index": rl_body(event).get("llm_call_index"),
+                "trainable_call_index": rl_body(event).get("trainable_call_index"),
                 "input_ids": input_ids,
                 "labels": labels,
                 "reward": trajectory_reward,

@@ -85,25 +85,13 @@ class RLEventSink:
             self.rollout_trainable = True
 
         payload = rollout_event_payload(self.ctx, "llm_call", self.event_idx)
-        payload.update(
-            {
-                "llm_call_index": self.llm_call_idx,
-                "trainable_call_index": self.trainable_call_idx if trainable else None,
-                "llm_call_id": call.id if call is not None else event.id,
-                "llm_call_tag": call.tag if call is not None else "",
-                "parent_event_id": None,
-                "trainable": trainable,
-                "prompt": dump_for_event(call.prompt) if call is not None else {},
-                "output": dump_for_event(call.output) if call is not None else {},
-                "usage": dump_for_event(call.usage) if call is not None else {},
-                "prompt_token_ids": call.prompt_token_ids if call is not None else None,
-                "completion_token_ids": call.completion_token_ids if call is not None else None,
-                "logprobs": call.logprobs if call is not None else None,
-                "finish_reason": call.finish_reason if call is not None else None,
-                "state_ref": f"{trajectory_id}:event:{self.event_idx}",
-                "metadata": dump_for_event(call.metadata) if call is not None else {},
-            }
-        )
+        payload["event"] = dump_for_event(event)
+        payload["rl"] = {
+            "llm_call_index": self.llm_call_idx,
+            "trainable_call_index": self.trainable_call_idx if trainable else None,
+            "trainable": trainable,
+            "state_ref": f"{trajectory_id}:event:{self.event_idx}",
+        }
         self._publish(payload)
         self.event_idx += 1
         self.llm_call_idx += 1
@@ -116,27 +104,22 @@ class RLEventSink:
             self.status = "tool_error"
 
         payload = rollout_event_payload(self.ctx, "tool_call", self.event_idx)
-        payload.update(
-            {
-                "tool_call_index": self.tool_call_idx,
-                "tool_call_id": event.id,
-                "parent_event_id": event.parent_event_id,
-                "action_id": event.action_id,
-                "action": dump_for_event(event.action),
-                "observation": dump_for_event(event.obs),
-                "error": dump_for_event(event.error),
-                "state_ref": f"{trajectory_id}:tool:{self.tool_call_idx}",
-                "started_at": te.start_time,
-                "ended_at": te.end_time,
-            }
-        )
+        payload["event"] = dump_for_event(event)
+        payload["rl"] = {
+            "tool_call_index": self.tool_call_idx,
+            "state_ref": f"{trajectory_id}:tool:{self.tool_call_idx}",
+        }
+        payload["trajectory_event"] = {
+            "start_time": te.start_time,
+            "end_time": te.end_time,
+        }
         self._publish(payload)
         self.event_idx += 1
         self.tool_call_idx += 1
 
     def _publish_agent_error(self, event: TrajectoryAgentErrorEvent) -> None:
         payload = rollout_event_payload(self.ctx, "agent_error", self.event_idx)
-        payload["error"] = dump_for_event(event.error)
+        payload["event"] = dump_for_event(event)
         self._publish(payload)
         self.event_idx += 1
         if event.error.error_type == "BudgetExceeded":
@@ -157,14 +140,7 @@ class RLEventSink:
 
     def _publish_evaluation(self, event: TrajectoryEvaluationEvent) -> None:
         payload = rollout_event_payload(self.ctx, "evaluation", self.event_idx)
-        payload.update(
-            {
-                "reward": event.reward,
-                "info": dump_for_event(event.info),
-                "is_terminal": event.is_terminal,
-                "parent_event_id": event.parent_event_id,
-            }
-        )
+        payload["event"] = dump_for_event(event)
         self._publish(payload)
         self.event_idx += 1
         if event.is_terminal:

@@ -65,6 +65,21 @@ OUTPUT_DIR = Path(os.getenv("CUBE_HARNESS_ROLLOUT_OUTPUT_DIR", "tmp/cube_harness
 LOG_LEVEL = os.getenv("CUBE_HARNESS_LOG_LEVEL", "INFO")
 
 
+def event_body(event: dict[str, Any]) -> dict[str, Any]:
+    body = event.get("event")
+    return body if isinstance(body, dict) else {}
+
+
+def rl_body(event: dict[str, Any]) -> dict[str, Any]:
+    body = event.get("rl")
+    return body if isinstance(body, dict) else {}
+
+
+def llm_call_body(event: dict[str, Any]) -> dict[str, Any]:
+    call = event_body(event).get("call")
+    return call if isinstance(call, dict) else {}
+
+
 def _rollout_request_payload(request: RolloutRequest) -> dict[str, Any]:
     payload = request.model_dump(mode="json")
     payload["llm_config"] = request.llm_config.model_dump(mode="json")
@@ -260,7 +275,7 @@ class PartialTrajectory:
             "trajectory_id": self.trajectory_id,
             "events": sorted(self.events, key=lambda event: int(event["event_index"])),
             "llm_calls": sorted(self.llm_calls, key=lambda event: int(event["event_index"])),
-            "tool_calls": sorted(self.tool_calls, key=lambda event: int(event["tool_call_index"])),
+            "tool_calls": sorted(self.tool_calls, key=lambda event: int(rl_body(event)["tool_call_index"])),
             "evaluations": sorted(self.evaluations, key=lambda event: int(event["event_index"])),
             "agent_errors": sorted(self.agent_errors, key=lambda event: int(event["event_index"])),
             "terminal": self.terminal,
@@ -406,8 +421,9 @@ def training_examples(trajectory: dict[str, Any]) -> list[dict[str, Any]]:
     reward = float((trajectory["terminal"] or {}).get("final_reward") or 0.0)
     records: list[dict[str, Any]] = []
     for event in trajectory["llm_calls"]:
-        prompt_token_ids = event["prompt_token_ids"]
-        completion_token_ids = event["completion_token_ids"]
+        call = llm_call_body(event)
+        prompt_token_ids = call["prompt_token_ids"]
+        completion_token_ids = call["completion_token_ids"]
         records.append(
             {
                 "trajectory_id": trajectory["trajectory_id"],
@@ -415,8 +431,8 @@ def training_examples(trajectory: dict[str, Any]) -> list[dict[str, Any]]:
                 "task_config_id": event["task_id"],
                 "group_id": event["group_id"],
                 "rollout_index": event["rollout_index"],
-                "step_index": event["llm_call_index"],
-                "llm_call_id": event["llm_call_id"],
+                "step_index": rl_body(event)["llm_call_index"],
+                "llm_call_id": call.get("id", event_body(event).get("id")),
                 "input_ids": prompt_token_ids + completion_token_ids,
                 "labels": [-100] * len(prompt_token_ids) + completion_token_ids,
                 "reward": reward,
@@ -446,13 +462,13 @@ def assert_multiturn_metadata(trajectory: dict[str, Any], *, turns: int, jsonl_r
 
     request_events = trajectory["events"]
     assert [event["event_index"] for event in request_events] == list(range(len(request_events)))
-    assert [event["llm_call_index"] for event in trajectory["llm_calls"]] == list(range(turns))
-    assert [event["tool_call_index"] for event in trajectory["tool_calls"]] == list(range(turns + 1))
-    assert trajectory["tool_calls"][0]["parent_event_id"] == "reset"
-    assert trajectory["tool_calls"][0]["observation"] is not None
-    assert all(event["parent_event_id"] for event in trajectory["tool_calls"][1:])
-    assert all(event["action"] is not None for event in trajectory["tool_calls"][1:])
-    assert trajectory["evaluations"][0]["is_terminal"] is True
+    assert [rl_body(event)["llm_call_index"] for event in trajectory["llm_calls"]] == list(range(turns))
+    assert [rl_body(event)["tool_call_index"] for event in trajectory["tool_calls"]] == list(range(turns + 1))
+    assert event_body(trajectory["tool_calls"][0])["parent_event_id"] == "reset"
+    assert event_body(trajectory["tool_calls"][0])["obs"] is not None
+    assert all(event_body(event)["parent_event_id"] for event in trajectory["tool_calls"][1:])
+    assert all(event_body(event)["action"] is not None for event in trajectory["tool_calls"][1:])
+    assert event_body(trajectory["evaluations"][0])["is_terminal"] is True
 
     for record in jsonl_records:
         labels = record["labels"]

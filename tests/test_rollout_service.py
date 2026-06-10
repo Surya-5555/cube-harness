@@ -29,6 +29,20 @@ def _rollout_llm_request_config() -> RolloutLLMConfig:
     )
 
 
+def _event_body(event: dict) -> dict:
+    return event["event"]
+
+
+def _rl_body(event: dict) -> dict:
+    return event["rl"]
+
+
+def _llm_call_body(event: dict) -> dict:
+    call = _event_body(event).get("call")
+    assert isinstance(call, dict)
+    return call
+
+
 def test_ray_config_defaults_to_fractional_rollout_cpu() -> None:
     assert RayConfig().task_num_cpus == 0.25
 
@@ -412,9 +426,9 @@ def test_rollout_events_are_reconstructable_from_stream(tmp_dir) -> None:
 
         tool_calls = [event for event in request_events if event["type"] == "tool_call"]
         assert tool_calls
-        assert all(event["observation"] is not None for event in tool_calls)
-        assert tool_calls[0]["parent_event_id"] == "reset"
-        assert any(event.get("action") for event in tool_calls)
+        assert all(_event_body(event)["obs"] is not None for event in tool_calls)
+        assert _event_body(tool_calls[0])["parent_event_id"] == "reset"
+        assert any(_event_body(event).get("action") for event in tool_calls)
     finally:
         rollout.close()
 
@@ -475,10 +489,10 @@ def test_trainable_llm_call_emits_prompt_and_completion_token_ids() -> None:
 
     llm_event = published[0]
     assert llm_event["type"] == "llm_call"
-    assert llm_event["trainable"] is True
-    assert llm_event["prompt_token_ids"] == [1, 2, 3]
-    assert llm_event["completion_token_ids"] == [4, 5]
-    assert llm_event["logprobs"] == [-0.1, -0.2]
+    assert _rl_body(llm_event)["trainable"] is True
+    assert _llm_call_body(llm_event)["prompt_token_ids"] == [1, 2, 3]
+    assert _llm_call_body(llm_event)["completion_token_ids"] == [4, 5]
+    assert _llm_call_body(llm_event)["logprobs"] == [-0.1, -0.2]
 
 
 def test_rl_sink_publishes_tool_call_event() -> None:
@@ -503,9 +517,9 @@ def test_rl_sink_publishes_tool_call_event() -> None:
 
     event = published[0]
     assert event["type"] == "tool_call"
-    assert event["parent_event_id"] == "llm1"
-    assert event["action"]["name"] == "click"
-    assert event["observation"] is not None
+    assert _event_body(event)["parent_event_id"] == "llm1"
+    assert _event_body(event)["action"]["name"] == "click"
+    assert _event_body(event)["obs"] is not None
 
 
 def test_rl_sink_publishes_terminal_evaluation_event() -> None:
@@ -520,8 +534,8 @@ def test_rl_sink_publishes_terminal_evaluation_event() -> None:
     evaluation = published[0]
     terminal = published[1]
     assert evaluation["type"] == "evaluation"
-    assert evaluation["reward"] == 1.0
-    assert evaluation["is_terminal"] is True
+    assert _event_body(evaluation)["reward"] == 1.0
+    assert _event_body(evaluation)["is_terminal"] is True
     assert terminal["type"] == "terminal"
     assert terminal["rollout_status"] == "completed"
     assert terminal["final_reward"] == 1.0
@@ -546,7 +560,7 @@ def test_rl_sink_budget_failure_keeps_terminal_evaluation_reward() -> None:
 
     agent_error = published[0]
     assert agent_error["type"] == "agent_error"
-    assert agent_error["error"]["error_type"] == "BudgetExceeded"
+    assert _event_body(agent_error)["error"]["error_type"] == "BudgetExceeded"
     assert [e["type"] for e in published] == ["agent_error"], "no terminal before the evaluation arrives"
 
     sink.save_event(
