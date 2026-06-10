@@ -240,8 +240,8 @@ class Episode:
                     storage=self.storage,
                     budget=budget,
                     metadata_updates=metadata_updates,
-                    config=self.config.recorder_config,
                 )
+                streamer._sinks.extend(self.config.recorder_config.extra_sinks)
                 # 4. Build the monitored env-tool the agent drives. This does
                 # NOT mutate `task.tool` / `task.toolbox`: the task keeps its
                 # concrete tool so its own setup/reset/evaluate/finished reach

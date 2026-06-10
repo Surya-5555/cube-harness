@@ -129,11 +129,7 @@ override, and runs one normal `Episode`:
 
 ```python
 rl_sink = RLEventSink(...)
-recorder_config = EventStreamerConfig(
-    event_sinks=[rl_sink],
-    include_storage_sink=persist_rollout,
-    sink_error_policy="raise",  # required sink: publisher failure fails the worker
-)
+recorder_config = EventStreamerConfig(extra_sinks=[rl_sink])
 Episode(..., recorder_config=recorder_config, write_eval_log=persist_rollout)
 ```
 

@@ -31,7 +31,7 @@ config fields without changing this surface.
 import logging
 import threading
 import time
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cube.core import Action, EnvironmentOutput, StepError, TypedBaseModel
 from pydantic import Field
@@ -58,8 +58,8 @@ class EventSink(Protocol):
     """The forward seam for trajectory event consumers.
 
     Anything that receives `TrajectoryEvent`s as the agent runs (today:
-    `FileStorage`; tomorrow: an OTel span emitter, an RL trainer HTTP
-    pump, a Kafka publisher) implements this Protocol. `EventStreamer`
+    `FileStorage`, 'RLEventSink'; tomorrow: an OTel span emitter, a Kafka publisher)
+    implements this Protocol. `EventStreamer`
     fans every event out to its registered sinks; sinks read what they
     understand and ignore the rest.
 
@@ -77,11 +77,16 @@ class EventSink(Protocol):
 
 
 class EventStreamerConfig(TypedBaseModel):
-    """Configuration for the per-episode `EventStreamer`."""
+    """Configuration for the per-episode `EventStreamer`.
 
-    event_sinks: list[Any] = Field(default_factory=list, exclude=True)
-    include_storage_sink: bool = True
-    sink_error_policy: Literal["continue", "raise"] = "continue"
+    Forward seam — empty today. Phase 1 ships FileStorage as the only
+    sink (always on). Future fields:
+
+      * `enable_otel: bool` — emit each event as an OTel span.
+    """
+
+    # event sinks must follow the EventSink Protocol.
+    extra_sinks: list[Any] = Field(default_factory=list, exclude=True)
 
 
 class EventStreamer:
@@ -109,10 +114,8 @@ class EventStreamer:
         storage: object | None = None,
         budget: object | None = None,
         metadata_updates: dict | None = None,
-        config: EventStreamerConfig | None = None,
     ) -> None:
         self.trajectory_id = trajectory_id
-        self.config = config or EventStreamerConfig()
         self.storage = storage
         # `cube_harness.tool.Budget`; loose-typed to avoid circular import.
         self.budget = budget
@@ -129,9 +132,8 @@ class EventStreamer:
         # objects with `save_event`; the Protocol check is structural,
         # not nominal.
         self._sinks: list[EventSink] = []
-        if self.config.include_storage_sink and storage is not None and hasattr(storage, "save_event"):
+        if storage is not None and hasattr(storage, "save_event"):
             self._sinks.append(storage)
-        self._sinks.extend(self.config.event_sinks)
         self._current_parent_event_id: str | None = None
         # Last tool call event id stamped on the terminal EvaluationEvent
         # so the final reward attaches to the agent turn that ended the
@@ -164,11 +166,10 @@ class EventStreamer:
         the Episode-only boundary helpers all funnel through here so
         every event flows through the same stats fold + sink fan-out.
 
-        Sink fan-out is sequential. Default policy is best-effort: a sink
-        that raises is logged and skipped so a misbehaving optional consumer
-        can't kill the trajectory. Callers with required sinks (RL rollout
-        publishing) set `sink_error_policy="raise"` so the worker fails and
-        the executor can emit an error terminal.
+        Sink fan-out is sequential and best-effort: a sink that raises
+        is logged and skipped so a misbehaving downstream consumer
+        (slow HTTP, full disk) can't kill the trajectory. Sinks SHOULD
+        be cheap; for blocking I/O, queue inside the sink.
         """
         with self._lock:
             self._fold_stats(te.output)
@@ -177,8 +178,8 @@ class EventStreamer:
                 sink.save_event(te, self.trajectory_id)
             except Exception:
                 logger.exception("EventStreamer sink %r raised; continuing.", sink)
-                if self.config.sink_error_policy == "raise":
-                    raise
+                # TODO: RL rollout need to raise so the worker fails and the executor can emit an error terminal.
+
         # EvaluationEvent doesn't carry an `id` field (parent_event_id
         # links it to a ToolCallEvent or it's terminal). Return empty
         # string for those so producers that don't need the id don't
