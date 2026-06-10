@@ -196,7 +196,10 @@ def _get_decompressor() -> zstandard.ZstdDecompressor:
 
 
 def _serialize_step(step: TrajectoryStep) -> bytes:
-    data = json.loads(step.model_dump_json())
+    # serialize_as_any=True: serialize polymorphic TypedBaseModel payloads by
+    # runtime type — see _serialize_event for why (avoids spurious smart-union
+    # PydanticSerializationUnexpectedValue warnings). Legacy step path.
+    data = json.loads(step.model_dump_json(serialize_as_any=True))
     packed = msgpack.packb(data, use_bin_type=True)
     return _get_compressor().compress(packed)
 
@@ -231,8 +234,20 @@ def _event_filename(event_num: int, event: TrajectoryEvent) -> str:
 
 
 def _serialize_event(event: TrajectoryEvent) -> bytes:
-    """Compress a TrajectoryEvent to bytes (msgpack + zstd, level 3)."""
-    data = json.loads(event.model_dump_json())
+    """Compress a TrajectoryEvent to bytes (msgpack + zstd, level 3).
+
+    `serialize_as_any=True` makes pydantic serialize each value by its
+    runtime type — the correct mode for the polymorphic `TypedBaseModel`
+    union on `TrajectoryEvent.output` (and its nested `LLMCall`/`Message`
+    unions). Without it, pydantic's smart-union serializer trials every
+    member and emits a `PydanticSerializationUnexpectedValue` warning per
+    non-matching member — ~24 spurious warning lines for a single
+    LLMCallEvent, flooding stdout on every event persist. The on-disk
+    payload is unchanged (`TypedBaseModel` still writes `_type` for
+    round-trip); only the noise goes away. Mirrors the existing
+    `serialize_as_any=True` dump of `episode_config` below.
+    """
+    data = json.loads(event.model_dump_json(serialize_as_any=True))
     packed = msgpack.packb(data, use_bin_type=True)
     return _get_compressor().compress(packed)
 
@@ -470,10 +485,6 @@ class TrajectoryView:
         """Alias for `iter(view)` — explicit-method form for readability."""
         return iter(self)
 
-    def events_of_turn(self, turn_id: str) -> list[TrajectoryEvent]:
-        """All `ToolCallEvent`s sharing a `turn_id`. Decodes one pass."""
-        return [e for e in self if isinstance(e.output, ToolCallEvent) and e.output.turn_id == turn_id]
-
     def last_env_output(self) -> EnvironmentOutput | None:
         """Most recent `ToolCallEvent` as an `EnvironmentOutput`-shaped
         record, or None if no tool call ran.
@@ -555,7 +566,6 @@ class TrajectoryView:
                 action_id=action.id if action is not None else None,
                 obs=step.output.obs,
                 error=step.output.error,
-                turn_id=parent_id,
             )
             return TrajectoryEvent(output=tool_event, start_time=step.start_time, end_time=step.end_time)
         raise TypeError(f"Unexpected legacy step output type: {type(step.output).__name__}")
