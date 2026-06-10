@@ -120,6 +120,14 @@ class BaseLLMConfig(ValidatedConfig):
     num_retries: int = 5
     retry_strategy: _RETRY_TYPES = "exponential_backoff_retry"
 
+    def make(self) -> "BaseLLM":
+        """Create the LLM instance this config describes."""
+        raise NotImplementedError
+
+    def make_counter(self) -> Callable[..., int]:
+        """Get a token counter function for the LLM model."""
+        return partial(token_counter, model=self.model_name)
+
 
 class LLMConfig(BaseLLMConfig):
     """Thin benchmark LLM wrapper around LiteLLM completion API."""

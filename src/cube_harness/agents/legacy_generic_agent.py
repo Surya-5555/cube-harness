@@ -26,12 +26,11 @@ if TYPE_CHECKING:
 from cube.core import Action, ActionSchema, ImageContent, Observation, TypedBaseModel
 from cube.task import STOP_ACTION
 from PIL import Image
-from pydantic import Field
+from pydantic import Field, SerializeAsAny
 
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.core import AgentOutput
-from cube_harness.llm import LLMCall, LLMConfig, Message, Prompt
-from cube_harness.rl.llm import RolloutLLMConfig
+from cube_harness.llm import BaseLLMConfig, LLMCall, Message, Prompt
 from cube_harness.utils import parse_actions
 
 logger = logging.getLogger(__name__)
@@ -884,7 +883,7 @@ class GenericAgentConfig(AgentConfig):
         max_actions: Maximum actions before auto-stopping
     """
 
-    llm_config: LLMConfig | RolloutLLMConfig
+    llm_config: SerializeAsAny[BaseLLMConfig]
     flags: GenericPromptFlags = Field(default_factory=GenericPromptFlags)
     max_retry: int = 4
     max_actions: int = 50
