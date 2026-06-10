@@ -83,9 +83,13 @@ class RolloutLLM(BaseLLM):
             "include_stop_str_in_output": True,
             "timeout": self.config.timeout,
         }
+        # Send only one token-limit param. max_completion_tokens is the modern
+        # OpenAI/vLLM field and max_tokens is its deprecated alias; both inherit
+        # non-None defaults from BaseLLMConfig, so forwarding both is redundant
+        # and is rejected by some OpenAI-compatible servers. Prefer the modern one.
         if self.config.max_completion_tokens is not None:
             kwargs["max_completion_tokens"] = self.config.max_completion_tokens
-        if self.config.max_tokens is not None:
+        elif self.config.max_tokens is not None:
             kwargs["max_tokens"] = self.config.max_tokens
 
         if self.config.top_p is not None:

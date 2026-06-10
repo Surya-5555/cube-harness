@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from collections import defaultdict, deque
@@ -10,6 +11,17 @@ from typing import Any
 from pydantic import BaseModel
 
 from cube_harness.rl.events import AnyRolloutEvent
+
+_UNSAFE_PATH_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _safe_path_component(value: str) -> str:
+    """Sanitize a client-supplied id into one safe path segment.
+
+    request_id/trajectory_id come from rollout clients; used raw in a spill path
+    a value containing `/` or `..` could escape persist_events_dir.
+    """
+    return _UNSAFE_PATH_CHARS.sub("_", value) or "unknown"
 
 
 class EventSinkConfig(BaseModel):
@@ -93,8 +105,8 @@ class EventSink:
         if self.config.persist_events_dir is None:
             self._dropped_event_count += 1
             return
-        client = str(event.get("request_id") or "unknown")
-        trajectory = str(event.get("trajectory_id") or "unknown")
+        client = _safe_path_component(str(event.get("request_id") or "unknown"))
+        trajectory = _safe_path_component(str(event.get("trajectory_id") or "unknown"))
         path = self.config.persist_events_dir / client / f"{trajectory}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as f:

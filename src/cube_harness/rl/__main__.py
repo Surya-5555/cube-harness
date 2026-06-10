@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
+from typing import Annotated
 
+import typer
 import uvicorn
 
 from cube_harness.rl.rollout import RolloutConfig
@@ -11,27 +12,28 @@ from cube_harness.rl.service import configure_terminal_logging, serve
 from cube_harness.rl.sink import EventSinkConfig
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run cube-harness rollout service")
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--persist-events-dir", type=Path, default=None)
-    parser.add_argument("--log-level", default="INFO", help="Python logging level for cube-harness service logs.")
-    parser.add_argument(
-        "--service-config",
-        type=Path,
-        required=True,
-        help="Path to a RolloutConfig JSON file.",
-    )
-    args = parser.parse_args()
-    configure_terminal_logging(args.log_level, force=True)
-    service_config = RolloutConfig.model_validate(json.loads(args.service_config.read_text()))
+def main(
+    service_config: Annotated[Path, typer.Option(help="Path to a RolloutConfig JSON file.")],
+    host: Annotated[str, typer.Option(help="Bind host for the rollout service.")] = "0.0.0.0",
+    port: Annotated[int, typer.Option(help="Bind port for the rollout service.")] = 8765,
+    persist_events_dir: Annotated[Path | None, typer.Option(help="Directory to spill rollout events as JSONL.")] = None,
+    log_level: Annotated[str, typer.Option(help="Python logging level for cube-harness service logs.")] = "INFO",
+) -> None:
+    """Run the cube-harness rollout service."""
+    configure_terminal_logging(log_level, force=True)
+    config = RolloutConfig.model_validate(json.loads(service_config.read_text()))
     app = serve(
-        sink_config=EventSinkConfig(persist_events_dir=args.persist_events_dir),
-        config=service_config,
+        sink_config=EventSinkConfig(persist_events_dir=persist_events_dir),
+        config=config,
     )
-    uvicorn.run(app, host=args.host, port=args.port, log_level=str(args.log_level).lower())
+    uvicorn.run(app, host=host, port=port, log_level=log_level.lower())
+
+
+def cli() -> None:
+    # Console-script entry point (`ch-rollout`): setuptools calls this with no
+    # arguments, so the Typer wrapper must own argv parsing.
+    typer.run(main)
 
 
 if __name__ == "__main__":
-    main()
+    cli()

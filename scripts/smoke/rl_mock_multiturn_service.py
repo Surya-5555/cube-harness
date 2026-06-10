@@ -31,7 +31,6 @@ Prints SMOKE OK|FAIL: rl_mock_multiturn_service  (exit 0|1).
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import os
@@ -40,10 +39,11 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 from uuid import uuid4
 
 import aiohttp
+import typer
 import uvicorn
 from cube.benchmark import Benchmark, BenchmarkConfig, BenchmarkMetadata
 from cube.core import Action, EnvironmentOutput, Observation
@@ -480,24 +480,20 @@ async def run(turns: int, jsonl_path: Path) -> None:
     )
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a deterministic multi-turn rollout-service metadata smoke.")
-    parser.add_argument("--turns", type=int, default=4)
-    return parser.parse_args()
-
-
-def main() -> None:
+def main(
+    turns: Annotated[int, typer.Option(help="Number of turns (>= 2) for the multi-turn metadata check.")] = 4,
+) -> None:
+    """Run a deterministic multi-turn rollout-service metadata smoke."""
     configure_terminal_logging(LOG_LEVEL, force=True)
-    args = parse_args()
     jsonl_path = OUTPUT_DIR / "training_examples.jsonl"
     try:
-        if args.turns < 2:
+        if turns < 2:
             raise ValueError("--turns must be >= 2 to test multi-turn metadata")
-        asyncio.run(run(args.turns, jsonl_path))
+        asyncio.run(run(turns, jsonl_path))
     except Exception as exc:
         print(f"SMOKE FAIL: rl_mock_multiturn_service {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

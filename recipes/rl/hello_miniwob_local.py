@@ -19,12 +19,13 @@ Example usage:
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
+
+import typer
 
 from cube_harness.agents.react_configs import REACT_CONFIGS
 from cube_harness.rl import AckRequest, RolloutConfig, RolloutEngine, RolloutRequest, configure_terminal_logging
@@ -163,24 +164,21 @@ async def run(num_rollouts: int, task_ids: list[str] | None) -> None:
         rollout.close()
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run one MiniWoB rollout in local mode and print events.")
-    parser.add_argument("--num-rollouts", type=int, default=1, help="Number of task configs to sample.")
-    parser.add_argument(
-        "--task-ids", type=lambda s: s.split(","), help="Optional list of task IDs to use (overrides random selection)."
-    )
-    return parser.parse_args()
-
-
-def main() -> None:
+def main(
+    num_rollouts: Annotated[int, typer.Option(help="Number of task configs to sample.")] = 1,
+    task_ids: Annotated[
+        str | None, typer.Option(help="Optional comma-separated task IDs (overrides random selection).")
+    ] = None,
+) -> None:
+    """Run one MiniWoB rollout in local mode and print events."""
     configure_terminal_logging(LOG_LEVEL, force=True)
-    args = parse_args()
-    if args.task_ids:
-        print(f"Using specified task IDs: {args.task_ids}")
-        args.num_rollouts = len(args.task_ids)
+    ids = task_ids.split(",") if task_ids else None
+    if ids:
+        print(f"Using specified task IDs: {ids}")
+        num_rollouts = len(ids)
 
-    asyncio.run(run(args.num_rollouts, args.task_ids))
+    asyncio.run(run(num_rollouts, ids))
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

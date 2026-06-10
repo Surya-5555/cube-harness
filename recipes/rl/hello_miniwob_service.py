@@ -26,7 +26,6 @@ Inspect it with, for example:
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import os
@@ -34,10 +33,11 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
 import aiohttp
+import typer
 import uvicorn
 
 from cube_harness.agents.react_configs import REACT_CONFIGS
@@ -658,24 +658,21 @@ async def run(num_rollouts: int, num_groups: int, task_ids: list[str] | None, js
         await asyncio.gather(consumer.wait_finished(), trainer)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run an async mock RL trainer against cube-harness rollouts.")
-    parser.add_argument("--num-rollouts", type=int, default=1, help="Number of task configs to sample.")
-    parser.add_argument("--num-groups", type=int, default=1, help="Number of rollouts per selected task config.")
-    parser.add_argument(
-        "--task-ids", type=lambda s: s.split(","), help="Optional list of task IDs to use (overrides random selection)."
-    )
-    return parser.parse_args()
-
-
-def main() -> None:
+def main(
+    num_rollouts: Annotated[int, typer.Option(help="Number of task configs to sample.")] = 1,
+    num_groups: Annotated[int, typer.Option(help="Number of rollouts per selected task config.")] = 1,
+    task_ids: Annotated[
+        str | None, typer.Option(help="Optional comma-separated task IDs (overrides random selection).")
+    ] = None,
+) -> None:
+    """Run an async mock RL trainer against cube-harness rollouts."""
     configure_terminal_logging(LOG_LEVEL, force=True)
     jsonl_path = OUTPUT_DIR / "training_examples.jsonl"
-    args = parse_args()
-    if args.task_ids:
-        args.num_rollouts = len(args.task_ids)
-    asyncio.run(run(args.num_rollouts, args.num_groups, args.task_ids, jsonl_path))
+    ids = task_ids.split(",") if task_ids else None
+    if ids:
+        num_rollouts = len(ids)
+    asyncio.run(run(num_rollouts, num_groups, ids, jsonl_path))
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
