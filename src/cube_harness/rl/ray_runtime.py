@@ -15,7 +15,7 @@ _configure_ray_environment()
 
 import ray  # noqa: E402
 
-from cube_harness.rl.sink import EventPublisher, EventPublisherConfig  # noqa: E402
+from cube_harness.rl.event_publisher import EventPublisher, EventPublisherConfig  # noqa: E402
 from cube_harness.rl.task_runner import RolloutTaskRunner  # noqa: E402
 
 

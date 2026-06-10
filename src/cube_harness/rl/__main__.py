@@ -7,9 +7,9 @@ from typing import Annotated
 import typer
 import uvicorn
 
+from cube_harness.rl.event_publisher import EventPublisherConfig
 from cube_harness.rl.rollout import RolloutConfig
 from cube_harness.rl.service import configure_terminal_logging, serve
-from cube_harness.rl.sink import EventPublisherConfig
 
 
 def main(

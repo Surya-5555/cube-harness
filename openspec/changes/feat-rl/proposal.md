@@ -228,8 +228,8 @@ The RL implementation should stay split along these boundaries:
 - **Event conversion** (`trajectory_sink.py`): `RLEventSink` converts canonical
   `TrajectoryEvent` objects into trainer-facing rollout payloads. This is not a
   second trajectory model.
-- **Event publisher / payloads** (`sink.py`, `events.py`): `EventPublisher`
-  (`rl/sink.py`) holds the ordered in-memory event stream — offset assignment,
+- **Event publisher / payloads** (`event_publisher.py`, `events.py`): `EventPublisher`
+  (`rl/event_publisher.py`) holds the ordered in-memory event stream — offset assignment,
   ack cursor, keepalives, and optional spill; `events.py` holds the rollout
   control/publisher payload models. (Note: distinct from the structural
   `EventSink` Protocol in `cube_harness.streamer`.)

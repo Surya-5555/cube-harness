@@ -96,7 +96,7 @@ class CancelRequest(BaseModel):
 
 ### Event Publisher / Sink
 
-`EventPublisher` (`rl/sink.py`) stores an ordered in-memory event stream for clients
+`EventPublisher` (`rl/event_publisher.py`) stores an ordered in-memory event stream for clients
 and trainer consumers — offset assignment, ack cursor, keepalives, optional
 spill. (Distinct from the structural `EventSink` Protocol in
 `cube_harness.streamer`.) `RLEventSink` (`rl/trajectory_sink.py`) is an

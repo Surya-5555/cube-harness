@@ -11,8 +11,8 @@ from fastapi.responses import StreamingResponse
 
 from cube_harness.episode_logs import LOG_FORMAT
 from cube_harness.rl.engine import RolloutEngine
+from cube_harness.rl.event_publisher import EventPublisherConfig
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
-from cube_harness.rl.sink import EventPublisherConfig
 
 
 def configure_terminal_logging(level: str | int = logging.INFO, *, force: bool = False) -> None:

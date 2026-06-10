@@ -9,9 +9,9 @@ from cube.benchmark import Benchmark
 from cube.task import TaskConfig
 
 from cube_harness.episode_logs import trajectory_log_id
+from cube_harness.rl.event_publisher import EventPublisher, EventPublisherConfig
 from cube_harness.rl.events import AcceptedEvent, EventContext, TerminalEvent
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
-from cube_harness.rl.sink import EventPublisher, EventPublisherConfig
 
 logger = logging.getLogger(__name__)
 
