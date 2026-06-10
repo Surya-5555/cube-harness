@@ -4,7 +4,7 @@ import pprint
 import time
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable, List, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Callable, List, Literal
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -112,7 +112,7 @@ class Prompt(TypedBaseModel):
 class BaseLLMConfig(ValidatedConfig):
     """Shared LiteLLM configuration fields used by harness LLM wrappers."""
 
-    model_name: str
+    model_name: Annotated[str, Field(min_length=1)]
     temperature: float = 1.0
     max_tokens: int = 128000
     max_completion_tokens: int = 8192
@@ -139,7 +139,7 @@ class LLMConfig(BaseLLMConfig):
     #      the model to emit multiple `tool_calls` in one assistant
     #      message when it wants to.
     #   2. The cube-harness dispatch contract: when True, the framework
-    #      (specifically `GennyParallel.run`) fans the emitted tool
+    #      (specifically `Genny[parallel_actions=True]._arun`) fans the emitted tool
     #      calls out via `asyncio.gather` — they execute concurrently,
     #      results are merged into the next obs.
     #
@@ -393,7 +393,7 @@ class BaseLLM:
     def _completion_with_retry(
         self,
         num_retries: int,
-        retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry",
+        retry_strategy: _RETRY_TYPES = "exponential_backoff_retry",
         **kwargs: Any,
     ) -> Any:
         """Call litellm.completion with configurable retry behavior on transient errors."""
@@ -438,15 +438,18 @@ class BaseLLM:
         cached_tokens = 0
         cache_creation_tokens = 0
 
+        # Check prompt_tokens_details for cached_tokens (OpenAI/Anthropic)
         prompt_details = getattr(usage_data, "prompt_tokens_details", None)
         if prompt_details:
             cached_tokens = safe_int(getattr(prompt_details, "cached_tokens", 0))
 
+        # Anthropic-specific fields
         cache_creation_tokens = safe_int(getattr(usage_data, "cache_creation_input_tokens", 0))
         cache_read = safe_int(getattr(usage_data, "cache_read_input_tokens", 0))
         if cache_read > 0:
-            cached_tokens = cache_read
+            cached_tokens = cache_read  # Anthropic uses this field name
 
+        # Extract cost from LiteLLM's hidden params
         cost = 0.0
         hidden_params = getattr(response, "_hidden_params", {})
         if isinstance(hidden_params, dict):
@@ -457,6 +460,10 @@ class BaseLLM:
             except Exception:
                 cost = 0.0
 
+        # Reasoning tokens — LiteLLM normalizes both OpenAI (native field) and
+        # Anthropic (computed from thinking_blocks) into completion_tokens_details.
+        # These are already part of completion_tokens; the separate field is for
+        # telemetry, not for budgeting.
         reasoning_tokens = 0
         completion_details = getattr(usage_data, "completion_tokens_details", None)
         if completion_details:

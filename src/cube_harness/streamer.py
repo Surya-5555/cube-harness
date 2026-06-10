@@ -65,7 +65,7 @@ class EventSink(Protocol):
 
     Sinks MUST be cheap and non-blocking. `emit()` is called on the agent
     loop's hot path under the streamer's stats-lock; a slow sink stalls
-    every parallel tool dispatch in `GennyParallel`. If a sink needs I/O
+    every parallel tool dispatch in `Genny[parallel_actions=True]`. If a sink needs I/O
     (HTTP, disk-fsync), do it in a background queue.
 
     The structural typing here matches `FileStorage.save_event` exactly,
@@ -92,7 +92,7 @@ class EventStreamer:
     `emit(te)` which:
 
       1. Folds stats counters (under a lock to be safe under parallel
-         tool dispatch from GennyParallel's asyncio.to_thread workers).
+         tool dispatch from Genny[parallel_actions=True]'s asyncio.to_thread workers).
       2. Forwards to every sink (currently FileStorage; OTel + RL HTTP
          land via `EventStreamerConfig`).
       3. Returns the event id.
@@ -119,7 +119,7 @@ class EventStreamer:
         # Mutable side-channel dict passed from Episode; merged into
         # TrajectoryMetadata.metadata at finalize. Writes from inside a
         # parallel-dispatch worker (e.g. an asyncio.to_thread tool call
-        # via GennyParallel) MUST hold `self._lock` — the dict itself
+        # via Genny[parallel_actions=True]) MUST hold `self._lock` — the dict itself
         # has no internal synchronization. Single-threaded callers can
         # write directly.
         self.metadata_updates = metadata_updates if metadata_updates is not None else {}
@@ -133,6 +133,11 @@ class EventStreamer:
             self._sinks.append(storage)
         self._sinks.extend(self.config.event_sinks)
         self._current_parent_event_id: str | None = None
+        # Last tool call event id stamped on the terminal EvaluationEvent
+        # so the final reward attaches to the agent turn that ended the
+        # episode (the agent's last action) instead of by trailing
+        # position. None until the first tool call fires.
+        self._last_tool_call_event_id: str | None = None
         # Stats counters folded as events flow through. Lock guards the
         # multi-counter read-modify-write under parallel dispatch.
         self._lock = threading.Lock()
@@ -199,6 +204,9 @@ class EventStreamer:
                 self._total_actions += 1
             if out.error is not None and self._error_type is None:
                 self._error_type = out.error.error_type
+            # Track the latest tool call so the terminal EvaluationEvent
+            # can attach exactly to it.
+            self._last_tool_call_event_id = out.id
         elif isinstance(out, EvaluationEvent):
             self._n_evaluations += 1
             self._reward = out.reward
@@ -273,13 +281,18 @@ class EventStreamer:
             action=synthetic_action,
             obs=initial.obs,
             error=initial.error,
-            turn_id=RESET_PARENT_EVENT_ID,
         )
         ts = time.time()
         self.emit(TrajectoryEvent(output=event, start_time=ts, end_time=ts))
 
     def record_failure(self, exc: BaseException) -> None:
-        """Capture an Episode-level failure as an `AgentErrorEvent`."""
+        """Capture an Episode-level failure as an `AgentErrorEvent`.
+
+        `parent_event_id` attaches the error to the agent turn that
+        crashed: the most recent LLM call (if any), else the most
+        recent tool call (covers the case where the agent crashed
+        post-tool-dispatch before the next LLM call), else None.
+        """
         if isinstance(exc, Exception):
             err = StepError.from_exception(exc)
         else:
@@ -288,7 +301,8 @@ class EventStreamer:
                 exception_str=str(exc),
                 stack_trace="",
             )
-        event = AgentErrorEvent(error=err)
+        parent = self._current_parent_event_id or self._last_tool_call_event_id
+        event = AgentErrorEvent(error=err, parent_event_id=parent)
         ts = time.time()
         self.emit(TrajectoryEvent(output=event, start_time=ts, end_time=ts))
 
@@ -296,11 +310,20 @@ class EventStreamer:
         """Record a `task.evaluate()` result.
 
         Terminal flavor (default): Episode emits exactly one in
-        `finally`. The step-wise flavor (`is_terminal=False`) is emitted
-        by `MonitoredTool` directly — this API surfaces the terminal
-        path only.
+        `finally`. `parent_event_id` is the id of the most recent
+        `ToolCallEvent` so the final reward attaches to the agent's
+        last action; `None` only when no tool call has fired yet.
+
+        The step-wise flavor (`is_terminal=False`) is emitted by
+        `MonitoredTool` directly — this API surfaces the terminal path
+        only.
         """
-        ev = EvaluationEvent(reward=float(reward), info=dict(info or {}), is_terminal=is_terminal)
+        ev = EvaluationEvent(
+            reward=float(reward),
+            info=dict(info or {}),
+            is_terminal=is_terminal,
+            parent_event_id=self._last_tool_call_event_id if is_terminal else None,
+        )
         ts = time.time()
         self.emit(TrajectoryEvent(output=ev, start_time=ts, end_time=ts))
 
