@@ -112,7 +112,7 @@ class Prompt(TypedBaseModel):
 class BaseLLMConfig(ValidatedConfig):
     """Shared LiteLLM configuration fields used by harness LLM wrappers."""
 
-    model_name: Annotated[str, Field(min_length=1)]
+    model_name: Annotated[str, Field(min_length=1)]  # empty = a typo that fails only at first API call
     temperature: float = 1.0
     max_tokens: int = 128000
     max_completion_tokens: int = 8192
