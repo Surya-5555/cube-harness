@@ -117,7 +117,7 @@ body:
     "offset": int,                 # assigned by EventPublisher
     "event_index": int,            # per-rollout event order
     "request_id": str,
-    "trajectory_id": str,
+    "trajectory_id": str,          # equals request_id; unique rollout identity
     "env_name": str | None,
     "task_id": str | None,
     "group_id": str | None,
@@ -139,7 +139,10 @@ under `trajectory_event` when present.
 
 Accepted and terminal events are rollout control events, so they remain flat
 `AcceptedEvent` / `TerminalEvent` payloads rather than canonical trajectory-event
-wrappers.
+wrappers. `request_id` is the unique rollout key. RL sets `trajectory_id` equal
+to `request_id` so trainer-side reconstruction and optional persisted episode
+artifacts share one collision-free identity; `task_id`, `group_id`,
+`rollout_index`, and `model_version` remain metadata fields, not identity.
 
 Trainable LLM calls are selected by tag (`""` and `"act"` by default) and must
 carry aligned `event.call.prompt_token_ids`, `event.call.completion_token_ids`,
@@ -159,7 +162,7 @@ training data.
 ### Task Runner
 
 `RolloutTaskRunner` deep-copies the configured agent, applies the request LLM
-override, and runs one normal `Episode`:
+override, and runs one normal `Episode`. It passes `trajectory_id=request_id`:
 
 ```python
 rl_sink = RLEventSink(...)
@@ -169,7 +172,11 @@ Episode(..., recorder_config=recorder_config, write_eval_log=persist_rollout)
 
 When `persist_rollout=False`, `InMemoryStorage` satisfies the episode contract
 without writing trajectory/debug artifacts. When `persist_rollout=True`,
-`FileStorage`, logs, and eval-log artifacts are enabled for debugging/replay.
+`FileStorage`, logs, and eval-log artifacts are enabled for debugging/replay
+under `output_dir/<request_id>/episodes/<request_id>/`. Debug/replay tooling
+that needs rollout grouping must retain or join against the rollout event
+envelope, because `group_id`, `rollout_index`, and `model_version` are RL event
+fields rather than persisted `TrajectoryMetadata` fields.
 
 ## Recipes, Smoke, and Tests
 

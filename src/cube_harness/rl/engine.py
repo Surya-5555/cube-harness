@@ -8,7 +8,6 @@ from typing import Any, AsyncIterator
 from cube.benchmark import Benchmark
 from cube.task import TaskConfig
 
-from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.rl.event_publisher import EventPublisher, EventPublisherConfig
 from cube_harness.rl.events import AcceptedEvent, EventContext, TerminalEvent
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
@@ -262,7 +261,7 @@ class RolloutEngine:
     def event_context(self, request: RolloutRequest) -> EventContext:
         return EventContext(
             request_id=request.request_id,
-            trajectory_id=trajectory_log_id(request.task_id, request.rollout_index),
+            trajectory_id=request.request_id,
             env_name=self.benchmark_name,
             task_id=request.task_id,
             group_id=request.group_id,

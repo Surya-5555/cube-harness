@@ -143,12 +143,12 @@ def test_rollout_service_runs_native_episode_from_service_benchmark(tmp_dir) -> 
 
         assert len(accepted) == 1
         assert accepted[0]["request_id"] == "request-1"
-        assert accepted[0]["trajectory_id"] == "mock_cube_task_1_ep2"
+        assert accepted[0]["trajectory_id"] == "request-1"
         assert len(terminals) == 1
         assert terminals[0]["rollout_status"] == "completed"
         assert terminals[0]["env_name"] == "mock-cube"
-        assert terminals[0]["trajectory_id"] == "mock_cube_task_1_ep2"
-        episode_dir = tmp_dir / "request-1" / "episodes" / "mock_cube_task_1_ep2"
+        assert terminals[0]["trajectory_id"] == "request-1"
+        episode_dir = tmp_dir / "request-1" / "episodes" / "request-1"
         assert not (episode_dir / "episode.log").exists()
         assert not (episode_dir / "episode.metadata.json").exists()
         assert not (episode_dir / "events").exists()
@@ -189,12 +189,64 @@ def test_rollout_debug_persistence_is_opt_in(tmp_dir) -> None:
             raise AssertionError("rollout did not emit a terminal event")
 
         asyncio.run(run_rollout())
-        episode_dir = tmp_dir / "debug-request" / "episodes" / "mock_cube_task_1_ep0"
+        episode_dir = tmp_dir / "debug-request" / "episodes" / "debug-request"
         assert (episode_dir / "episode.log").exists()
         assert (episode_dir / "episode.metadata.json").exists()
         assert (episode_dir / "events").exists()
     finally:
         service.close()
+
+
+def test_rollout_debug_persistence_allows_same_task_index_across_groups(tmp_dir) -> None:
+    config = RolloutConfig(
+        name="rollout_collision_test",
+        output_dir=tmp_dir,
+        benchmark_config=MockCubeBenchmarkConfig(),
+        agent_config=MockAgentConfig(),
+        max_steps=2,
+        persist_rollout=True,
+        execution_mode="local",
+    )
+    rollout = RolloutEngine(config=config)
+
+    try:
+        requests = [
+            RolloutRequest(
+                request_id="group-a-request",
+                task_id="mock_cube_task_1",
+                llm_config=_rollout_llm_request_config(),
+                group_id="group-a",
+                rollout_index=0,
+            ),
+            RolloutRequest(
+                request_id="group-b-request",
+                task_id="mock_cube_task_1",
+                llm_config=_rollout_llm_request_config(),
+                group_id="group-b",
+                rollout_index=0,
+            ),
+        ]
+
+        async def run_rollouts() -> None:
+            for request in requests:
+                await rollout.submit(request)
+
+        asyncio.run(run_rollouts())
+
+        terminals = [event for event in rollout.events_from(0) if event["type"] == "terminal"]
+        assert {event["trajectory_id"] for event in terminals} == {"group-a-request", "group-b-request"}
+        assert {event["group_id"] for event in terminals} == {"group-a", "group-b"}
+        assert all(event["task_id"] == "mock_cube_task_1" for event in terminals)
+        assert all(event["rollout_index"] == 0 for event in terminals)
+        for request in requests:
+            episode_dir = tmp_dir / request.request_id / "episodes" / request.request_id
+            assert (episode_dir / "episode.metadata.json").exists()
+            assert (episode_dir / "episode_config.json").exists()
+            with open(episode_dir / "episode.metadata.json") as f:
+                metadata = json.load(f)["metadata"]
+            assert metadata["task_id"] == request.task_id
+    finally:
+        rollout.close()
 
 
 def test_rollout_streaming_mode_does_not_construct_file_storage(tmp_dir) -> None:
@@ -354,7 +406,7 @@ def test_rollout_streams_events_without_http_service(tmp_dir) -> None:
         assert len(terminals) == 1
         assert terminals[0]["request_id"] == "request-direct"
         assert terminals[0]["rollout_status"] == "completed"
-        assert terminals[0]["trajectory_id"] == "mock_cube_task_1_ep3"
+        assert terminals[0]["trajectory_id"] == "request-direct"
     finally:
         rollout.close()
 

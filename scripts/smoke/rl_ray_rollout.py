@@ -198,7 +198,7 @@ async def _check_completed_rollout(root: Path) -> None:
         if len(terminals) != 1:
             raise SmokeError(f"expected one completed terminal, got {len(terminals)}")
         terminal = terminals[0]
-        if terminal["rollout_status"] != "completed" or terminal["trajectory_id"] != "ray_smoke_task_ep1":
+        if terminal["rollout_status"] != "completed" or terminal["trajectory_id"] != request.request_id:
             raise SmokeError(f"unexpected completed terminal: {terminal}")
     finally:
         rollout.close()

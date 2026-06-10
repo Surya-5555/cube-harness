@@ -27,7 +27,6 @@ from cube_harness.core import (
     _new_event_id,
 )
 from cube_harness.episode_logs import get_log_path as get_episode_log_path
-from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.episode_status import STATUS_FILENAME, EpisodeStatus
 from cube_harness.llm import LLMCall
 
@@ -176,8 +175,7 @@ class InMemoryStorage:
         return list(self._metadata.values())
 
     def save_episode_config(self, episode_config: "EpisodeConfig") -> None:
-        traj_id = trajectory_log_id(episode_config.task_config.task_id, episode_config.id)
-        self._episode_configs[traj_id] = episode_config
+        self._episode_configs[episode_config.resolved_trajectory_id] = episode_config
 
     def update_experiment_summary(self, meta: TrajectoryMetadata) -> None:
         return None
@@ -1495,8 +1493,7 @@ class FileStorage:
         return stubs
 
     def save_episode_config(self, episode_config: "EpisodeConfig") -> None:
-        traj_id = trajectory_log_id(episode_config.task_config.task_id, episode_config.id)
-        ep_dir = self._episode_dir(traj_id)
+        ep_dir = self._episode_dir(episode_config.resolved_trajectory_id)
         ep_dir.mkdir(parents=True, exist_ok=True)
         config_path = ep_dir / "episode_config.json"
         with open(config_path, "w") as f:

@@ -43,6 +43,11 @@ class EpisodeConfig(TypedBaseModel):
     # RL HTTP / extra sinks; see `EventStreamerConfig`.
     recorder_config: EventStreamerConfig = Field(default_factory=EventStreamerConfig)
     write_eval_log: bool = True
+    trajectory_id: str | None = None
+
+    @property
+    def resolved_trajectory_id(self) -> str:
+        return self.trajectory_id or trajectory_log_id(self.task_config.task_id, self.id)
 
 
 class Episode:
@@ -78,6 +83,7 @@ class Episode:
         max_cost_usd: float | None = None,
         recorder_config: EventStreamerConfig | None = None,
         write_eval_log: bool = True,
+        trajectory_id: str | None = None,
     ) -> None:
         self.config = EpisodeConfig(
             id=id,
@@ -89,6 +95,7 @@ class Episode:
             task_config=task_config,
             recorder_config=recorder_config or EventStreamerConfig(),
             write_eval_log=write_eval_log,
+            trajectory_id=trajectory_id,
         )
         self._runtime_context = runtime_context
         self.storage = storage or FileStorage(output_dir)
@@ -115,6 +122,7 @@ class Episode:
             runtime_context=runtime_context,
             recorder_config=episode_config.recorder_config,
             write_eval_log=episode_config.write_eval_log,
+            trajectory_id=episode_config.trajectory_id,
         )
 
     def run(self) -> TrajectoryView:
@@ -181,7 +189,7 @@ class Episode:
             - The `finally` block always runs evaluate + finalize.
         """
         task_id = self.config.task_config.task_id
-        trajectory_id = trajectory_log_id(task_id, self.config.id)
+        trajectory_id = self.config.resolved_trajectory_id
         tracer = get_tracer(self.config.exp_name)
 
         # Heartbeat 1: covers stuck task creation / reset.

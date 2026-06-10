@@ -25,6 +25,7 @@ class EpisodeConfig(TypedBaseModel):
     output_dir: Path
     max_steps: int
     task_config: TaskConfig          # cube.task.TaskConfig
+    trajectory_id: str | None = None # optional storage/event id override
 ```
 
 Saved to disk at `{output_dir}/episodes/{trajectory_id}/episode_config.json` before
@@ -36,6 +37,8 @@ RL rollout hooks:
   sinks, including `RLEventSink`, without changing the episode loop.
 - `write_eval_log: bool = True` may be set false by high-throughput rollout
   workers to skip debug/eval-log artifacts.
+- `trajectory_id` lets specialized callers such as RL use a caller-owned unique
+  identity while ordinary experiments keep `{task_id}_ep{episode_id}`.
 
 ### `Episode`
 ```python
@@ -94,8 +97,8 @@ Final episode status is `OK` if `final_reward > 0`, else `ERROR` (sets OTel span
 3. Agent and env exceptions are caught, written as a step with `error` populated, then
    re-raised. Callers see the exception; the trajectory remains on disk.
 4. Empty actions + no error → graceful break (agent says "done").
-5. `trajectory.id = f"{task_id}_ep{episode_id}"` — the episode directory layout
-   relies on this convention.
+5. By default `trajectory.id = f"{task_id}_ep{episode_id}"`; callers may pass
+   `trajectory_id` only when they own a stronger unique identity.
 
 ## Storage layout (V2)
 

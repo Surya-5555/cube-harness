@@ -118,14 +118,15 @@ class TrajectoryReconstructor:
 
     async def add_event(self, event: dict[str, Any]) -> None:
         request_id = str(event["request_id"])
+        trajectory_id = str(event["trajectory_id"])
         partial = self._partials.setdefault(
-            request_id,
-            PartialTrajectory(request_id=request_id, trajectory_id=str(event["trajectory_id"])),
+            trajectory_id,
+            PartialTrajectory(request_id=request_id, trajectory_id=trajectory_id),
         )
         partial.add(event)
         if event.get("type") == "terminal":
             await self.completed.put(partial.complete_payload())
-            self._partials.pop(request_id, None)
+            self._partials.pop(trajectory_id, None)
 
 
 @dataclass(frozen=True)

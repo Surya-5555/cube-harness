@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from cube_harness.episode import Episode
-from cube_harness.episode_logs import LOG_FORMAT, get_log_path, redirect_output_to_log, trajectory_log_id
+from cube_harness.episode_logs import LOG_FORMAT, get_log_path, redirect_output_to_log
 from cube_harness.rl.llm import RolloutLLMConfig
 from cube_harness.rl.trajectory_sink import RLEventSink
 from cube_harness.rl.utils import apply_rollout_llm_config
@@ -27,7 +27,7 @@ class RolloutTaskRunner:
         self.output_dir = Path(payload["output_dir"])
         self.episode_id = int(self.request.get("rollout_index") or 0)
         self.task_id = str(self.request["task_id"])
-        self.trajectory_id = trajectory_log_id(self.task_id, self.episode_id)
+        self.trajectory_id = self.request_id
 
     def run(self) -> dict[str, Any]:
         apply_rollout_llm_config(self.agent_config, RolloutLLMConfig.model_validate(self.request["llm_config"]))
@@ -52,6 +52,7 @@ class RolloutTaskRunner:
             runtime_context=self.payload.get("runtime_context"),
             recorder_config=recorder_config,
             write_eval_log=persist_rollout,
+            trajectory_id=self.trajectory_id,
         )
         if persist_rollout:
             log_file = get_log_path(self.output_dir, self.trajectory_id)
