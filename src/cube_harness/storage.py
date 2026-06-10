@@ -75,7 +75,18 @@ class Storage(Protocol):
 
 
 class InMemoryTrajectoryView:
-    """Minimal TrajectoryView-compatible object for streaming-only episodes."""
+    """Minimal TrajectoryView-compatible object for streaming-only episodes.
+
+    Mirrors only a subset of TrajectoryView's read API (no n_agent_events /
+    n_tool_calls / n_evaluations / last_env_output), and nothing enforces the
+    compatibility.
+
+    TODO(agent-owns-loop-xray): delete by folding into TrajectoryView. Once the
+    legacy V1/steps decode is purged, TrajectoryView reduces to "metadata + an
+    ordered event source"; split the fetch side into a tiny EventSource
+    (__len__ + get(i)) with a file-backed impl (index/decode/cache) and a
+    list-backed impl, and this class disappears.
+    """
 
     def __init__(self, meta: TrajectoryMetadata, events: list[TrajectoryEvent] | None = None) -> None:
         self.id = meta.id
