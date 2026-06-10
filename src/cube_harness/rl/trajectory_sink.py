@@ -133,14 +133,22 @@ class RLEventSink:
         self.tool_call_idx += 1
 
     def _publish_agent_error(self, event: TrajectoryAgentErrorEvent) -> None:
-        self.error = dump_for_event(event.error)
         payload = rollout_event_payload(self.ctx, "agent_error", self.event_idx)
-        payload["error"] = self.error
+        payload["error"] = dump_for_event(event.error)
         self._publish(payload)
         self.event_idx += 1
         if event.error.error_type == "BudgetExceeded":
+            # Episode catches BudgetExceeded WITHOUT re-raising and still runs
+            # task.evaluate(); the terminal EvaluationEvent that follows carries
+            # the real final reward. Emitting a terminal (or latching self.error)
+            # here would drop that reward via the terminal_emitted guard and mark
+            # every max_steps rollout invalid. If evaluate() itself raises, the
+            # episode records a second AgentErrorEvent (different error_type)
+            # which takes the branch below and emits the error terminal.
             self.status = "max_steps"
-        elif self.status not in {"llm_error", "tool_error", "training_data_error"}:
+            return
+        self.error = dump_for_event(event.error)
+        if self.status not in {"llm_error", "tool_error", "training_data_error"}:
             self.status = "agent_error"
         if not self.terminal_emitted:
             self._publish_terminal_payload(final_reward=None)

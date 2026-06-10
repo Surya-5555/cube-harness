@@ -526,7 +526,10 @@ def test_rl_sink_publishes_terminal_evaluation_event() -> None:
     assert terminal["rollout_valid"] is True
 
 
-def test_rl_sink_budget_failure_emits_non_trainable_terminal() -> None:
+def test_rl_sink_budget_failure_keeps_terminal_evaluation_reward() -> None:
+    # Mirrors the real episode sequence: Episode catches BudgetExceeded without
+    # re-raising, records the failure, then still runs task.evaluate() and emits
+    # a terminal EvaluationEvent. The terminal must carry that reward.
     published: list[dict] = []
     sink = _rl_sink(published)
 
@@ -540,13 +543,50 @@ def test_rl_sink_budget_failure_emits_non_trainable_terminal() -> None:
     )
 
     agent_error = published[0]
-    terminal = published[1]
     assert agent_error["type"] == "agent_error"
     assert agent_error["error"]["error_type"] == "BudgetExceeded"
+    assert [e["type"] for e in published] == ["agent_error"], "no terminal before the evaluation arrives"
+
+    sink.save_event(
+        TrajectoryEvent(output=EvaluationEvent(reward=0.5, info={"partial": True}, is_terminal=True)),
+        "task_ep0",
+    )
+
+    terminal = published[-1]
     assert terminal["type"] == "terminal"
     assert terminal["rollout_status"] == "max_steps"
+    assert terminal["final_reward"] == 0.5
+    assert terminal["rollout_valid"] is True
+
+
+def test_rl_sink_budget_failure_then_eval_crash_emits_error_terminal() -> None:
+    # If task.evaluate() raises after BudgetExceeded, the episode records a
+    # second AgentErrorEvent (and re-raises) — no evaluation ever arrives, so
+    # the sink must emit the error terminal itself.
+    published: list[dict] = []
+    sink = _rl_sink(published)
+
+    sink.save_event(
+        TrajectoryEvent(
+            output=AgentErrorEvent(
+                error=StepError(error_type="BudgetExceeded", exception_str="budget exceeded", stack_trace="")
+            )
+        ),
+        "task_ep0",
+    )
+    sink.save_event(
+        TrajectoryEvent(
+            output=AgentErrorEvent(error=StepError(error_type="ValueError", exception_str="eval boom", stack_trace=""))
+        ),
+        "task_ep0",
+    )
+
+    terminal = published[-1]
+    assert terminal["type"] == "terminal"
+    assert terminal["final_reward"] is None
     assert terminal["rollout_valid"] is False
     assert terminal["trainable"] is False
+    assert terminal["error"]["error_type"] == "ValueError"
 
 
 def test_rl_sink_publisher_failure_is_recorded() -> None:
@@ -593,7 +633,9 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
     assert kwargs["extra_body"]["return_token_ids"] is True
     assert kwargs["extra_body"]["return_tokens_as_token_ids"] is True
     assert kwargs["max_completion_tokens"] == config.max_completion_tokens
-    assert kwargs["max_tokens"] == config.max_tokens
+    # max_tokens is the deprecated alias of max_completion_tokens; sending both
+    # is redundant and rejected by some OpenAI-compatible servers.
+    assert "max_tokens" not in kwargs
     assert result.prompt_token_ids == [1, 2, 3]
     assert result.completion_token_ids == [4, 5]
     assert result.logprobs == [-0.1, -0.2]
