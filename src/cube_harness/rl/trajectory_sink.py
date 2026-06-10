@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 class RLEventSink:
     """EventStreamer sink that publishes RL rollout payloads from trajectory events."""
 
+    raise_on_emit_error: bool = True
+
     def __init__(
         self,
         *,

@@ -4,6 +4,7 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 from cube.core import Action, Observation, StepError
 from fastapi.testclient import TestClient
 from litellm import Message
@@ -670,16 +671,16 @@ def test_rollout_llm_config_replaces_plain_agent_llm_config() -> None:
     assert not hasattr(agent_config.llm_config, "does_not_exist")
 
 
-# TODO: test that a failure in the RL event publisher is recorded but does not crash the EventStreamer, and that the terminal event reflects the publisher failure status.
+def test_event_streamer_can_raise_required_sink_failure() -> None:
+    class FailingSink:
+        raise_on_emit_error = True
 
-# def test_event_streamer_can_raise_required_sink_failure() -> None:
-#     class FailingSink:
-#         def save_event(self, event: TrajectoryEvent, trajectory_id: str) -> None:
-#             raise RuntimeError("required sink down")
+        def save_event(self, event: TrajectoryEvent, trajectory_id: str) -> None:
+            raise RuntimeError("required sink down")
 
-#     streamer_config = EventStreamerConfig(extra_sinks=[FailingSink()])
-#     streamer = EventStreamer(trajectory_id="task_ep0")
-#     streamer._sinks.extend(streamer_config.extra_sinks)
+    streamer_config = EventStreamerConfig(extra_sinks=[FailingSink()])
+    streamer = EventStreamer(trajectory_id="task_ep0")
+    streamer._sinks.extend(streamer_config.extra_sinks)
 
-#     with pytest.raises(RuntimeError, match="required sink down"):
-#         streamer.emit(TrajectoryEvent(output=EvaluationEvent(reward=1.0, is_terminal=True)))
+    with pytest.raises(RuntimeError, match="required sink down"):
+        streamer.emit(TrajectoryEvent(output=EvaluationEvent(reward=1.0, is_terminal=True)))
