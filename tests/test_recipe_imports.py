@@ -92,7 +92,11 @@ def test_recipe_local_imports_resolve(recipe: Path) -> None:
 def _runnable_recipes() -> list[Path]:
     # *_template.py (e.g. infra_template.py → ~/.cube/infra.py) are copy-me
     # templates, not runnable recipes — they define no Experiment by design.
-    return [p for p in _recipes() if not p.name.endswith("_template.py")]
+    # recipes/rl/ are trainer-integration demos driving a RolloutEngine /
+    # rollout service — they define no Experiment by design either (and their
+    # CLI parses argv when executed as __main__). The import-resolution test
+    # above still covers them.
+    return [p for p in _recipes() if not p.name.endswith("_template.py") and p.parent.name != "rl"]
 
 
 def _experiments_in(obj: object) -> list[Experiment]:

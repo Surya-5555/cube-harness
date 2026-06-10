@@ -754,7 +754,7 @@ dev = [
 [[package]]
 name = "cube-standard"
 version = "0.1.0rc9"
-source = { git = "https://github.com/The-AI-Alliance/cube-standard.git?branch=dev#1c9721f2dad10dee758f3f90045c237e4d47c900" }
+source = { git = "https://github.com/The-AI-Alliance/cube-standard.git?branch=dev#d60c075ca7d4372bbeb053373b33b731d9b6e317" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "fastapi" },
