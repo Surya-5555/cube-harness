@@ -118,12 +118,12 @@ class TestLLMConfig:
         llm = LLM(
             LLMConfig(
                 model_name="served-model",
+                num_retries=2,
+                retry_strategy="constant_retry",
             )
         )
 
         llm._completion_with_retry(
-            2,
-            retry_strategy="constant_retry",
             model="m",
             messages=[],
         )

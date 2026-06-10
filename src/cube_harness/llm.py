@@ -390,13 +390,13 @@ class BaseLLM:
     def __call__(self, prompt: Prompt) -> LLMResponse:
         raise NotImplementedError
 
-    def _completion_with_retry(
-        self,
-        num_retries: int,
-        retry_strategy: _RETRY_TYPES = "exponential_backoff_retry",
-        **kwargs: Any,
-    ) -> Any:
-        """Call litellm.completion with configurable retry behavior on transient errors."""
+    def _completion_with_retry(self, **kwargs: Any) -> Any:
+        """Call litellm.completion with configurable retry behavior on transient errors.
+
+        litellm's completion_with_retries caps its backoff at 10 s, which is too
+        short for Anthropic overloaded_error responses under heavy load. We own the
+        retry loop here to get a proper 120 s ceiling.
+        """
         _RETRIABLE = (
             InternalServerError,
             ServiceUnavailableError,
@@ -406,12 +406,12 @@ class BaseLLM:
         )
         wait_strategy = (
             tenacity.wait_fixed(1)
-            if retry_strategy == "constant_retry"
+            if self.config.retry_strategy == "constant_retry"
             else tenacity.wait_exponential(multiplier=2, max=120)
         )
         retryer = tenacity.Retrying(
             wait=wait_strategy,
-            stop=tenacity.stop_after_attempt(num_retries),
+            stop=tenacity.stop_after_attempt(self.config.num_retries),
             retry=tenacity.retry_if_exception_type(_RETRIABLE),
             reraise=True,
         )
@@ -525,11 +525,7 @@ class LLM(BaseLLM):
             # reject tool_choice without a tools list) or when the caller opted out (None).
             kwargs.pop("tool_choice", None)
             kwargs.pop("parallel_tool_calls", None)
-        response = self._completion_with_retry(
-            self.config.num_retries,
-            retry_strategy=self.config.retry_strategy,
-            **kwargs,
-        )
+        response = self._completion_with_retry(**kwargs)
         usage = self._extract_usage(response)
         return LLMResponse(message=response.choices[0].message, usage=usage)
 

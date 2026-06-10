@@ -98,7 +98,7 @@ class RolloutLLM(BaseLLM):
         extra_body["return_tokens_as_token_ids"] = True
         kwargs["extra_body"] = extra_body
 
-        response = self._completion_with_retry(self.config.num_retries, **kwargs)
+        response = self._completion_with_retry(**kwargs)
         usage = self._extract_usage(response)
         prompt_token_ids = self._extract_prompt_token_ids(response)
         completion_logprobs = self._extract_completion_logprobs(response)
