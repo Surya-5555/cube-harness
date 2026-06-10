@@ -73,6 +73,8 @@ class EventSink(Protocol):
     sink. Declaring the Protocol makes future sinks self-documenting.
     """
 
+    raise_on_emit_error: bool
+
     def save_event(self, te: TrajectoryEvent, trajectory_id: str) -> None: ...
 
 
@@ -177,8 +179,11 @@ class EventStreamer:
             try:
                 sink.save_event(te, self.trajectory_id)
             except Exception:
+                if getattr(sink, "raise_on_emit_error", False):
+                    logger.exception("EventStreamer sink %r raised; failing.", sink)
+                    raise
+
                 logger.exception("EventStreamer sink %r raised; continuing.", sink)
-                # TODO: RL rollout need to raise so the worker fails and the executor can emit an error terminal.
 
         # EvaluationEvent doesn't carry an `id` field (parent_event_id
         # links it to a ToolCallEvent or it's terminal). Return empty

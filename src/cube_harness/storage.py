@@ -49,6 +49,8 @@ class LLMCallRef(BaseModel):
 
 
 class Storage(Protocol):
+    raise_on_emit_error: bool = False
+
     def save_metadata(self, meta: TrajectoryMetadata, allow_overwrite: bool = False) -> None: ...
 
     def finalize_episode(self, meta: TrajectoryMetadata) -> None: ...
@@ -141,6 +143,8 @@ class InMemoryStorage:
     artifacts to disk. Event persistence is intentionally in-memory and is only
     used if the storage is registered as an EventStreamer sink.
     """
+
+    raise_on_emit_error: bool = False
 
     def __init__(self, output_dir: str | Path | None = None) -> None:
         self.output_dir = Path(output_dir) if output_dir is not None else Path(".")
@@ -769,6 +773,8 @@ def _episode_metadata_from_dict(data: dict, fallback_id: str) -> TrajectoryMetad
 
 
 class FileStorage:
+    raise_on_emit_error: bool = False
+
     def __init__(self, output_dir: str | Path) -> None:
         self.output_dir = Path(output_dir)
         self._saved_ids: set[str] = set()
