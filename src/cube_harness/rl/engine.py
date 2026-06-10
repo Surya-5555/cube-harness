@@ -11,7 +11,7 @@ from cube.task import TaskConfig
 from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.rl.events import AcceptedEvent, EventContext, TerminalEvent
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
-from cube_harness.rl.sink import EventSink, EventSinkConfig
+from cube_harness.rl.sink import EventPublisher, EventPublisherConfig
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +22,10 @@ class RolloutEngine:
     def __init__(
         self,
         *,
-        sink: Any | None = None,
-        sink_config: EventSinkConfig | None = None,
+        event_publisher: Any | None = None,
+        event_publisher_config: EventPublisherConfig | None = None,
         config: RolloutConfig | dict[str, Any],
-        owns_sink: bool = False,
+        owns_event_publisher: bool = False,
     ) -> None:
         if isinstance(config, RolloutConfig):
             self.config = config
@@ -33,8 +33,8 @@ class RolloutEngine:
             self.config = RolloutConfig.model_validate(config)
 
         self._owns_ray = False
-        self.sink = sink or self._make_sink(sink_config)
-        self._owns_sink = owns_sink or sink is None
+        self.event_publisher = event_publisher or self._make_event_publisher(event_publisher_config)
+        self._owns_event_publisher = owns_event_publisher or event_publisher is None
         self._closed = False
         self._benchmark: Benchmark | None = None
         self._task_configs: dict[str, TaskConfig] = {}
@@ -43,13 +43,13 @@ class RolloutEngine:
         self._setup_runtime()
         self.executor = self._make_executor()
 
-    def _make_sink(self, sink_config: EventSinkConfig | None) -> Any:
+    def _make_event_publisher(self, event_publisher_config: EventPublisherConfig | None) -> Any:
         if self.config.execution_mode == "local":
-            return EventSink(sink_config)
-        from cube_harness.rl.ray_runtime import RayEventSink, ensure_ray_initialized
+            return EventPublisher(event_publisher_config)
+        from cube_harness.rl.ray_runtime import RayEventPublisher, ensure_ray_initialized
 
         self._owns_ray = ensure_ray_initialized(self._ray_init_kwargs())
-        return RayEventSink.create(sink_config, ray_options=self.config.ray.sink_options)
+        return RayEventPublisher.create(event_publisher_config, ray_options=self.config.ray.event_publisher_options)
 
     def _make_executor(self) -> Any:
         if self.config.execution_mode == "local":
@@ -57,8 +57,8 @@ class RolloutEngine:
 
             return LocalRolloutExecutor(
                 payload_builder=self._rollout_payload,
-                publisher_handle=self.sink,
-                has_terminal=self.sink.has_terminal,
+                publisher_handle=self.event_publisher,
+                has_terminal=self.event_publisher.has_terminal,
                 publish_terminal=self.publish_terminal,
             )
 
@@ -67,8 +67,8 @@ class RolloutEngine:
         return RayRolloutExecutor(
             ray_config=self.config.ray,
             payload_builder=self._rollout_payload,
-            publisher_handle=self.sink.publisher_handle,
-            has_terminal=self.sink.has_terminal,
+            publisher_handle=self.event_publisher.publisher_handle,
+            has_terminal=self.event_publisher.has_terminal,
             publish_terminal=self.publish_terminal,
         )
 
@@ -150,7 +150,7 @@ class RolloutEngine:
         timeout_s: float | None = None,
         poll_timeout_s: float = 15.0,
     ) -> AsyncIterator[dict]:
-        """Yield rollout events incrementally from the shared sink."""
+        """Yield rollout events incrementally from the shared event publisher."""
         next_offset = from_offset
         deadline = None if timeout_s is None else asyncio.get_running_loop().time() + timeout_s
         while True:
@@ -173,20 +173,20 @@ class RolloutEngine:
                     return
 
     async def wait_for_events(self, from_offset: int, *, timeout_s: float = 15.0) -> list[dict]:
-        return await asyncio.to_thread(self.sink.wait_for_events, from_offset, timeout_s)
+        return await asyncio.to_thread(self.event_publisher.wait_for_events, from_offset, timeout_s)
 
     async def wait_terminal(self, request_id: str, *, timeout_s: float | None = None) -> None:
         deadline = None if timeout_s is None else asyncio.get_running_loop().time() + timeout_s
-        while not await asyncio.to_thread(self.sink.has_terminal, request_id):
+        while not await asyncio.to_thread(self.event_publisher.has_terminal, request_id):
             if deadline is not None and asyncio.get_running_loop().time() >= deadline:
                 raise TimeoutError(f"rollout did not emit terminal event: {request_id}")
             await asyncio.sleep(self.config.ray.poll_interval_s)
 
     async def ack(self, request: AckRequest) -> None:
-        await asyncio.to_thread(self.sink.ack, request.offset)
+        await asyncio.to_thread(self.event_publisher.ack, request.offset)
 
     def events_from(self, from_offset: int) -> list[dict]:
-        return self.sink.events_from(from_offset)
+        return self.event_publisher.events_from(from_offset)
 
     def validate_request(self, request: RolloutRequest) -> None:
         if not self.ready:
@@ -229,11 +229,11 @@ class RolloutEngine:
             },
             "ray": self._ray_stats(),
             "executor": self.executor.stats(),
-            "sink": self.sink.health(),
+            "event_publisher": self.event_publisher.health(),
         }
 
     def publish_accepted(self, request: RolloutRequest) -> None:
-        self.sink.publish(AcceptedEvent(event_index=-1, **self.event_context(request).model_dump()))
+        self.event_publisher.publish(AcceptedEvent(event_index=-1, **self.event_context(request).model_dump()))
 
     def publish_terminal(
         self,
@@ -244,9 +244,9 @@ class RolloutEngine:
         trainable: bool,
         error: dict[str, Any] | None,
     ) -> None:
-        if self.sink.has_terminal(request.request_id):
+        if self.event_publisher.has_terminal(request.request_id):
             return
-        self.sink.publish(
+        self.event_publisher.publish(
             TerminalEvent(
                 event_index=-1,
                 **self.event_context(request).model_dump(),
@@ -328,11 +328,11 @@ class RolloutEngine:
             except Exception:
                 logger.warning("benchmark close failed", exc_info=True)
             self._benchmark = None
-        if self._owns_sink:
+        if self._owns_event_publisher:
             try:
-                self.sink.close()
+                self.event_publisher.close()
             except Exception:
-                logger.debug("Ray event sink already stopped", exc_info=True)
+                logger.debug("Ray event publisher already stopped", exc_info=True)
         if self._owns_ray:
             from cube_harness.rl.ray_runtime import ray
 

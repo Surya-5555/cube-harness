@@ -39,7 +39,7 @@ class RayConfig(BaseModel):
     task_num_cpus: float = Field(default=0.25, gt=0, description="Ray CPU reservation for each rollout task.")
     init_kwargs: dict[str, Any] = Field(default_factory=dict)
     task_options: dict[str, Any] = Field(default_factory=dict)
-    sink_options: dict[str, Any] = Field(default_factory=dict)
+    event_publisher_options: dict[str, Any] = Field(default_factory=dict)
     poll_interval_s: float = Field(default=0.05, gt=0)
 
 

@@ -67,7 +67,7 @@ class RolloutConfig(BaseModel):
 
 `RayConfig` controls Ray execution: `num_workers` (default `1`), `init_kwargs`
 (forwarded to `ray.init()`), `task_num_cpus` (default `0.25`), `task_options`,
-`sink_options`, and `poll_interval_s` (default `0.05`).
+`event_publisher_options`, and `poll_interval_s` (default `0.05`).
 
 - `execution_mode="ray"` runs rollout tasks as Ray work.
 - `execution_mode="local"` is for debugging/tests without Ray scheduling.
@@ -96,12 +96,12 @@ class CancelRequest(BaseModel):
 
 ### Event Publisher / Sink
 
-`EventSink` (`rl/sink.py`) stores an ordered in-memory event stream for clients
+`EventPublisher` (`rl/sink.py`) stores an ordered in-memory event stream for clients
 and trainer consumers — offset assignment, ack cursor, keepalives, optional
 spill. (Distinct from the structural `EventSink` Protocol in
 `cube_harness.streamer`.) `RLEventSink` (`rl/trajectory_sink.py`) is an
 `EventStreamer` sink that transforms canonical trajectory events into rollout
-payloads, then publishes them to the `EventSink`:
+payloads, then publishes them to the `EventPublisher`:
 
 - `LLMCallEvent` → `llm_call`
 - `ToolCallEvent` → `tool_call`
@@ -156,7 +156,7 @@ uv run scripts/smoke/rl_ray_throughput.py
 mock benchmark/agent, reconstructs partial trajectory events, validates
 trainable metadata, writes JSONL training examples, and prints
 `SMOKE OK: rl_mock_multiturn_service` on success. `rl_ray_rollout.py` is the
-Ray-backed smoke for real Ray startup, scheduling, event-sink actor wiring, and
+Ray-backed smoke for real Ray startup, scheduling, event publisher actor wiring, and
 cancellation. `rl_ray_throughput.py` preserves the throughput scaling check as
 a smoke. Ray coverage is intentionally smoke-only because GitHub-hosted
 runners are resource constrained and can make Ray scheduling tests flaky.
@@ -188,14 +188,14 @@ in `EventStreamer.summary_stats`).
 ## Gotchas
 
 - `RLEventSink` publishes synchronously today so trainers can see partial
-  trajectories in real time. Rollout workers configure the sink as required, so
+  trajectories in real time. Rollout workers configure the publisher as required, so
   publisher failures fail the worker and the executor emits an error terminal
   instead of silently producing a partial trajectory. If publisher latency becomes
   a bottleneck, add an ordered realtime async/actor-backed publisher; do not route
   through disk.
 - `rl/events.py` contains rollout control/publisher payloads, not a competing
   trajectory event model.
-- TODO(replay-gap): when `EventSink` drops hot events without a spill directory,
+- TODO(replay-gap): when `EventPublisher` drops hot events without a spill directory,
   clients resuming from older offsets need an explicit gap signal.
 - Keep unreleased RL compatibility shims out of the core runtime. Non-RL
   compatibility belongs in the existing `agent`, `episode`, `storage`, and

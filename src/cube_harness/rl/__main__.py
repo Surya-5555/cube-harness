@@ -9,7 +9,7 @@ import uvicorn
 
 from cube_harness.rl.rollout import RolloutConfig
 from cube_harness.rl.service import configure_terminal_logging, serve
-from cube_harness.rl.sink import EventSinkConfig
+from cube_harness.rl.sink import EventPublisherConfig
 
 
 def main(
@@ -23,7 +23,7 @@ def main(
     configure_terminal_logging(log_level, force=True)
     config = RolloutConfig.model_validate(json.loads(service_config.read_text()))
     app = serve(
-        sink_config=EventSinkConfig(persist_events_dir=persist_events_dir),
+        event_publisher_config=EventPublisherConfig(persist_events_dir=persist_events_dir),
         config=config,
     )
     uvicorn.run(app, host=host, port=port, log_level=log_level.lower())

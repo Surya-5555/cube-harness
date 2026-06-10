@@ -242,6 +242,7 @@ def test_event_streamer_publishes_rl_events_without_storage_sink() -> None:
 
 
 def test_unreleased_rl_streamer_config_compat_fields_are_removed() -> None:
+    assert "rl_event_sink" not in EventStreamerConfig.model_fields
     assert "rl_event_publisher" not in EventStreamerConfig.model_fields
     assert "rl_event_context" not in EventStreamerConfig.model_fields
     assert "trainable_call_tags" not in EventStreamerConfig.model_fields
@@ -297,9 +298,9 @@ def test_rollout_health_reports_local_capacity(tmp_dir) -> None:
         assert health["ray"]["estimated_rollout_slots"] == 0
         assert health["executor"]["inflight_rollouts"] == 0
         assert health["executor"]["cancelled_rollouts"] == 0
-        assert health["sink"]["next_offset"] == 0
-        assert health["sink"]["oldest_available_offset"] == 0
-        assert health["sink"]["max_hot_events"] > 0
+        assert health["event_publisher"]["next_offset"] == 0
+        assert health["event_publisher"]["oldest_available_offset"] == 0
+        assert health["event_publisher"]["max_hot_events"] > 0
     finally:
         service.close()
 

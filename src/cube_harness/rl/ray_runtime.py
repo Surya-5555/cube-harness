@@ -15,40 +15,40 @@ _configure_ray_environment()
 
 import ray  # noqa: E402
 
-from cube_harness.rl.sink import EventSink, EventSinkConfig  # noqa: E402
+from cube_harness.rl.sink import EventPublisher, EventPublisherConfig  # noqa: E402
 from cube_harness.rl.task_runner import RolloutTaskRunner  # noqa: E402
 
 
-class _RayEventSinkActor:
-    """Private Ray actor that owns the local EventSink state and offset counter."""
+class _RayEventPublisherActor:
+    """Private Ray actor that owns the local EventPublisher state and offset counter."""
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
-        self._sink = EventSink(EventSinkConfig.model_validate(config or {}))
+        self._publisher = EventPublisher(EventPublisherConfig.model_validate(config or {}))
 
     def publish_payload(self, payload: dict[str, Any]) -> dict:
-        return self._sink.publish_payload(payload)
+        return self._publisher.publish_payload(payload)
 
     def events_from(self, from_offset: int) -> list[dict]:
-        return self._sink.events_from(from_offset)
+        return self._publisher.events_from(from_offset)
 
     def wait_for_events(self, from_offset: int, timeout: float = 15.0) -> list[dict]:
-        return self._sink.wait_for_events(from_offset, timeout)
+        return self._publisher.wait_for_events(from_offset, timeout)
 
     def ack(self, offset: int) -> None:
-        self._sink.ack(offset)
+        self._publisher.ack(offset)
 
     def has_terminal(self, request_id: str) -> bool:
-        return self._sink.has_terminal(request_id)
+        return self._publisher.has_terminal(request_id)
 
     def health(self) -> dict:
-        return self._sink.health()
+        return self._publisher.health()
 
     def close(self) -> None:
         return None
 
 
-class RayEventSink:
-    """Cross-process event sink implementation used by Ray rollout tasks."""
+class RayEventPublisher:
+    """Cross-process event publisher implementation used by Ray rollout tasks."""
 
     def __init__(self, actor: Any) -> None:
         self._actor = actor
@@ -59,12 +59,12 @@ class RayEventSink:
 
     @classmethod
     def create(
-        cls, config: EventSinkConfig | None = None, *, ray_options: dict[str, Any] | None = None
-    ) -> "RayEventSink":
+        cls, config: EventPublisherConfig | None = None, *, ray_options: dict[str, Any] | None = None
+    ) -> "RayEventPublisher":
         options = {"num_cpus": 0, "max_restarts": 0, "max_task_retries": 0, "max_concurrency": 64}
         options.update(ray_options or {})
-        config_payload = (config or EventSinkConfig()).model_dump(mode="json")
-        actor = ray.remote(_RayEventSinkActor).options(**options).remote(config_payload)
+        config_payload = (config or EventPublisherConfig()).model_dump(mode="json")
+        actor = ray.remote(_RayEventPublisherActor).options(**options).remote(config_payload)
         return cls(actor)
 
     def publish(self, event: Any) -> dict:

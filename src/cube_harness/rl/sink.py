@@ -24,17 +24,17 @@ def _safe_path_component(value: str) -> str:
     return _UNSAFE_PATH_CHARS.sub("_", value) or "unknown"
 
 
-class EventSinkConfig(BaseModel):
+class EventPublisherConfig(BaseModel):
     max_hot_events: int = 10000
     persist_events_dir: Path | None = None
     event_publish_timeout_s: float = 30.0
 
 
-class EventSink:
+class EventPublisher:
     """Bounded hot event log with optional JSONL spill and SSE replay by offset."""
 
-    def __init__(self, config: EventSinkConfig | None = None) -> None:
-        self.config = config or EventSinkConfig()
+    def __init__(self, config: EventPublisherConfig | None = None) -> None:
+        self.config = config or EventPublisherConfig()
         self._events: deque[dict] = deque()
         self._next_offset = 0
         self._ack_offset = -1

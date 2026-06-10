@@ -96,7 +96,7 @@ integration check for this contract. It uses a mock benchmark and mock agent,
 requires no live LLM, validates event ordering and token-id metadata,
 reconstructs a multi-turn trajectory, and writes JSONL training examples.
 `scripts/smoke/rl_ray_rollout.py` is the Ray-backed smoke for real Ray startup,
-scheduling, event-sink actor wiring, and cancellation; this coverage is kept out
+scheduling, event publisher actor wiring, and cancellation; this coverage is kept out
 of default pytest because GitHub-hosted runners are resource constrained.
 
 For tighter local debugging, `recipes/rl/hello_miniwob_local.py` uses
@@ -116,14 +116,14 @@ RolloutEngine / executor
     |
 Episode + EventStreamer
     |
-RLEventSink (convert) -> EventSink (publish)
+RLEventSink (convert) -> EventPublisher (publish)
     |
 trainer
 ```
 
 The whole PR contract includes:
 
-- `cube_harness.rl`: service, engine, executor, Ray runtime, task runner, sink,
+- `cube_harness.rl`: service, engine, executor, Ray runtime, task runner, publisher,
   publisher payloads, utilities, and CLI entrypoint;
 - `cube_harness.rl.llm`: rollout LLM config/runtime for OpenAI-compatible
   trainer endpoints and trainable token/logprob metadata;
@@ -181,7 +181,7 @@ The main throughput controls are:
   I/O rather than local CPU.
 - `RayConfig.task_options`: extra Ray remote task options for placement,
   resources, runtime env, or scheduling.
-- `RayConfig.sink_options`: Ray options for the publisher/sink actor path.
+- `RayConfig.event_publisher_options`: Ray options for the event publisher actor path.
 - `RayConfig.poll_interval_s`: executor polling interval for Ray task
   completion/cancellation bookkeeping.
 - `RolloutLLMConfig.timeout`, `num_retries`, `max_tokens`, and
@@ -228,7 +228,7 @@ The RL implementation should stay split along these boundaries:
 - **Event conversion** (`trajectory_sink.py`): `RLEventSink` converts canonical
   `TrajectoryEvent` objects into trainer-facing rollout payloads. This is not a
   second trajectory model.
-- **Event publisher / payloads** (`sink.py`, `events.py`): `EventSink`
+- **Event publisher / payloads** (`sink.py`, `events.py`): `EventPublisher`
   (`rl/sink.py`) holds the ordered in-memory event stream — offset assignment,
   ack cursor, keepalives, and optional spill; `events.py` holds the rollout
   control/publisher payload models. (Note: distinct from the structural
@@ -241,7 +241,7 @@ The RL implementation should stay split along these boundaries:
   document real trainer usage and catch integration regressions.
 
 Keep new behavior in the narrow subsystem that owns it. Avoid adding trainer
-logic to the service, service logic to the sink, or rollout-specific branching to
+logic to the service, service logic to the publisher, or rollout-specific branching to
 the core episode loop.
 
 ## Inference Engine Caveat

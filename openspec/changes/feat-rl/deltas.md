@@ -10,7 +10,7 @@ Defines the new RL rollout subsystem:
 - `RolloutConfig`, `RolloutRequest`, `AckRequest`, `CancelRequest`, `RayConfig`
 - `RolloutEngine`, service, executor, Ray runtime
 - `RolloutLLMConfig` / `RolloutLLM`
-- `EventSink` (ordered in-memory publisher) and `RLEventSink` (event conversion)
+- `EventPublisher` (ordered in-memory publisher) and `RLEventSink` (event conversion)
 - optional storage/debug behavior
 - recipes and smoke expectations
 

@@ -9,7 +9,7 @@
 # ///
 """SMOKE: Ray-backed RL rollout execution.
 
-This smoke keeps real Ray startup, scheduling, event-sink actor wiring, and
+This smoke keeps real Ray startup, scheduling, event publisher actor wiring, and
 cancellation coverage out of the default pytest suite. It is intended for manual
 or pre-merge verification on machines that can afford a small Ray cluster.
 

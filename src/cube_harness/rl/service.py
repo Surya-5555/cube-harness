@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from cube_harness.episode_logs import LOG_FORMAT
 from cube_harness.rl.engine import RolloutEngine
 from cube_harness.rl.rollout import AckRequest, CancelRequest, RolloutConfig, RolloutRequest
-from cube_harness.rl.sink import EventSinkConfig
+from cube_harness.rl.sink import EventPublisherConfig
 
 
 def configure_terminal_logging(level: str | int = logging.INFO, *, force: bool = False) -> None:
@@ -60,15 +60,15 @@ def _sse_frame(event: dict) -> str:
 def serve(
     *,
     config: RolloutConfig | dict[str, Any],
-    sink: Any | None = None,
-    sink_config: EventSinkConfig | None = None,
+    event_publisher: Any | None = None,
+    event_publisher_config: EventPublisherConfig | None = None,
 ) -> FastAPI:
     service_config = config if isinstance(config, RolloutConfig) else RolloutConfig.model_validate(config)
     rollout = RolloutEngine(
-        sink=sink,
-        sink_config=sink_config,
+        event_publisher=event_publisher,
+        event_publisher_config=event_publisher_config,
         config=service_config,
-        owns_sink=sink is None,
+        owns_event_publisher=event_publisher is None,
     )
     service = RolloutService(rollout)
 

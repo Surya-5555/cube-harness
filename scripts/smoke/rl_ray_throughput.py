@@ -155,7 +155,7 @@ async def _submit_and_wait(rollout: RolloutEngine, *, prefix: str, batch_size: i
         )
         for idx in range(batch_size)
     ]
-    start_offset = rollout.sink.health()["next_offset"]
+    start_offset = rollout.event_publisher.health()["next_offset"]
     start = time.perf_counter()
     await asyncio.gather(*(rollout.submit(request) for request in requests))
     terminal_ids: set[str] = set()
