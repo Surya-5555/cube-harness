@@ -41,6 +41,7 @@ class EventContext(BaseModel):
     trajectory_id: str
     env_name: str | None = None
     task_id: str | None = None
+    agent_id: str | None = None
     group_id: str | None = None
     rollout_index: int = 0
     model_version: int | None = None
