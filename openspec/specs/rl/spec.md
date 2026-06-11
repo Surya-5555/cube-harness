@@ -150,14 +150,15 @@ and `event.call.logprobs`.
 
 ### Rollout LLM
 
-Rollout LLM code lives in `cube_harness.rl.llm`. `RolloutLLMConfig` inherits
-shared fields from `BaseLLMConfig` and adds trainer-facing OpenAI/vLLM endpoint
-controls. `api_base`, `api_key`, and `tokenizer_name` are required because the
-trainer is selecting the served policy endpoint and tokenizer for data capture.
-`api_key` is secret/redacted at serialization boundaries and must not be written
-to rollout configs, episode configs, trajectory events, or logs. `RolloutLLM`
-requests and validates token ids/logprobs needed for policy-gradient style
-training data.
+Rollout LLM configuration lives in `cube_harness.rl.llm`. `RolloutLLMConfig`
+inherits from `cube_harness.llm.LLMConfig`, requires trainer-facing
+OpenAI/vLLM endpoint controls, and sets `capture_training_metadata=True`.
+`api_base`, `api_key`, and `tokenizer_name` are required because the trainer is
+selecting the served policy endpoint and tokenizer for data capture. `api_key`
+is secret/redacted at serialization boundaries and must not be written to rollout
+configs, episode configs, trajectory events, or logs. The runtime remains the
+single `cube_harness.llm.LLM`, which requests and validates token ids/logprobs
+when training capture is enabled.
 
 ### Task Runner
 
@@ -223,8 +224,8 @@ in `EventStreamer.summary_stats`).
    canonical episode/event path.
 6. Ray rollout tasks must be cancellable by request or group. Stale rollout work
    should not require process restart.
-7. Rollout LLM code remains under `cube_harness.rl.llm`; `cube_harness.llm`
-   contains shared and benchmark LLM primitives only.
+7. Rollout LLM config remains under `cube_harness.rl.llm`; the runtime LLM
+   implementation remains unified in `cube_harness.llm`.
 
 ## Gotchas
 

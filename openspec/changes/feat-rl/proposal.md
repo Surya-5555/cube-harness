@@ -129,10 +129,10 @@ The whole PR contract includes:
 
 - `cube_harness.rl`: service, engine, executor, Ray runtime, task runner, publisher,
   publisher payloads, utilities, and CLI entrypoint;
-- `cube_harness.rl.llm`: rollout LLM config/runtime for OpenAI-compatible
-  trainer endpoints and trainable token/logprob metadata;
-- `cube_harness.llm`: shared base LLM primitives and `LLMCall` metadata fields
-  used by both benchmark and rollout calls;
+- `cube_harness.rl.llm`: rollout LLM config and tokenizer counting for
+  OpenAI-compatible trainer endpoints;
+- `cube_harness.llm`: unified LLM runtime plus `LLMCall` metadata fields used
+  by both benchmark and rollout calls;
 - `cube_harness.episode`, `streamer`, and `storage`: extension points that let
   RL attach sinks and avoid disk writes without forking the episode loop;
 - `recipes/rl`: local and service examples for MiniWoB;
@@ -238,8 +238,9 @@ The RL implementation should stay split along these boundaries:
   ack cursor, keepalives, and optional spill; `events.py` holds the rollout
   control/publisher payload models. (Note: distinct from the structural
   `EventSink` Protocol in `cube_harness.streamer`.)
-- **LLM runtime** (`rl/llm.py`): rollout endpoint behavior and validation for
-  token ids/logprobs. Shared LLM primitives remain in `cube_harness.llm`.
+- **LLM configuration** (`rl/llm.py`): rollout endpoint fields and tokenizer
+  counting. Token id/logprob request and validation live in the unified
+  `cube_harness.llm.LLM` training-capture path.
 - **Storage/debug** (`storage.py`): optional `InMemoryStorage` / `FileStorage`
   replay and inspection support. Must not be required for rollout publishing.
 - **Recipes/smokes** (`recipes/rl`, `scripts/smoke`): executable examples that
@@ -251,7 +252,7 @@ the core episode loop.
 
 ## Inference Engine Caveat
 
-`RolloutLLM` is exposed through LiteLLM/OpenAI-compatible configuration, but the
+`RolloutLLMConfig` is exposed through LiteLLM/OpenAI-compatible configuration, but the
 current design implicitly assumes vLLM-like behavior for trainable rollout
 metadata: token ids, completion logprobs, finish reasons, long timeouts, and
 OpenAI-compatible response shapes. Other inference engines may differ in token-id
@@ -259,7 +260,7 @@ availability, logprob alignment, tokenizer naming, streaming behavior, or finish
 reason fields.
 
 Before claiming backend-agnostic support, test this path against each intended
-inference engine and add compatibility checks at the `RolloutLLM` boundary. The
+inference engine and add compatibility checks at the unified `LLM` training-capture boundary. The
 core RL event/runtime architecture should stay backend-neutral, but trainable
 metadata extraction is currently the highest-risk provider-specific area.
 
@@ -276,5 +277,5 @@ metadata extraction is currently the highest-risk provider-specific area.
 - `persist_rollout=False` should avoid `FileStorage`, logs, and eval-log writes.
 - RL should consume `TrajectoryEvent` through `RLEventSink`.
 - Ray cancellation should kill stale rollout work by request/group/client.
-- `RolloutLLM` should validate token ids/logprobs needed for training.
+- The unified `LLM` should validate token ids/logprobs needed for training when `capture_training_metadata=True`.
 - Recipes and `scripts/smoke/rl_mock_multiturn_service.py` should remain runnable.

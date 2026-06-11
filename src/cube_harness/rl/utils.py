@@ -30,7 +30,7 @@ def _rollout_llm_override(rollout_llm: RolloutLLMConfig) -> RolloutLLMConfig:
     return override
 
 
-def apply_rollout_llm_config(agent_config: Any, rollout_llm: RolloutLLMConfig) -> None:
+def override_rollout_llm_config(agent_config: Any, rollout_llm: RolloutLLMConfig) -> None:
     """Apply trainer-supplied rollout LLM overrides to an agent config in-place."""
     override = _rollout_llm_override(rollout_llm)
     if hasattr(agent_config, "llm_config"):

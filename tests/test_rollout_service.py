@@ -11,10 +11,10 @@ from litellm import Message
 
 from cube_harness.agents.react_configs import REACT_CONFIGS
 from cube_harness.core import AgentErrorEvent, EvaluationEvent, LLMCallEvent, ToolCallEvent, TrajectoryEvent
-from cube_harness.llm import LLMCall, LLMConfig, Prompt, Usage
+from cube_harness.llm import LLM, LLMCall, LLMConfig, Prompt, Usage
 from cube_harness.rl import RayConfig, RolloutConfig, RolloutEngine, RolloutRequest, serve
 from cube_harness.rl.events import EventContext
-from cube_harness.rl.llm import RolloutLLM, RolloutLLMConfig
+from cube_harness.rl.llm import RolloutLLMConfig
 from cube_harness.rl.trajectory_sink import RLEventSink
 from cube_harness.streamer import EventStreamer, EventStreamerConfig
 from tests.conftest import MockAgentConfig, MockCubeBenchmarkConfig
@@ -670,6 +670,28 @@ def test_rl_sink_publisher_failure_is_recorded() -> None:
     assert sink.publisher_error == {"type": "RuntimeError", "message": "publisher down"}
 
 
+def test_rollout_llm_config_rejects_disabled_training_capture() -> None:
+    with pytest.raises(ValueError):
+        RolloutLLMConfig(
+            model_name="served-model",
+            api_base="http://localhost:8000/v1",
+            api_key="EMPTY",
+            tokenizer_name="mock-tokenizer",
+            capture_training_metadata=False,
+        )
+
+
+def test_rollout_llm_config_rejects_benchmark_only_options() -> None:
+    with pytest.raises(ValueError):
+        RolloutLLMConfig(
+            model_name="served-model",
+            api_base="http://localhost:8000/v1",
+            api_key="EMPTY",
+            tokenizer_name="mock-tokenizer",
+            reasoning_effort="low",
+        )
+
+
 def test_rollout_llm_always_requests_training_capture_fields() -> None:
     response = MagicMock()
     response.prompt_token_ids = [1, 2, 3]
@@ -689,8 +711,8 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
         tokenizer_name="mock-tokenizer",
     )
 
-    with patch.object(RolloutLLM, "_completion_with_retry", return_value=response) as completion:
-        llm = RolloutLLM(config=config)
+    with patch.object(LLM, "_completion_with_retry", return_value=response) as completion:
+        llm = LLM(config=config)
         result = llm(Prompt(messages=[{"role": "user", "content": "hi"}]))
 
     kwargs = completion.call_args.kwargs
@@ -711,10 +733,10 @@ def test_rollout_llm_always_requests_training_capture_fields() -> None:
 
 def test_rollout_llm_config_replaces_plain_agent_llm_config() -> None:
     from cube_harness.rl import RolloutLLMConfig
-    from cube_harness.rl.utils import apply_rollout_llm_config
+    from cube_harness.rl.utils import override_rollout_llm_config
 
     agent_config = REACT_CONFIGS["default"]
-    apply_rollout_llm_config(
+    override_rollout_llm_config(
         agent_config,
         RolloutLLMConfig(
             api_base="http://127.0.0.1:8000",

@@ -38,12 +38,12 @@ from cube.benchmark import BenchmarkConfig
 from cube.core import Action, ActionSchema, Observation
 from cube.task import STOP_ACTION
 from litellm import Message
-from pydantic import Field, SerializeAsAny
+from pydantic import Field
 from termcolor import colored
 
 from cube_harness.agent import Agent, AgentConfig, apply_description_overrides
 from cube_harness.core import AgentOutput
-from cube_harness.llm import BaseLLM, BaseLLMConfig, LLMCall, LLMConfig, Prompt, get_reasoning
+from cube_harness.llm import LLM, LLMCall, LLMConfig, Prompt, get_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def _truncate_message(msg: dict, max_chars: int) -> dict:
 
 class GennyConfig(AgentConfig):
     # Core
-    llm_config: SerializeAsAny[BaseLLMConfig]
+    llm_config: LLMConfig
     system_prompt: str = _DEFAULT_SYSTEM_PROMPT
     # react_prompt: reason-then-act, used when enable_summarize=False and flat_history=False
     react_prompt: str = _DEFAULT_REACT_PROMPT
@@ -153,7 +153,7 @@ class GennyConfig(AgentConfig):
 
     # Summarize pass
     enable_summarize: bool = False  # False = raw history mode; True = rolling summaries mode
-    summarize_llm_config: SerializeAsAny[BaseLLMConfig] | None = None  # None = reuse llm_config
+    summarize_llm_config: LLMConfig | None = None  # None = reuse llm_config
     # Instruction sent to the summarize LLM. Swap to _DEFAULT_SUMMARIZE_COT_PROMPT for a
     # lighter CoT-style summary instead of the default verbose + Key Facts format.
     summarize_prompt: str = _DEFAULT_SUMMARIZE_VERBOSE_PROMPT
@@ -285,13 +285,13 @@ class Genny(Agent):
         self._task_hint: str = config.task_hints.get(task_id, config.hint) if task_id else config.hint
         # task_clarification is injected as part of the goal, not as a hint.
         self._task_clarification: str = config.task_clarification.get(task_id, "") if task_id else ""
-        self.llm: BaseLLM = config.llm_config.make()
+        self.llm: LLM = config.llm_config.make()
         # Summarize LLM uses the same config as the act LLM (including tool_choice) so the
         # full request — messages, tools, and parameters — is identical between the two passes
         # → prompt-cache hit on the shared prefix. tool_choice is intentionally NOT overridden
         # to "none" because Azure/OpenAI include it in the cache key.
         self._summarize_llm_config = config.summarize_llm_config or config.llm_config
-        self.summarize_llm: BaseLLM = self._summarize_llm_config.make()
+        self.summarize_llm: LLM = self._summarize_llm_config.make()
         self.token_counter = config.llm_config.make_counter()
         self.action_schemas: list[ActionSchema] = action_schemas
         # Encode tools once; apply experiment-time description overrides (raises on unknown keys).

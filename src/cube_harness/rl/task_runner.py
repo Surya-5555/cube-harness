@@ -9,7 +9,7 @@ from cube_harness.episode import Episode
 from cube_harness.episode_logs import LOG_FORMAT, get_log_path, redirect_output_to_log
 from cube_harness.rl.llm import RolloutLLMConfig
 from cube_harness.rl.trajectory_sink import RLEventSink
-from cube_harness.rl.utils import apply_rollout_llm_config
+from cube_harness.rl.utils import override_rollout_llm_config
 from cube_harness.storage import FileStorage, InMemoryStorage
 from cube_harness.streamer import EventStreamerConfig
 
@@ -30,7 +30,7 @@ class RolloutTaskRunner:
         self.trajectory_id = self.request_id
 
     def run(self) -> dict[str, Any]:
-        apply_rollout_llm_config(self.agent_config, RolloutLLMConfig.model_validate(self.request["llm_config"]))
+        override_rollout_llm_config(self.agent_config, RolloutLLMConfig.model_validate(self.request["llm_config"]))
         persist_rollout = bool(self.payload.get("persist_rollout"))
         run_output_dir = self.output_dir
         storage = FileStorage(run_output_dir) if persist_rollout else InMemoryStorage(run_output_dir)

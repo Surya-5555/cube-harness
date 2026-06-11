@@ -25,7 +25,7 @@ from litellm.exceptions import (
     Timeout,
 )
 from litellm.utils import token_counter
-from pydantic import Field, SerializeAsAny, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 
 # NOTE: Do not set litellm.callbacks = ["otel"] here at module level.
 # When no TracerProvider is configured, litellm falls back to ConsoleSpanExporter
@@ -109,29 +109,25 @@ class Prompt(TypedBaseModel):
         return f"Tools:\n{tools}\nMessages[{len(self.messages)}]:\n{messages}"
 
 
-class BaseLLMConfig(ValidatedConfig):
-    """Shared LiteLLM configuration fields used by harness LLM wrappers."""
+class LLMConfig(ValidatedConfig):
+    """Shared low-level LLM config wrapper around LiteLLM completion API.
 
-    model_name: Annotated[str, Field(min_length=1)]  # empty = a typo that fails only at first API call
+    This is not necessarily the public API for every caller. Narrower configs
+    should subclass this and lock down irrelevant fields.
+    """
+
+    model_name: Annotated[str, Field(min_length=1)]
+
     temperature: float = 1.0
     max_tokens: int = 128000
     max_completion_tokens: int = 8192
     timeout: float | None = 120.0
+
     num_retries: int = 5
     retry_strategy: _RETRY_TYPES = "exponential_backoff_retry"
+    capture_training_metadata: bool = False
 
-    def make(self) -> "BaseLLM":
-        """Create the LLM instance this config describes."""
-        raise NotImplementedError
-
-    def make_counter(self) -> Callable[..., int]:
-        """Get a token counter function for the LLM model."""
-        return partial(token_counter, model=self.model_name)
-
-
-class LLMConfig(BaseLLMConfig):
-    """Thin benchmark LLM wrapper around LiteLLM completion API."""
-
+    ### benchmark-specific config fields ###
     reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
     # Thinking cadence (Anthropic only — OpenAI/Azure gpt-5 reasoning is server-managed,
     # this flag is a no-op there). Combined with ``reasoning_effort`` you get three modes:
@@ -168,6 +164,17 @@ class LLMConfig(BaseLLMConfig):
     # extends across steps as the conversation grows. No-op for non-Anthropic models.
     set_cache_control: Literal["auto"] | None = None
 
+    ### rl-specific config fields ###
+    api_base: str | None = None
+    api_key: SecretStr | None = Field(default=None, exclude=True)
+
+    tokenizer_name: str | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+    overrides: dict[str, Any] = Field(default_factory=dict)
+
     @model_validator(mode="after")
     def _check_anthropic_thinking_temperature(self) -> "LLMConfig":
         """Anthropic extended thinking forbids temperature != 1.0; fail at config time, not API time."""
@@ -198,6 +205,13 @@ class LLMConfig(BaseLLMConfig):
         return self
 
     # /auto-fix(430)
+
+    @model_validator(mode="after")
+    def _check_training_metadata_endpoint(self) -> "LLMConfig":
+        """Training capture needs an explicit OpenAI-compatible endpoint."""
+        if self.capture_training_metadata and (self.api_base is None or self.api_key is None):
+            raise ValueError("capture_training_metadata=True requires api_base and api_key")
+        return self
 
     def make(self) -> "LLM":
         """Create LLM instance from config."""
@@ -332,8 +346,164 @@ def _mark_last_tool_for_cache(tools: list[dict]) -> list[dict]:
     return result
 
 
-class BaseLLM:
-    def __init__(self, config: BaseLLMConfig):
+def _safe_finish_reason(choice: Any) -> str | None:
+    value = getattr(choice, "finish_reason", None)
+    return value if isinstance(value, str) else None
+
+
+def _find_key_recursive(obj: Any, key: str) -> Any:
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for value in obj.values():
+            found = _find_key_recursive(value, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for value in obj:
+            found = _find_key_recursive(value, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_completion_logprobs(response: Any) -> list[dict[str, int | float]]:
+    """Extract OpenAI-compatible completion token IDs and logprobs."""
+    result: list[dict[str, int | float]] = []
+    choices = getattr(response, "choices", None)
+    if not choices:
+        return result
+
+    choice = choices[0]
+    logprobs = _get_extra(choice, "logprobs")
+    content = _get_extra(logprobs, "content")
+    if not isinstance(content, list):
+        return result
+
+    for entry in content:
+        token_id = _get_extra(entry, "token_id")
+        if token_id is None:
+            token_id = _parse_token_id(_get_extra(entry, "token"))
+        logprob = _get_extra(entry, "logprob")
+        if isinstance(token_id, int) and isinstance(logprob, (int, float)):
+            result.append({"token_id": token_id, "logprob": float(logprob)})
+    return result
+
+
+def _extract_prompt_token_ids(response: Any) -> list[int] | None:
+    """Extract prompt token IDs preserved by LiteLLM."""
+    for key in ("prompt_token_ids", "prompt_tokens"):
+        ids = _coerce_token_id_list(_get_extra(response, key))
+        if ids is not None:
+            return ids
+
+    choices = getattr(response, "choices", None)
+    if choices:
+        choice = choices[0]
+        for key in ("prompt_token_ids", "prompt_tokens"):
+            ids = _coerce_token_id_list(_get_extra(choice, key))
+            if ids is not None:
+                return ids
+
+    dumped = _dump_response(response)
+    for key in ("prompt_token_ids", "prompt_tokens"):
+        ids = _coerce_token_id_list(_find_key_recursive(dumped, key))
+        if ids is not None:
+            return ids
+    return None
+
+
+def _extract_completion_token_ids(
+    response: Any,
+    completion_logprobs: list[dict[str, int | float]],
+) -> list[int] | None:
+    choices = getattr(response, "choices", None)
+    if not choices:
+        return None
+
+    choice = choices[0]
+    for obj in (choice, _get_extra(choice, "message")):
+        if obj is None:
+            continue
+        for key in ("token_ids", "completion_token_ids", "output_token_ids"):
+            ids = _coerce_token_id_list(_get_extra(obj, key))
+            if ids is not None:
+                return ids
+
+    dumped = _dump_response(choice)
+    for key in ("token_ids", "completion_token_ids", "output_token_ids"):
+        ids = _coerce_token_id_list(_find_key_recursive(dumped, key))
+        if ids is not None:
+            return ids
+
+    if completion_logprobs:
+        return [int(entry["token_id"]) for entry in completion_logprobs]
+    return None
+
+
+def _parse_token_id(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        return None
+    if value.startswith("token_id:"):
+        value = value.split(":", 1)[1]
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _coerce_token_id_list(value: Any) -> list[int] | None:
+    if not isinstance(value, list):
+        return None
+
+    parsed: list[int] = []
+    for item in value:
+        token_id = _parse_token_id(item)
+        if token_id is None:
+            return None
+        parsed.append(token_id)
+    return parsed
+
+
+def _get_extra(obj: Any, key: str) -> Any:
+    if obj is None:
+        return None
+    if isinstance(obj, dict) and key in obj:
+        return obj[key]
+    value = getattr(obj, key, None)
+    if value is not None:
+        return value
+    model_extra = getattr(obj, "model_extra", None)
+    if isinstance(model_extra, dict) and key in model_extra:
+        return model_extra[key]
+    hidden_params = getattr(obj, "_hidden_params", None)
+    if isinstance(hidden_params, dict) and key in hidden_params:
+        return hidden_params[key]
+    return None
+
+
+def _dump_response(obj: Any) -> Any:
+    if obj is None or isinstance(obj, (dict, list, str, int, float, bool)):
+        return obj
+    model_dump = getattr(obj, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return model_dump()
+        except Exception:
+            pass
+    dict_method = getattr(obj, "dict", None)
+    if callable(dict_method):
+        try:
+            return dict_method()
+        except Exception:
+            pass
+    return None
+
+
+class LLM:
+    def __init__(self, config: LLMConfig):
         self.config = config
         # Optional recorder for auto-emit of LLMCallEvent. Set via
         # `attach_recorder(recorder)` from the agent's `attach_recorder`
@@ -396,7 +566,119 @@ class BaseLLM:
         return call
 
     def __call__(self, prompt: Prompt) -> LLMResponse:
-        raise NotImplementedError
+        tools = prompt.tools
+        kwargs: dict[str, Any] = {
+            "model": self.config.model_name,
+            "temperature": self.config.temperature,
+            "max_completion_tokens": self.config.max_completion_tokens,
+            "tool_choice": self.config.tool_choice,
+            "parallel_tool_calls": self.config.parallel_tool_calls,
+            "messages": prompt.messages,
+            "timeout": self.config.timeout,
+        }
+
+        if self.config.capture_training_metadata:
+            kwargs.update(
+                {
+                    "api_base": self.config.api_base,
+                    "api_key": self.config.api_key.get_secret_value(),
+                    "logprobs": 1,
+                    "skip_special_tokens": False,
+                    "include_stop_str_in_output": True,
+                    "timeout": self.config.timeout,
+                }
+            )
+
+            # Send only one token-limit param. max_completion_tokens is the modern
+            # OpenAI/vLLM field and max_tokens is its deprecated alias; both inherit
+            # non-None defaults from LLMConfig, so forwarding both is redundant
+            # and is rejected by some OpenAI-compatible servers. Prefer the modern one.
+            if self.config.max_completion_tokens is not None:
+                kwargs["max_completion_tokens"] = self.config.max_completion_tokens
+            elif self.config.max_tokens is not None:
+                kwargs["max_tokens"] = self.config.max_tokens
+
+            if self.config.top_p is not None:
+                kwargs["top_p"] = self.config.top_p
+            if self.config.top_k is not None:
+                kwargs["top_k"] = self.config.top_k
+
+            extra_body = dict(self.config.extra_body or {})
+            extra_body["return_token_ids"] = True
+            extra_body["return_tokens_as_token_ids"] = True
+            kwargs["extra_body"] = extra_body
+
+        if self.config.reasoning_effort is not None:
+            kwargs["reasoning_effort"] = self.config.reasoning_effort
+            # auto-fix(412)↓ Anthropic only emits a thinking block AFTER a
+            # tool result when the interleaved-thinking beta is set; without
+            # it, a multi-step tool-use loop (Genny swe/flat_history) gets
+            # thinking only on step 0. Gated by `interleaved_thinking` so
+            # callers can pick: once-per-turn (provider default, cheaper) vs
+            # every-step (this branch, deliberate). No-op for non-Anthropic.
+            if self.config.interleaved_thinking and _is_anthropic_model(self.config.model_name):
+                hdrs = dict(kwargs.get("extra_headers") or {})
+                betas = [b for b in hdrs.get("anthropic-beta", "").split(",") if b.strip()]
+                if _INTERLEAVED_THINKING_BETA not in betas:
+                    betas.append(_INTERLEAVED_THINKING_BETA)
+                hdrs["anthropic-beta"] = ",".join(betas)
+                kwargs["extra_headers"] = hdrs
+            # /auto-fix(412)
+        if self.config.set_cache_control == "auto" and _is_anthropic_model(self.config.model_name):
+            injection_points = _build_cache_injection_points(prompt.messages)
+            if injection_points:
+                kwargs["cache_control_injection_points"] = injection_points
+            tools = _mark_last_tool_for_cache(tools)
+        if tools:
+            kwargs["tools"] = tools
+        if not tools or self.config.tool_choice is None:
+            # Drop tool_choice / parallel_tool_calls when there are no tools (some providers
+            # reject tool_choice without a tools list) or when the caller opted out (None).
+            kwargs.pop("tool_choice", None)
+            kwargs.pop("parallel_tool_calls", None)
+
+        response = self._completion_with_retry(**kwargs)
+        usage = self._extract_usage(response)
+
+        if self.config.capture_training_metadata:
+            prompt_token_ids = _extract_prompt_token_ids(response)
+            completion_logprobs = _extract_completion_logprobs(response)
+            completion_token_ids = _extract_completion_token_ids(
+                response=response,
+                completion_logprobs=completion_logprobs,
+            )
+            logprobs = [entry["logprob"] for entry in completion_logprobs] if completion_logprobs else None
+
+            if not prompt_token_ids:
+                raise ValueError(
+                    "vLLM did not return prompt_token_ids. Check that "
+                    "extra_body={'return_token_ids': True} reaches vLLM and that LiteLLM "
+                    "preserves provider-specific response fields."
+                )
+
+            if not completion_token_ids:
+                raise ValueError(
+                    "vLLM did not return completion token IDs. Check logprobs=1 and return_tokens_as_token_ids=True."
+                )
+
+            if logprobs is None:
+                raise ValueError("vLLM did not return completion logprobs. Rollout RL requires old logprobs.")
+
+            if len(completion_token_ids) != len(logprobs):
+                raise ValueError(
+                    f"completion_token_ids/logprobs length mismatch: {len(completion_token_ids)} != {len(logprobs)}"
+                )
+
+            return LLMResponse(
+                message=response.choices[0].message,
+                usage=usage,
+                logprobs=logprobs,
+                prompt_token_ids=prompt_token_ids,
+                completion_token_ids=completion_token_ids,
+                finish_reason=_safe_finish_reason(response.choices[0]),
+            )
+
+        return LLMResponse(message=response.choices[0].message, usage=usage)
 
     def _completion_with_retry(self, **kwargs: Any) -> Any:
         """Call litellm.completion with configurable retry behavior on transient errors.
@@ -488,63 +770,13 @@ class BaseLLM:
         )
 
 
-class LLM(BaseLLM):
-    config: LLMConfig
-
-    def __init__(self, config: LLMConfig):
-        super().__init__(config)
-
-    def __call__(self, prompt: Prompt) -> LLMResponse:
-        tools = prompt.tools
-        kwargs: dict[str, Any] = {
-            "model": self.config.model_name,
-            "temperature": self.config.temperature,
-            "max_completion_tokens": self.config.max_completion_tokens,
-            "tool_choice": self.config.tool_choice,
-            "parallel_tool_calls": self.config.parallel_tool_calls,
-            "messages": prompt.messages,
-            "timeout": self.config.timeout,
-        }
-        if self.config.reasoning_effort is not None:
-            kwargs["reasoning_effort"] = self.config.reasoning_effort
-            # auto-fix(412)↓ Anthropic only emits a thinking block AFTER a
-            # tool result when the interleaved-thinking beta is set; without
-            # it, a multi-step tool-use loop (Genny swe/flat_history) gets
-            # thinking only on step 0. Gated by `interleaved_thinking` so
-            # callers can pick: once-per-turn (provider default, cheaper) vs
-            # every-step (this branch, deliberate). No-op for non-Anthropic.
-            if self.config.interleaved_thinking and _is_anthropic_model(self.config.model_name):
-                hdrs = dict(kwargs.get("extra_headers") or {})
-                betas = [b for b in hdrs.get("anthropic-beta", "").split(",") if b.strip()]
-                if _INTERLEAVED_THINKING_BETA not in betas:
-                    betas.append(_INTERLEAVED_THINKING_BETA)
-                hdrs["anthropic-beta"] = ",".join(betas)
-                kwargs["extra_headers"] = hdrs
-            # /auto-fix(412)
-        if self.config.set_cache_control == "auto" and _is_anthropic_model(self.config.model_name):
-            injection_points = _build_cache_injection_points(prompt.messages)
-            if injection_points:
-                kwargs["cache_control_injection_points"] = injection_points
-            tools = _mark_last_tool_for_cache(tools)
-        if tools:
-            kwargs["tools"] = tools
-        if not tools or self.config.tool_choice is None:
-            # Drop tool_choice / parallel_tool_calls when there are no tools (some providers
-            # reject tool_choice without a tools list) or when the caller opted out (None).
-            kwargs.pop("tool_choice", None)
-            kwargs.pop("parallel_tool_calls", None)
-        response = self._completion_with_retry(**kwargs)
-        usage = self._extract_usage(response)
-        return LLMResponse(message=response.choices[0].message, usage=usage)
-
-
 class LLMCall(TypedBaseModel):
     """Represents a call to an LLM model."""
 
     id: str = Field(default_factory=lambda: uuid4().hex)  # unique storage key
     tag: str = ""  # optional label shown as tab name in viewers (e.g. "act", "summary")
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-    llm_config: SerializeAsAny[BaseLLMConfig]
+    llm_config: LLMConfig
     prompt: Prompt
     output: Message
     usage: Usage = Field(default_factory=Usage)

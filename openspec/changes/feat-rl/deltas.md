@@ -9,7 +9,7 @@ Defines the new RL rollout subsystem:
 
 - `RolloutConfig`, `RolloutRequest`, `AckRequest`, `CancelRequest`, `RayConfig`
 - `RolloutEngine`, service, executor, Ray runtime
-- `RolloutLLMConfig` / `RolloutLLM`
+- `RolloutLLMConfig`
 - `EventPublisher` (ordered in-memory publisher) and `RLEventSink` (event conversion)
 - rollout event payload shape: context envelope plus canonical event dump under
   `event`, with RL-only annotations under `rl`
@@ -35,16 +35,18 @@ storage.
 
 ## MODIFIED — `openspec/specs/llm/spec.md`
 
-`cube_harness.llm` owns shared LLM primitives:
+`cube_harness.llm` owns the unified LLM runtime for benchmark agents and RL
+rollouts:
 
-- `BaseLLMConfig`
-- `BaseLLM`
-- `LLMCall` trainable metadata fields:
+- `LLMConfig`
+- `LLM`
+- `LLMResponse` / `LLMCall` trainable metadata fields:
   `prompt_token_ids`, `completion_token_ids`, `logprobs`, `finish_reason`,
   `metadata`
 
-Rollout-specific endpoint behavior and token/logprob validation live in
-`cube_harness.rl.llm`.
+`cube_harness.rl.llm` keeps only rollout-specific configuration
+(`RolloutLLMConfig`) and token counting; it does not define a separate LLM
+runtime.
 
 
 ## ADDED — `recipes/rl/` and RL smokes
