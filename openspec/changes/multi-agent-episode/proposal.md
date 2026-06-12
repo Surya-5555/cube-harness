@@ -4,38 +4,40 @@
 **Author:** Alexandre Lacoste (w/ Claude)
 **Date:** 2026-06-05
 **Upstream:** `cube-standard/openspec/changes/streamable-task` (#214) — defines the task side.
-**Lands with #214 (same change, not a follow-up):** single-agent is N=1 of `agent_tools()`,
-so the arena ships **together** with the single-agent `TaskTool` rewire — only `async` /
-`batch` / real-time schedulers are left for later.
+**Lands with #214 (same change, not a follow-up):** single-agent is N=1 of the roster
+(`{None: 1}`), so the arena ships **together** with the single-agent `AgentView` rewire —
+only `async` / `batch` / real-time schedulers are left for later.
 
 ## Context
 
 `streamable-task` (upstream) exposes a multi-agent task as **one `Task` (shared world)
-+ N `TaskTool`s** (`task.agent_tools()`, one per agent, each with its own id + action
-space), plus an abstract `Streamer`. The standard owns the *world*; cube-harness owns the
-*runtime* — so this companion is just "how the harness drives N agents over those tools."
++ N `AgentView`s**: `task.agent_roles()` gives the roster (`{role: count}`), and
+`task.get_agent_view(role)` hands out one obs-in/action-out view per seat (its own
+`agent_id` + dynamic `action_set`). The standard owns the *world*; cube-harness owns the
+*runtime* — so this companion is just "how the harness drives N agents over those views."
 Target first deliverable: a real multi-agent CUBE next week.
 
 ## What changes (harness)
 
 ### 1. `MultiAgentEpisode` (a sibling of `Episode`)
 A new runtime object. Today's `Episode` drives one agent loop; `MultiAgentEpisode` builds
-the task once, reads `task.agent_tools()`, builds one agent per tool, and drives them under
-a **scheduler**. Single-agent `Episode` stays as the **N=1 fast path** (no scheduler, no
-per-agent tagging) — both finalize the same way.
+the task once, calls `build_agent_tools(task, streamer)` (one `RecordingTaskTool` per seat,
+each wrapping an `AgentView`), builds one agent per seat, and drives them under a
+**scheduler**. Single-agent `Episode` stays as the **N=1 fast path** (no scheduler) — both
+finalize the same way.
 
-### 2. One `AgentConfig`, produced per `TaskTool`
+### 2. One `AgentConfig`, produced per seat
 `EpisodeConfig` carries a **single `AgentConfig`** (homogeneous agents — same policy,
-different identity / action space per seat). The arena calls it once per `TaskTool`:
+different identity / action space per seat). The arena calls it once per seat's tool:
 
 ```python
-agents = [agent_config.make(action_set=tt.action_set, agent_id=tt.agent_id)
-          for tt in task.agent_tools()]
+seats = [agent_config.make(env_tool.action_set, agent_id=env_tool.agent_id, role=env_tool.role)
+         for env_tool in build_agent_tools(task, streamer)]
 ```
 
-So **`AgentConfig.make()` gains identity from the `TaskTool`** (`agent_id`, and the
-per-agent `action_set`). One config, N right-shaped agents. *(Heterogeneous agents —
-different policies per role — is a forward extension: an `AgentConfig` per role / a
+So **`AgentConfig.make()` gains identity from the seat's `RecordingTaskTool`** (`agent_id`,
+`role`, and the per-agent `action_set`). One config, N right-shaped agents. *(Heterogeneous
+agents — different policies per role — is a forward extension: an `AgentConfig` per role / a
 mapping. Out of v1.)*
 
 ### 3. Scheduler — start **turn-based**, sequential, sync
@@ -46,25 +48,27 @@ traps. `async` (N concurrent loops over serialized world state) and `batch` (bar
 joint resolution) are **deferred**; the task can already gate legality ("not your turn" →
 `StepError`).
 
-**Legality lives in the cube, scheduling in the arena.** Per upstream, `TaskTool.action_set`
+**Legality lives in the cube, scheduling in the arena.** Per upstream, `AgentView.action_set`
 is a **dynamic property** (recomputed per turn) — so phase gating, legal-action masking, and
 real-time observe/no-op are expressed by the *cube*, and the arena only decides *who it polls
-next*. Harness implication: **the agent re-reads `action_set` each turn** (rebuilds its tool
-schema per turn) rather than caching it at `make()` — a small change to the agent loop that
-single-agent inherits too.
+next*. v1 agents still **snapshot `action_set` at `make()`** (fine — no current cube varies
+it); wiring the per-turn re-read is a forward extension, deferred until a cube needs a
+changing action set.
 
 ### 4. Trajectory gains an `agent_id` dimension
-Capture is harness-side (no standard `Streamer`, per upstream): each agent loop **self-emits
-its own tool + LLM events** (it has `(action, obs)` from `execute_action`), and the arena
-**recovers reward from `task.evaluate()`** (it holds the task). `ToolCallEvent` /
-`LLMCallEvent` / eval carry **`agent_id`**; the `EventStreamer` is one sink, so the
-trajectory is a unified timeline **and** per-agent slices. (XRay per-agent lanes: later.)
+Capture is harness-side (no standard `Streamer`, per upstream): seats share one
+`EventStreamer`, and the arena **recovers reward from `task.evaluate()`** (it holds the
+task). v1 tags **`ToolCallEvent` + `EvaluationEvent`** with a nullable `agent_id`
+(`None`/`"agent"` single-agent, `"{role}-{seat}"` multi-agent). Per-seat tagging of
+`LLMCallEvent` — and full per-agent trajectory demux / XRay per-agent lanes — is
+**deferred** (the single shared streamer is enough for the v1 multi-agent CUBE).
 
 ### 5. Termination + budget — start simple
-- **Termination:** the episode ends on the global `task.finished()`/terminal `evaluate`;
-  a per-agent `final_step` retires that seat (the arena stops polling it). Exact policy is
-  a decision.
-- **Budget:** v1 = one shared episode budget; per-agent budgets are a forward option.
+- **Termination:** the episode ends when **all seats are retired OR the budget is
+  exhausted**. A seat retires on empty actions, a step error, or `AgentStop` (the agent
+  emitted `final_step`, or `task.finished()` returned True after its action).
+- **Budget:** v1 = one **joint** episode budget shared by every seat; `BudgetExceeded` is
+  the joint stop (ends the episode for all seats). Per-agent budgets are a forward option.
 
 ## Flow
 
@@ -76,33 +80,35 @@ flowchart TB
   end
   AR["MultiAgentEpisode · scheduler (turn-based v1)"]
   TC -->|make| TASK[("Task · shared world")]
-  TASK -->|agent_tools| TTS["TaskTool · 1..N<br/>per-agent id + action_set"]
-  AC -->|"make(per TaskTool)"| AGS["Agent · 1..N"]
+  TASK -->|"agent_roles → get_agent_view"| TTS["RecordingTaskTool · 1..N<br/>per-seat AgentView + agent_id"]
+  AC -->|"make(per seat tool)"| AGS["Agent · 1..N"]
   AR -->|polls| AGS
   AGS -->|execute_action → obs| TTS
   AR -->|"evaluate() → reward"| TASK
-  AGS -. "tool + LLM events · agent_id" .-> ST[("Recorder · EventStreamer")]
-  AR -. "reward · agent_id" .-> ST
+  TTS -. "ToolCallEvent · agent_id" .-> ST[("Recorder · EventStreamer")]
+  AGS -. "LLMCallEvent · (agent_id deferred)" .-> ST
+  AR -. "EvaluationEvent · agent_id" .-> ST
   ST -. writes .-> SINK[("FileStorage · XRay")]
 ```
 
 ## v1 scope (the multi-agent CUBE next week)
 
-Fixed N agents · turn-based · homogeneous (one `AgentConfig` parameterized per `TaskTool`)
-· sync · one shared budget · per-agent + episode finalize. Everything else deferred.
+Fixed N agents · turn-based · homogeneous (one `AgentConfig` parameterized per seat)
+· sync · one joint budget · per-agent + episode finalize. Everything else deferred.
 
-## Open decisions
+## Settled in v1 (shipped)
 
-0. **Where `pre_step`/`post_step` + per-step `evaluate` fire.** The agent owns `agent.run`
-   and holds only a `TaskTool`, so the harness must call `task.pre_step()`/`post_step()` +
-   per-step `evaluate()` at each agent-step boundary. **Proposed:** reuse `Agent.run`'s
-   existing per-step hook (`recorder.on_step()` each turn) — fire `pre_step` before /
-   `post_step` + `evaluate` after, there. (= #214 open decision (3).)
-1. `AgentConfig.make` signature: `make(action_set, agent_id)` vs `make(task_tool)`
-   (hand the whole `TaskTool`).
-2. Termination policy (global `finished` vs all-seats-retired vs coordinator).
-3. Per-agent vs shared budget.
-4. Heterogeneous agents (per-role configs / a `{role: AgentConfig}` map) — when.
-5. `async` / `batch` schedulers — after turn-based lands.
+- `AgentConfig.make(action_set, agent_id=..., role=...)` — identity comes from the seat's
+  `RecordingTaskTool`; v1 agents ignore `role` (homogeneous).
+- Termination = all-seats-retired OR joint budget exhausted (see §5).
+- Per-step `evaluate` cadence lives in `RecordingTaskTool` (the `AgentView` eval callback
+  → `EvaluationEvent` parented to the just-recorded `ToolCallEvent`), not in `agent.run`.
+
+## Open decisions (deferred past v1)
+
+1. Heterogeneous agents (per-role configs / a `{role: AgentConfig}` map) — when.
+2. `async` / `batch` schedulers — after turn-based lands.
+3. Per-agent (vs the v1 joint) budget.
+4. Per-seat `LLMCallEvent` tagging + per-agent trajectory demux / XRay lanes.
 
 `deltas.md` stays thin until v1 firms up.
