@@ -7,7 +7,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import msgpack
 import zstandard
@@ -27,7 +27,6 @@ from cube_harness.core import (
     _new_event_id,
 )
 from cube_harness.episode_logs import get_log_path as get_episode_log_path
-from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.episode_status import STATUS_FILENAME, EpisodeStatus
 from cube_harness.llm import LLMCall
 
@@ -49,6 +48,8 @@ class LLMCallRef(BaseModel):
 
 
 class Storage(Protocol):
+    raise_on_emit_error: bool = False
+
     def save_metadata(self, meta: TrajectoryMetadata, allow_overwrite: bool = False) -> None: ...
 
     def finalize_episode(self, meta: TrajectoryMetadata) -> None: ...
@@ -72,6 +73,124 @@ class Storage(Protocol):
     def read_episode_status(self, trajectory_id: str) -> EpisodeStatus | None: ...
 
     def archive_episode(self, trajectory_id: str) -> None: ...
+
+
+class InMemoryTrajectoryView:
+    """Minimal TrajectoryView-compatible object for streaming-only episodes.
+
+    Mirrors only a subset of TrajectoryView's read API (no n_agent_events /
+    n_tool_calls / n_evaluations / last_env_output), and nothing enforces the
+    compatibility.
+
+    TODO(agent-owns-loop-xray): delete by folding into TrajectoryView. Once the
+    legacy V1/steps decode is purged, TrajectoryView reduces to "metadata + an
+    ordered event source"; split the fetch side into a tiny EventSource
+    (__len__ + get(i)) with a file-backed impl (index/decode/cache) and a
+    list-backed impl, and this class disappears.
+    """
+
+    def __init__(self, meta: TrajectoryMetadata, events: list[TrajectoryEvent] | None = None) -> None:
+        self.id = meta.id
+        self._meta = meta
+        self._events = list(events or [])
+
+    @property
+    def metadata(self) -> dict:
+        return self._meta.metadata
+
+    @property
+    def start_time(self) -> float | None:
+        return self._meta.start_time
+
+    @property
+    def end_time(self) -> float | None:
+        return self._meta.end_time
+
+    @property
+    def episode_metadata(self) -> TrajectoryMetadata:
+        return self._meta
+
+    @property
+    def summary_stats(self) -> dict | None:
+        return self._meta.summary_stats
+
+    @property
+    def reward_info(self) -> dict:
+        return self._meta.reward_info
+
+    @property
+    def is_complete(self) -> bool:
+        return self._meta.is_complete
+
+    def __len__(self) -> int:
+        return len(self._events)
+
+    def __getitem__(self, i: int) -> TrajectoryEvent:
+        return self._events[i]
+
+    def __iter__(self) -> Iterator[TrajectoryEvent]:
+        return iter(self._events)
+
+    def iter_events(self) -> Iterator[TrajectoryEvent]:
+        return iter(self)
+
+
+class InMemoryStorage:
+    """Storage implementation for streaming-only episodes.
+
+    It preserves Episode's metadata/status contract without writing trajectory
+    artifacts to disk. Event persistence is intentionally in-memory and is only
+    used if the storage is registered as an EventStreamer sink.
+    """
+
+    raise_on_emit_error: bool = False
+
+    def __init__(self, output_dir: str | Path | None = None) -> None:
+        self.output_dir = Path(output_dir) if output_dir is not None else Path(".")
+        self._metadata: dict[str, TrajectoryMetadata] = {}
+        self._events: dict[str, list[TrajectoryEvent]] = {}
+        self._statuses: dict[str, EpisodeStatus] = {}
+        self._episode_configs: dict[str, Any] = {}
+
+    def save_metadata(self, meta: TrajectoryMetadata, allow_overwrite: bool = False) -> None:
+        if not allow_overwrite and meta.id in self._metadata and self._metadata[meta.id].end_time is not None:
+            raise FileExistsError(f"Episode '{meta.id}' already exists in memory")
+        self._metadata[meta.id] = meta
+
+    def finalize_episode(self, meta: TrajectoryMetadata) -> None:
+        self._metadata[meta.id] = meta
+
+    def save_event(self, event: TrajectoryEvent, trajectory_id: str) -> int:
+        events = self._events.setdefault(trajectory_id, [])
+        events.append(event)
+        return len(events) - 1
+
+    def load_episode(self, trajectory_id: str) -> InMemoryTrajectoryView:
+        meta = self._metadata.get(trajectory_id)
+        if meta is None:
+            meta = TrajectoryMetadata(id=trajectory_id)
+        return InMemoryTrajectoryView(meta, self._events.get(trajectory_id, []))
+
+    def list_episodes(self) -> list[TrajectoryMetadata]:
+        return list(self._metadata.values())
+
+    def save_episode_config(self, episode_config: "EpisodeConfig") -> None:
+        self._episode_configs[episode_config.resolved_trajectory_id] = episode_config
+
+    def update_experiment_summary(self, meta: TrajectoryMetadata) -> None:
+        return None
+
+    def write_episode_status(self, trajectory_id: str, status: EpisodeStatus) -> None:
+        self._statuses[trajectory_id] = status
+
+    def read_episode_status(self, trajectory_id: str) -> EpisodeStatus | None:
+        return self._statuses.get(trajectory_id)
+
+    def archive_episode(self, trajectory_id: str) -> None:
+        self._metadata.pop(trajectory_id, None)
+        self._events.pop(trajectory_id, None)
+        self._statuses.pop(trajectory_id, None)
+        self._episode_configs.pop(trajectory_id, None)
 
 
 _thread_local = threading.local()
@@ -652,6 +771,8 @@ def _episode_metadata_from_dict(data: dict, fallback_id: str) -> TrajectoryMetad
 
 
 class FileStorage:
+    raise_on_emit_error: bool = False
+
     def __init__(self, output_dir: str | Path) -> None:
         self.output_dir = Path(output_dir)
         self._saved_ids: set[str] = set()
@@ -1372,8 +1493,7 @@ class FileStorage:
         return stubs
 
     def save_episode_config(self, episode_config: "EpisodeConfig") -> None:
-        traj_id = trajectory_log_id(episode_config.task_config.task_id, episode_config.id)
-        ep_dir = self._episode_dir(traj_id)
+        ep_dir = self._episode_dir(episode_config.resolved_trajectory_id)
         ep_dir.mkdir(parents=True, exist_ok=True)
         config_path = ep_dir / "episode_config.json"
         with open(config_path, "w") as f:

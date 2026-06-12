@@ -109,6 +109,29 @@ class TestLLMConfig:
         counter = sample_llm_config.make_counter()
         assert callable(counter)
 
+    @patch("cube_harness.llm.tenacity.Retrying")
+    def test_completion_retry_strategy_is_configurable(self, retrying) -> None:
+        """Retry strategy should affect the Tenacity wait policy."""
+        retryer = MagicMock()
+        retrying.return_value = retryer
+
+        llm = LLM(
+            LLMConfig(
+                model_name="served-model",
+                num_retries=2,
+                retry_strategy="constant_retry",
+            )
+        )
+
+        llm._completion_with_retry(
+            model="m",
+            messages=[],
+        )
+
+        wait_policy = retrying.call_args.kwargs["wait"]
+        assert isinstance(wait_policy, tenacity.wait_fixed)
+        retryer.assert_called_once()
+
     def test_llm_config_serialization(self, sample_llm_config):
         """Test LLMConfig JSON serialization."""
         json_str = sample_llm_config.model_dump_json()
@@ -740,6 +763,30 @@ class TestUsageReasoningTokens:
         llm = LLM(config=sample_llm_config)
         resp = llm(sample_prompt)
         assert resp.usage.reasoning_tokens == 0
+
+    @patch("cube_harness.llm.litellm.completion_cost", return_value=0.0123)
+    @patch("cube_harness.llm.litellm.completion")
+    def test_cost_falls_back_to_litellm_completion_cost(
+        self, mock_completion, mock_completion_cost, sample_llm_config, sample_prompt
+    ) -> None:
+        usage = MagicMock(
+            prompt_tokens=50,
+            completion_tokens=80,
+            total_tokens=130,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+            prompt_tokens_details=None,
+            completion_tokens_details=None,
+        )
+        response = MagicMock(choices=[MagicMock(message=Message(role="assistant", content="x"))], usage=usage)
+        response._hidden_params = {}
+        mock_completion.return_value = response
+
+        llm = LLM(config=sample_llm_config)
+        resp = llm(sample_prompt)
+
+        assert resp.usage.cost == 0.0123
+        mock_completion_cost.assert_called_once_with(completion_response=response)
 
 
 class TestInterleavedThinkingBeta:

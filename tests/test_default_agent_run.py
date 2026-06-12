@@ -152,6 +152,23 @@ def test_default_run_completes_when_task_signals_done() -> None:
     assert task._tool.counter == 3
 
 
+def test_summary_stats_counts_agent_steps_without_llm_calls() -> None:
+    task = _MockTask(done_after_n=3)
+    budget = Budget(max_agent_steps=10)
+    recorder, _storage, env_tool = _setup(task, budget)
+    agent = _CounterAgent(_CounterAgentConfig())
+    agent.attach_recorder(recorder)
+
+    try:
+        agent.run(initial_obs=Observation(), env_tool=env_tool)
+    except TaskDone:
+        pass
+
+    stats = recorder.summary_stats(duration=1.0, final_reward=0.0)
+    assert stats["n_agent_steps"] == 3
+    assert stats["total_llm_calls"] == 0
+
+
 def test_default_run_terminates_on_empty_actions() -> None:
     """An agent that returns empty actions and no error signals 'done'
     — the loop must return without an env step."""

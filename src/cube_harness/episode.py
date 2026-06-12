@@ -42,6 +42,12 @@ class EpisodeConfig(TypedBaseModel):
     # streamer itself, no separate sink). Forward seam for OTel /
     # RL HTTP / extra sinks; see `EventStreamerConfig`.
     recorder_config: EventStreamerConfig = Field(default_factory=EventStreamerConfig)
+    write_eval_log: bool = True
+    trajectory_id: str | None = None
+
+    @property
+    def resolved_trajectory_id(self) -> str:
+        return self.trajectory_id or trajectory_log_id(self.task_config.task_id, self.id)
 
 
 class Episode:
@@ -75,6 +81,9 @@ class Episode:
         storage: Storage | None,
         runtime_context: RuntimeContext | None,
         max_cost_usd: float | None = None,
+        recorder_config: EventStreamerConfig | None = None,
+        write_eval_log: bool = True,
+        trajectory_id: str | None = None,
     ) -> None:
         self.config = EpisodeConfig(
             id=id,
@@ -84,6 +93,9 @@ class Episode:
             max_steps=max_steps,
             max_cost_usd=max_cost_usd,
             task_config=task_config,
+            recorder_config=recorder_config or EventStreamerConfig(),
+            write_eval_log=write_eval_log,
+            trajectory_id=trajectory_id,
         )
         self._runtime_context = runtime_context
         self.storage = storage or FileStorage(output_dir)
@@ -108,6 +120,9 @@ class Episode:
             max_cost_usd=episode_config.max_cost_usd,
             storage=storage,
             runtime_context=runtime_context,
+            recorder_config=episode_config.recorder_config,
+            write_eval_log=episode_config.write_eval_log,
+            trajectory_id=episode_config.trajectory_id,
         )
 
     def run(self) -> TrajectoryView:
@@ -133,9 +148,7 @@ class Episode:
         """
         prior = self.storage.read_episode_status(trajectory_id)
         if prior is not None and prior.status in TERMINAL_STATUSES and self.allow_overwrite:
-            ep_dir = self.storage._episode_dir(trajectory_id)
-            if ep_dir.exists():
-                self.storage._archive_episode(ep_dir)
+            self.storage.archive_episode(trajectory_id)
         now = time.time()
         ep_status = EpisodeStatus(
             status="RUNNING",
@@ -176,7 +189,7 @@ class Episode:
             - The `finally` block always runs evaluate + finalize.
         """
         task_id = self.config.task_config.task_id
-        trajectory_id = trajectory_log_id(task_id, self.config.id)
+        trajectory_id = self.config.resolved_trajectory_id
         tracer = get_tracer(self.config.exp_name)
 
         # Heartbeat 1: covers stuck task creation / reset.
@@ -216,10 +229,7 @@ class Episode:
                     start_time=start_time,
                 )
                 self.storage.save_metadata(meta, allow_overwrite=self.allow_overwrite)
-                ep_dir = self.storage._episode_dir(meta.id)
-                (ep_dir / "episode_config.json").write_text(
-                    self.config.model_dump_json(indent=2, serialize_as_any=True)
-                )
+                self.storage.save_episode_config(self.config)
 
                 # 3. Build budget + streamer + install monitoring. The
                 # streamer is the single event fan-out: producers (LLM,
@@ -239,13 +249,15 @@ class Episode:
                     budget=budget,
                     metadata_updates=metadata_updates,
                 )
+                streamer._sinks.extend(self.config.recorder_config.extra_sinks)
                 # 4. Build the agent-facing tool the agent drives: a
                 # `RecordingTaskTool` over cube-standard's `AgentView`
                 # (`task.agent_roles()`, single-agent = one seat). The `Task`
                 # itself is never handed to the agent — only the obs-in/action-out
                 # view. The task keeps its concrete tool so its own
                 # setup/reset/evaluate/finished reach concrete methods (`bash`,
-                # `evaluate_js`); the agent's view shares the same inner tool
+                # `evaluate_js`), private attrs (`_container`, `_config`), and
+                # type checks; the agent's view shares the same inner tool
                 # instance(s), so env state is shared. `Agent.run` picks `_run`
                 # (sync) or `_arun` (async gather) by `AgentConfig.parallel_actions`.
                 env_tool = build_agent_tools(task, streamer)[0]
@@ -316,15 +328,16 @@ class Episode:
                 )
                 self.storage.finalize_episode(meta)
                 self.storage.update_experiment_summary(meta)
-                try:
-                    ep_record = EpisodeRecord.from_view(
-                        self.storage.load_episode(meta.id),
-                        evaluation_id=self.config.output_dir.name,
-                        task_config=self.config.task_config,
-                    )
-                    ep_record.write(self.config.output_dir)
-                except Exception:
-                    logger.warning("Failed to write episode record", exc_info=True)
+                if self.config.write_eval_log:
+                    try:
+                        ep_record = EpisodeRecord.from_view(
+                            self.storage.load_episode(meta.id),
+                            evaluation_id=self.config.output_dir.name,
+                            task_config=self.config.task_config,
+                        )
+                        ep_record.write(self.config.output_dir)
+                    except Exception:
+                        logger.warning("Failed to write episode record", exc_info=True)
 
                 logger.info(colored(f"Episode completed, reward: {reward}", "blue"))
                 ep_status.reward = reward

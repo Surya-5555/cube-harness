@@ -11,7 +11,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "cube-standard>=0.1.0rc8",
+    "cube-standard",
     "cube-browser-playwright>=0.2.0",  # used by cubes/workarena (PlaywrightSessionConfig)
     "pydantic~=2.0",
     "litellm~=1.80.8",
@@ -44,6 +44,12 @@ analyze = [
 investigator = [
     "claude-agent-sdk>=0.1.6",
 ]
+# Rollout generation
+rl = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.29.0",
+    "transformers~=4.57.0"
+]
 
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]
@@ -74,6 +80,7 @@ ch-trace = "cube_harness.analyze.trace:main"
 ch-investigate = "cube_harness.analyze.investigator:main"
 ch-investigation-report = "cube_harness.analyze.investigation_report:main"
 ch-reset-episodes = "cube_harness.analyze.reset_episodes:main"
+ch-rollout = "cube_harness.rl.__main__:cli"
 
 [dependency-groups]
 dev = [
@@ -95,3 +102,6 @@ markers = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+cube-standard = { git = "https://github.com/The-AI-Alliance/cube-standard.git", branch = "dev" }
