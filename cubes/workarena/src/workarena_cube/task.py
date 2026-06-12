@@ -159,7 +159,7 @@ class WorkArenaTask(Task):
         # `finished()` / `evaluate()` always re-validates against the latest world
         # state. Replaces the old `step()` override, which the agent path never called.
         self._validate_cache = None
-        return super().obs_postprocess(obs)
+        return super().obs_postprocess(obs, role)
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
         """Score the current task state via WorkArena's validate()."""
