@@ -158,7 +158,6 @@ class MockTaskConfig(TaskConfig):
             tool_config=self.tool_config or MockToolConfig(target_turns=self.target_turns),
             runtime_context=runtime_context,
             target_turns=self.target_turns,
-            accept_agent_stop=False,
         )
 
 

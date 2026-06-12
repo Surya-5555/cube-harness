@@ -153,7 +153,7 @@ def test_default_run_completes_when_task_signals_done() -> None:
 
 
 def test_summary_stats_counts_agent_steps_without_llm_calls() -> None:
-    task = _MockTask(done_after_n=3)
+    task = _make_task(done_after_n=3)
     budget = Budget(max_agent_steps=10)
     recorder, _storage, env_tool = _setup(task, budget)
     agent = _CounterAgent(_CounterAgentConfig())
@@ -161,7 +161,7 @@ def test_summary_stats_counts_agent_steps_without_llm_calls() -> None:
 
     try:
         agent.run(initial_obs=Observation(), env_tool=env_tool)
-    except TaskDone:
+    except AgentStop:
         pass
 
     stats = recorder.summary_stats(duration=1.0, final_reward=0.0)

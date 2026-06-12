@@ -31,7 +31,7 @@ from typing import ClassVar
 from cube.benchmark import Benchmark, BenchmarkConfig, BenchmarkMetadata
 from cube.core import Action, EnvironmentOutput, Observation
 from cube.task import Task, TaskConfig, TaskMetadata
-from cube.tool import Tool, ToolConfig, tool_action
+from cube.tool import Tool, ToolConfig
 
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.core import AgentOutput
@@ -44,10 +44,8 @@ SPEEDUP_RATIO = 0.85
 
 
 class SmokeTool(Tool):
-    @tool_action
-    def final_step(self) -> str:
-        """Finish the smoke task."""
-        return "done"
+    # Inherits the base `final_step` (@tool_action raising AgentStop) — the termination action.
+    pass
 
 
 class SmokeToolConfig(ToolConfig):
