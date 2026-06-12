@@ -11,6 +11,10 @@ Anthropic SDK) is forbidden (PS-002).
 
 ## Public API
 
+`LLMConfig` and `LLM` are the single runtime path for benchmark agents and
+rollout collection. RL adds a narrower `RolloutLLMConfig` subclass in
+`cube_harness.rl.llm`, but it still constructs the same `cube_harness.llm.LLM`.
+
 ### `LLMConfig`
 ```python
 class LLMConfig(TypedBaseModel):
@@ -18,13 +22,26 @@ class LLMConfig(TypedBaseModel):
     temperature: float = 1.0
     max_tokens: int = 128000
     max_completion_tokens: int = 8192
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
-    tool_choice: Literal["auto", "none", "required"] | None = "auto"   # None opts out
-    parallel_tool_calls: bool = False
+    timeout: float | None = 120.0       # seconds per attempt; None disables
     num_retries: int = 5
     retry_strategy: Literal["exponential_backoff_retry", "constant_retry"] = "exponential_backoff_retry"
-    timeout: float | None = 120.0       # seconds per attempt; None disables
+
+    # Agent-facing options.
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
+    interleaved_thinking: bool = False
+    tool_choice: Literal["auto", "none", "required"] | None = "auto"   # None opts out
+    parallel_tool_calls: bool = False
     set_cache_control: Literal["auto"] | None = None   # Anthropic prompt caching, see "Caching"
+
+    # Rollout/training-capture options. Normally set via RolloutLLMConfig.
+    capture_training_metadata: bool = False
+    api_base: str | None = None
+    api_key: SecretStr | None = None
+    tokenizer_name: str | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    extra_body: dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
 
     def make(self) -> LLM
     def make_counter(self) -> Callable[..., int]   # partial(token_counter, model=model_name)
@@ -81,7 +98,9 @@ live runs (`LLMResponse.reasoning_text`) and offline trajectory analysis.
 class LLM:
     def __init__(self, config: LLMConfig)
     def __call__(self, prompt: Prompt) -> LLMResponse
-    # Uses litellm.completion_with_retries under the hood with config.retry_strategy.
+    # Uses cube-harness retry handling around litellm.completion with config.retry_strategy.
+    # When config.capture_training_metadata is true, also requests and validates
+    # prompt token IDs, completion token IDs, logprobs, and finish reason.
 ```
 
 ### `LLMCall` (logged record)
@@ -94,15 +113,21 @@ class LLMCall(TypedBaseModel):
     prompt: Prompt
     output: Message
     usage: Usage | None = None
+    prompt_token_ids: list[int] | None = None
+    completion_token_ids: list[int] | None = None
+    logprobs: list[float] | None = None
+    finish_reason: str | None = None
+    metadata: dict = {}
 ```
 
-Captured in `AgentOutput.llm_calls`. Agents MUST set `tag` to distinguish multi-call
+`LLM.call(prompt, tag=...)` builds `LLMCall` and auto-emits `LLMCallEvent`
+when a recorder is attached. Agents MUST set `tag` to distinguish multi-call
 steps in traces and training data.
 
 ## Invariants
 
 1. All LLM calls route through `LLM.__call__` — no direct use of `litellm.completion`
-   in the harness code.
+   in the harness code, including RL rollout collection.
 2. Retry strategy is determined by `LLMConfig`, not the call site.
 3. `LLMCall.tag` is the primary way to correlate multiple LLM calls in one agent step.
 4. Module-level `litellm.callbacks` is intentionally NOT set. OTel callbacks are
@@ -153,6 +178,8 @@ Anthropic response so trace consumers can see cache-hit rates per step.
   ```
 - For multi-model agents, use one `LLM` per model — the class holds a single config.
 - Pass a token counter from `config.make_counter()` for prompt-size budgeting.
+- RL rollout code may use `RolloutLLMConfig`, but that config still creates the
+  same `LLM` runtime; do not add a second rollout-specific LLM implementation.
 
 ## Gotchas
 

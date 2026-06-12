@@ -31,9 +31,10 @@ config fields without changing this surface.
 import logging
 import threading
 import time
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cube.core import Action, EnvironmentOutput, StepError, TypedBaseModel
+from pydantic import Field
 
 from cube_harness.core import (
     AgentErrorEvent,
@@ -57,8 +58,8 @@ class EventSink(Protocol):
     """The forward seam for trajectory event consumers.
 
     Anything that receives `TrajectoryEvent`s as the agent runs (today:
-    `FileStorage`; tomorrow: an OTel span emitter, an RL trainer HTTP
-    pump, a Kafka publisher) implements this Protocol. `EventStreamer`
+    `FileStorage`, 'RLEventSink'; tomorrow: an OTel span emitter, a Kafka publisher)
+    implements this Protocol. `EventStreamer`
     fans every event out to its registered sinks; sinks read what they
     understand and ignore the rest.
 
@@ -72,6 +73,8 @@ class EventSink(Protocol):
     sink. Declaring the Protocol makes future sinks self-documenting.
     """
 
+    raise_on_emit_error: bool
+
     def save_event(self, te: TrajectoryEvent, trajectory_id: str) -> None: ...
 
 
@@ -82,9 +85,10 @@ class EventStreamerConfig(TypedBaseModel):
     sink (always on). Future fields:
 
       * `enable_otel: bool` — emit each event as an OTel span.
-      * `rl_http_endpoint: str | None` — POST events to an RL trainer.
-      * `extra_sinks: list[SinkConfig]` — user-defined sinks.
     """
+
+    # event sinks must follow the EventSink Protocol.
+    extra_sinks: list[Any] = Field(default_factory=list, exclude=True)
 
 
 class EventStreamer:
@@ -142,6 +146,7 @@ class EventStreamer:
         # multi-counter read-modify-write under parallel dispatch.
         self._lock = threading.Lock()
         self._n_llm_calls = 0
+        self._n_agent_steps = 0
         self._n_tool_calls = 0
         self._n_evaluations = 0
         self._total_actions = 0
@@ -174,7 +179,12 @@ class EventStreamer:
             try:
                 sink.save_event(te, self.trajectory_id)
             except Exception:
+                if getattr(sink, "raise_on_emit_error", False):
+                    logger.exception("EventStreamer sink %r raised; failing.", sink)
+                    raise
+
                 logger.exception("EventStreamer sink %r raised; continuing.", sink)
+
         # EvaluationEvent doesn't carry an `id` field (parent_event_id
         # links it to a ToolCallEvent or it's terminal). Return empty
         # string for those so producers that don't need the id don't
@@ -253,6 +263,7 @@ class EventStreamer:
 
         Enforcement happens here so a `max_agent_steps` cap kicks in cleanly
         at the agent-step boundary."""
+        self._n_agent_steps += 1
         if self.budget is not None:
             self.budget.bump_agent_step()
             if self.budget.exhausted:
@@ -348,7 +359,7 @@ class EventStreamer:
         with self._lock:
             return {
                 "n_env_steps": self._n_tool_calls,
-                "n_agent_steps": self._n_llm_calls,
+                "n_agent_steps": self._n_agent_steps,
                 "total_actions": self._total_actions,
                 "total_llm_calls": self._n_llm_calls,
                 "duration": duration,

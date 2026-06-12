@@ -237,7 +237,7 @@ class GennyConfig(AgentConfig):
         # baseline (gpt-5.4-mini on TerminalBench-2): parity with sequential
         # because nothing flipped the flag. Force it here on the config
         # that needs it, not the caller.
-        if self.parallel_actions and not self.llm_config.parallel_tool_calls:
+        if isinstance(self.llm_config, LLMConfig) and self.parallel_actions and not self.llm_config.parallel_tool_calls:
             logger.info(
                 "GennyConfig.parallel_actions=True: forcing llm_config.parallel_tool_calls=True "
                 "(was False — without it the LLM emits one tool call per turn and parallel "
