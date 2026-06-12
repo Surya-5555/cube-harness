@@ -48,5 +48,5 @@ def test_evaluate_runs_verifier_via_bash_unlimited() -> None:
     # test path are quick commands and may legitimately use bash — exclude them.)
     for line in src.splitlines():
         runs_testsh = "bash " in line and "test.sh" in line  # actually executing the script
-        if runs_testsh and "self.tool.bash(" in line and "chmod" not in line and "mkdir" not in line:
+        if runs_testsh and "self._tool.bash(" in line and "chmod" not in line and "mkdir" not in line:
             raise AssertionError(f"verifier test.sh must use bash_unlimited, not bash: {line.strip()}")
