@@ -933,8 +933,6 @@ class GenericAgent(Agent):
         self.llm = config.llm_config.make()
         self.token_counter = config.llm_config.make_counter()
 
-        # STOP (`final_step`) is always present — it's a universal @tool_action on the Tool
-        # base, so it's already in the task's action_set. No need to append it.
         self.action_set = list(action_set)
 
         # Convert action schemas to tool dicts for LLM tool calling

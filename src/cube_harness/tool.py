@@ -1,4 +1,4 @@
-"""RecordingTaskTool — the runtime's instrumented view over a cube-standard `AgentView`.
+"""MonitoredTool — the runtime's instrumented view over a cube-standard `AgentView`.
 
 The agent drives an `AgentView` (cube-standard's agent-facing view of a `Task`:
 dynamic `action_set` + `execute_action(action) -> Observation`). All the *task
@@ -11,15 +11,10 @@ only the *runtime* concerns the harness owns:
   * the per-action `finished()` / `evaluate()` cadence (emit `EvaluationEvent`,
     raise `AgentStop` when the task signals done).
 
-`RecordingTaskTool` exposes the same dual call surface the agent loop expects:
+`MonitoredTool` exposes the same dual call surface the agent loop expects:
 
   * `tool.execute_action(action)` — sync.
   * `await tool.async_execute_action(action)` — async (parallel tool calls).
-
-This replaces the old `MonitoredTool` + `build_monitored_env_tool` +
-`_dedup_stop_actions`: there is no per-leaf wrapping and no per-leaf STOP append —
-an `AgentView` is a single surface over `task.action_set` (which already carries STOP),
-and the task's `Toolbox` dispatches internally.
 """
 
 import logging
@@ -38,10 +33,10 @@ logger = logging.getLogger(__name__)
 # `from cube_harness.tool import Budget` keep working. Canonical home
 # is `cube_harness.budget`. `AgentStop` (the clean end-of-episode signal,
 # raised by cube-standard's AgentView) is re-exported for the same reason.
-__all__ = ["Budget", "BudgetExceeded", "AgentStop", "RecordingTaskTool", "build_agent_tools"]
+__all__ = ["Budget", "BudgetExceeded", "AgentStop", "MonitoredTool", "build_agent_tools"]
 
 
-class RecordingTaskTool:
+class MonitoredTool:
     """Wraps a cube-standard `AgentView` to add budget enforcement, `ToolCallEvent`
     emission, and the per-action `finished()` / `evaluate()` cadence.
 
@@ -156,8 +151,8 @@ class RecordingTaskTool:
             raise AgentStop(obs)
 
 
-def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
-    """Build one `RecordingTaskTool` per agent seat from `task.agent_roles()`.
+def build_agent_tools(task: Task, streamer: Any) -> list[MonitoredTool]:
+    """Build one `MonitoredTool` per agent seat from `task.agent_roles()`.
 
     Walks the roster (`agent_roles()` -> {role: count}) and grabs one `AgentView` per
     seat via `task.get_agent_view(role)` — called `count` times per role. The seat index
@@ -170,12 +165,12 @@ def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
     emit = streamer.emit
     budget = streamer.budget
     parent_event_id_getter = streamer.current_parent_event_id
-    tools: list[RecordingTaskTool] = []
+    tools: list[MonitoredTool] = []
     for role, count in task.agent_roles().items():
         for _ in range(count):
             agent_view = task.get_agent_view(role)
             tools.append(
-                RecordingTaskTool(
+                MonitoredTool(
                     agent_view,
                     task,
                     emit,

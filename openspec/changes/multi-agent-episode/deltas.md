@@ -10,7 +10,7 @@
   `task.get_agent_view(role)` once per seat — the task owns the seat index), builds one
   agent per seat, drives them under a scheduler, finalizes per-agent + episode. Single-agent
   `Episode` = the N=1 fast path (default roster `{None: 1}` → one seat).
-- **`RecordingTaskTool`** (`tool` spec) — wraps a cube-standard `AgentView` (one per seat)
+- **`MonitoredTool`** (`tool` spec) — wraps a cube-standard `AgentView` (one per seat)
   to add budget enforcement, `ToolCallEvent` emission, and the per-action
   `finished()`/`evaluate()` cadence; carries `agent_id` + `role`.
 - **Scheduler** (`episode` spec) — v1 `turn-based` (round-robin, sequential, sync, joint
@@ -24,7 +24,7 @@
 ## MODIFIED (provisional)
 
 - **`AgentConfig.make()`** (`agent` spec) — takes per-seat identity from the seat's
-  `RecordingTaskTool` (`make(action_set, agent_id=..., role=...)`), so one `AgentConfig`
+  `MonitoredTool` (`make(action_set, agent_id=..., role=...)`), so one `AgentConfig`
   yields N correctly-shaped agents. `role`/`agent_id` come from the `AgentView` behind
   cube-standard's `agent_roles()` seam (`role=None`→`"agent"`, else `"{role}-{seat}"`).
   v1 agents ignore `role` (homogeneous); per-role heterogeneous configs (a different

@@ -3,7 +3,7 @@
 The Budget is the harness-side accounting object for one episode:
 configured caps (agent steps, tool calls, cost, tokens, wallclock) and the
 live counters bumped as the agent runs. `EventStreamer.on_step()` /
-`.on_llm_call()` bump on the relevant boundaries; `RecordingTaskTool` checks
+`.on_llm_call()` bump on the relevant boundaries; `MonitoredTool` checks
 `Budget.exhausted` before each dispatch and raises `BudgetExceeded`.
 
 Lives in its own module (not `tool.py`) because Budget is a cross-cutting
@@ -20,7 +20,7 @@ from pydantic import Field, PrivateAttr
 
 
 class Budget(TypedBaseModel):
-    """Per-episode resource budget enforced by `RecordingTaskTool` + `EventStreamer`.
+    """Per-episode resource budget enforced by `MonitoredTool` + `EventStreamer`.
 
     Caps:
       - `max_agent_steps`: agent loop iterations (one `Agent.step()` call).
@@ -36,11 +36,11 @@ class Budget(TypedBaseModel):
       - `cost_usd` / `prompt_tokens` / `completion_tokens` — by
         `EventStreamer.on_llm_call()` per LLM API call (cumulative
         across multi-LLM-call steps).
-      - `tool_calls` — by `RecordingTaskTool._record_tool_call`.
+      - `tool_calls` — by `MonitoredTool._record_tool_call`.
       - `started_at` — set once at construction; elapsed time derived from it.
 
     `Budget.exhausted` returns True iff any configured cap is at-or-past
-    its limit. `RecordingTaskTool` raises `BudgetExceeded(BaseException)`
+    its limit. `MonitoredTool` raises `BudgetExceeded(BaseException)`
     when it is. Agents can also introspect the live budget via
     `self._recorder.budget` for graceful self-stop and prompt-injection
     ("you have X% budget left") — see `Budget.__str__`.
@@ -70,7 +70,7 @@ class Budget(TypedBaseModel):
 
     def bump_tool_calls(self) -> None:
         """Atomic +1 on `tool_calls`. Called by `_record_tool_call`
-        from RecordingTaskTool workers — may run on multiple threads in
+        from MonitoredTool workers — may run on multiple threads in
         parallel."""
         with self._lock:
             self.tool_calls += 1
@@ -100,7 +100,7 @@ class Budget(TypedBaseModel):
     @property
     def exhausted(self) -> bool:
         """True iff any configured cap is at-or-past its limit. Checked
-        by RecordingTaskTool on entry to every execute_action and by
+        by MonitoredTool on entry to every execute_action and by
         EventStreamer after every LLM call (via `on_llm_call`).
 
         Lock-protected so the multi-field read is coherent against
@@ -175,7 +175,7 @@ class Budget(TypedBaseModel):
 
 
 class BudgetExceeded(BaseException):
-    """Raised by `RecordingTaskTool` wrappers when the per-episode budget is exhausted.
+    """Raised by `MonitoredTool` wrappers when the per-episode budget is exhausted.
 
     Subclasses `BaseException` (not `Exception`) so an agent's
     `try / except Exception` cannot swallow it. The Episode `try/except`

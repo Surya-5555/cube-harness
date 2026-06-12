@@ -21,7 +21,7 @@ Target first deliverable: a real multi-agent CUBE next week.
 
 ### 1. `MultiAgentEpisode` (a sibling of `Episode`)
 A new runtime object. Today's `Episode` drives one agent loop; `MultiAgentEpisode` builds
-the task once, calls `build_agent_tools(task, streamer)` (one `RecordingTaskTool` per seat,
+the task once, calls `build_agent_tools(task, streamer)` (one `MonitoredTool` per seat,
 each wrapping an `AgentView`), builds one agent per seat, and drives them under a
 **scheduler**. Single-agent `Episode` stays as the **N=1 fast path** (no scheduler) — both
 finalize the same way.
@@ -35,7 +35,7 @@ seats = [agent_config.make(env_tool.action_set, agent_id=env_tool.agent_id, role
          for env_tool in build_agent_tools(task, streamer)]
 ```
 
-So **`AgentConfig.make()` gains identity from the seat's `RecordingTaskTool`** (`agent_id`,
+So **`AgentConfig.make()` gains identity from the seat's `MonitoredTool`** (`agent_id`,
 `role`, and the per-agent `action_set`). One config, N right-shaped agents. *(Heterogeneous
 agents — different policies per role — is a forward extension: an `AgentConfig` per role / a
 mapping. Out of v1.)*
@@ -80,7 +80,7 @@ flowchart TB
   end
   AR["MultiAgentEpisode · scheduler (turn-based v1)"]
   TC -->|make| TASK[("Task · shared world")]
-  TASK -->|"agent_roles → get_agent_view"| TTS["RecordingTaskTool · 1..N<br/>per-seat AgentView + agent_id"]
+  TASK -->|"agent_roles → get_agent_view"| TTS["MonitoredTool · 1..N<br/>per-seat AgentView + agent_id"]
   AC -->|"make(per seat tool)"| AGS["Agent · 1..N"]
   AR -->|polls| AGS
   AGS -->|execute_action → obs| TTS
@@ -99,9 +99,9 @@ Fixed N agents · turn-based · homogeneous (one `AgentConfig` parameterized per
 ## Settled in v1 (shipped)
 
 - `AgentConfig.make(action_set, agent_id=..., role=...)` — identity comes from the seat's
-  `RecordingTaskTool`; v1 agents ignore `role` (homogeneous).
+  `MonitoredTool`; v1 agents ignore `role` (homogeneous).
 - Termination = all-seats-retired OR joint budget exhausted (see §5).
-- Per-step `evaluate` cadence lives in `RecordingTaskTool` (the `AgentView` eval callback
+- Per-step `evaluate` cadence lives in `MonitoredTool` (the `AgentView` eval callback
   → `EvaluationEvent` parented to the just-recorded `ToolCallEvent`), not in `agent.run`.
 
 ## Open decisions (deferred past v1)

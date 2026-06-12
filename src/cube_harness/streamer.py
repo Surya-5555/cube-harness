@@ -5,7 +5,7 @@ The streamer is attached to each event-producing component:
   - `LLM.attach_recorder(streamer)` — every `.call()` emits an
     `LLMCallEvent`. The streamer stashes the latest `LLMCallEvent.id`
     so subsequent `ToolCallEvent`s can parent under it.
-  - `RecordingTaskTool` (Episode-installed) — every `.execute_action()`
+  - `MonitoredTool` (Episode-installed) — every `.execute_action()`
     emits a `ToolCallEvent` with `parent_event_id` resolved via the
     streamer's `current_parent_event_id()` getter.
 
@@ -106,7 +106,7 @@ class EventStreamer:
 
     `current_parent_event_id()` returns the id of the most recent
     `LLMCallEvent`, or `RESET_PARENT_EVENT_ID` if no LLM call has
-    fired yet. Used by `RecordingTaskTool`'s `parent_event_id_getter` so
+    fired yet. Used by `MonitoredTool`'s `parent_event_id_getter` so
     each ToolCallEvent parents under the LLM call that spawned it.
     """
 
@@ -164,7 +164,7 @@ class EventStreamer:
     def emit(self, te: TrajectoryEvent) -> str:
         """Fold stats + forward to sinks. Returns the event's id.
 
-        Sole event-flow entry point. LLM producers, RecordingTaskTool, and
+        Sole event-flow entry point. LLM producers, MonitoredTool, and
         the Episode-only boundary helpers all funnel through here so
         every event flows through the same stats fold + sink fan-out.
 
@@ -249,7 +249,7 @@ class EventStreamer:
             )
         self.emit(TrajectoryEvent(output=event, start_time=start, end_time=end))
         # Enforce AFTER emit so the LLM call that crossed the cap is on
-        # disk before we abort. Mirrors what RecordingTaskTool does on
+        # disk before we abort. Mirrors what MonitoredTool does on
         # tool dispatch.
         if self.budget is not None and self.budget.exhausted:
             raise BudgetExceeded()
@@ -321,7 +321,7 @@ class EventStreamer:
         last action; `None` only when no tool call has fired yet.
 
         The step-wise flavor (`is_terminal=False`) is emitted by
-        `RecordingTaskTool` directly — this API surfaces the terminal path
+        `MonitoredTool` directly — this API surfaces the terminal path
         only.
         """
         ev = EvaluationEvent(
@@ -333,7 +333,7 @@ class EventStreamer:
         ts = time.time()
         self.emit(TrajectoryEvent(output=ev, start_time=ts, end_time=ts))
 
-    # ----- read-only state surfaced for RecordingTaskTool's getter ----------
+    # ----- read-only state surfaced for MonitoredTool's getter ----------
 
     def current_parent_event_id(self) -> str:
         """The id of the most recently emitted LLMCallEvent, or

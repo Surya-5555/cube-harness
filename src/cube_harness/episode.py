@@ -233,7 +233,7 @@ class Episode:
 
                 # 3. Build budget + streamer + install monitoring. The
                 # streamer is the single event fan-out: producers (LLM,
-                # RecordingTaskTool) emit through `streamer.emit(...)`, which
+                # MonitoredTool) emit through `streamer.emit(...)`, which
                 # folds stats counters AND forwards to sinks (today
                 # FileStorage; OTel + RL HTTP plug in additively via
                 # EventStreamerConfig). Event numbering is owned by
@@ -251,7 +251,7 @@ class Episode:
                 )
                 streamer._sinks.extend(self.config.recorder_config.extra_sinks)
                 # 4. Build the agent-facing tool the agent drives: a
-                # `RecordingTaskTool` over cube-standard's `AgentView`
+                # `MonitoredTool` over cube-standard's `AgentView`
                 # (`task.agent_roles()`, single-agent = one seat). The `Task`
                 # itself is never handed to the agent — only the obs-in/action-out
                 # view. The task keeps its concrete tool so its own
@@ -300,7 +300,7 @@ class Episode:
                 # `step()`). Errors propagate so callers see the real
                 # exception; `finally` still finalizes the metadata.
                 # is_terminal=True distinguishes this from any step-wise
-                # EvaluationEvents emitted by RecordingTaskTool during the run.
+                # EvaluationEvents emitted by MonitoredTool during the run.
                 # If evaluate raises, record the failure as an AgentEvent
                 # (so the trajectory carries the error) before re-raising —
                 # the outer except below tags status and propagates to the

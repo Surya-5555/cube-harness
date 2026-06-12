@@ -1,10 +1,10 @@
 """Default Agent.run tests — verify the base class implementation
 reproduces today's gym-style loop and integrates with EventStreamer +
-RecordingTaskTool (the runtime view over cube-standard's AgentView).
+MonitoredTool (the runtime view over cube-standard's AgentView).
 
 Uses a real-but-minimal cube `Task` (a counter tool, no LLM, no infra), so
 the test drives the actual `task.agent_roles()` -> `AgentView` ->
-`RecordingTaskTool` path and stays fast + deterministic. The structural-parity
+`MonitoredTool` path and stays fast + deterministic. The structural-parity
 check for real cubes lives in `cube test <name>`.
 """
 
@@ -45,7 +45,7 @@ class _CounterToolConfig(ToolConfig):
 
 class _MockTask(Task):
     """Minimal real Task: `finished()` returns True after `done_after_n`
-    increments. The agent's `RecordingTaskTool` polls `finished()` after each
+    increments. The agent's `MonitoredTool` polls `finished()` after each
     action and raises `AgentStop` — that's how the loop terminates."""
 
     done_after_n: int = 3
@@ -115,7 +115,7 @@ class _FakeStorage:
 def _setup(task: _MockTask, budget: Budget) -> tuple[EventStreamer, _FakeStorage, object]:
     """Build EventStreamer + storage + the agent-facing env_tool — the way
     Episode does it. Storage owns event numbering. The returned env_tool is a
-    `RecordingTaskTool` over the task's single agent seat; the task keeps its
+    `MonitoredTool` over the task's single agent seat; the task keeps its
     concrete tool."""
     storage = _FakeStorage()
     streamer = EventStreamer(trajectory_id="t", storage=storage, budget=budget)
@@ -129,7 +129,7 @@ def _setup(task: _MockTask, budget: Budget) -> tuple[EventStreamer, _FakeStorage
 
 
 def test_default_run_completes_when_task_signals_done() -> None:
-    """task.finished() returning True triggers AgentStop from RecordingTaskTool;
+    """task.finished() returning True triggers AgentStop from MonitoredTool;
     Episode catches it normally. The unit test catches here since there's no
     Episode to drive."""
 
@@ -220,7 +220,7 @@ def test_default_run_records_parent_event_id_on_tool_calls() -> None:
 
 
 def test_default_run_propagates_budget_exceeded() -> None:
-    """BudgetExceeded from the RecordingTaskTool must surface through
+    """BudgetExceeded from the MonitoredTool must surface through
     agent.run for Episode to capture."""
 
     task = _make_task(done_after_n=100)

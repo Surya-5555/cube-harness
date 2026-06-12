@@ -1,6 +1,6 @@
-"""Tests for RecordingTaskTool — the runtime view over cube-standard's AgentView.
+"""Tests for MonitoredTool — the runtime view over cube-standard's AgentView.
 
-RecordingTaskTool adds only runtime concerns over `AgentView`: budget enforcement,
+MonitoredTool adds only runtime concerns over `AgentView`: budget enforcement,
 `ToolCallEvent` emission, and the per-action `finished()`/`evaluate()` cadence.
 The task semantics (STOP, dispatch, obs_postprocess, tool-error-as-observation)
 live in `AgentView`/`Task` and are exercised here through the real path.
@@ -15,7 +15,7 @@ from cube.tool import Tool, ToolConfig, tool_action
 
 from cube_harness.core import EvaluationEvent, ToolCallEvent, TrajectoryEvent
 from cube_harness.streamer import EventStreamer
-from cube_harness.tool import AgentStop, Budget, BudgetExceeded, RecordingTaskTool, build_agent_tools
+from cube_harness.tool import AgentStop, Budget, BudgetExceeded, MonitoredTool, build_agent_tools
 
 
 class _EchoTool(Tool):
@@ -79,7 +79,7 @@ class _FakeStorage:
         return [te.output for te in self.events]
 
 
-def _setup(task: _EchoTask, budget: Budget) -> tuple[RecordingTaskTool, _FakeStorage]:
+def _setup(task: _EchoTask, budget: Budget) -> tuple[MonitoredTool, _FakeStorage]:
     storage = _FakeStorage()
     streamer = EventStreamer(trajectory_id="t", storage=storage, budget=budget)
     env_tool = build_agent_tools(task, streamer)[0]
@@ -95,7 +95,7 @@ def _echo(text: str = "hi") -> Action:
 
 def test_build_agent_tools_one_seat_by_default() -> None:
     env_tool, _ = _setup(_make_task(), Budget(max_agent_steps=5))
-    assert isinstance(env_tool, RecordingTaskTool)
+    assert isinstance(env_tool, MonitoredTool)
     assert env_tool.agent_id == "agent"
 
 

@@ -8,7 +8,7 @@ round), and finalizes per-agent reward from the task's **global** `evaluate()`.
 
 v1 scope (the decisions settled in the RFC):
   * fixed N · turn-based · homogeneous · sync;
-  * **joint budget** — one `Budget` shared by every seat's `RecordingTaskTool`;
+  * **joint budget** — one `Budget` shared by every seat's `MonitoredTool`;
   * the episode ends when **all seats are retired OR the budget is exhausted**;
   * per-agent reward comes from `evaluate()` over the joint state — a task maps the
     joint outcome to per-agent reward via `info` (e.g. `info["per_agent"]`).
@@ -28,7 +28,7 @@ from cube.task import TaskConfig
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.budget import Budget, BudgetExceeded
 from cube_harness.streamer import EventStreamer
-from cube_harness.tool import AgentStop, RecordingTaskTool, build_agent_tools
+from cube_harness.tool import AgentStop, MonitoredTool, build_agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class Seat:
 
     agent_id: str
     agent: Agent
-    env_tool: RecordingTaskTool
+    env_tool: MonitoredTool
     obs: Observation
     active: bool = True
 
@@ -102,7 +102,7 @@ def run_turn_based(seats: list[Seat], budget: Budget, max_rounds: int = 1000) ->
 class MultiAgentEpisode:
     """Drives N agents over one shared task, turn-based, under a joint budget.
 
-    Thin orchestrator: builds the task, one `RecordingTaskTool` seat per
+    Thin orchestrator: builds the task, one `MonitoredTool` seat per
     `AgentView` in `task.agent_roles()`, one agent per seat (from a single
     `AgentConfig`), runs the turn-based scheduler, then scores per-agent reward
     from the task's global `evaluate()`.
