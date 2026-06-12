@@ -344,7 +344,7 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
         """Return True if the task has reached a terminal state (done() or fail() called)."""
         return self._computer._is_done
 
-    def obs_postprocess(self, obs: Observation) -> Observation:
+    def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
         """Post-process raw observation before returning to the agent."""
         if self.use_som:
             return self._postprocess_som(obs)

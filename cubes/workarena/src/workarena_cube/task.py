@@ -152,7 +152,7 @@ class WorkArenaTask(Task):
         return self._validate_cache  # type: ignore[return-value]
 
     @override
-    def obs_postprocess(self, obs: Observation) -> Observation:
+    def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
         # Invalidate the per-action validate cache at the post-action boundary that
         # BOTH views share: the gym `step` runs obs_postprocess once per batch, and
         # the agent's `AgentView.execute_action` runs it once per action. So the next

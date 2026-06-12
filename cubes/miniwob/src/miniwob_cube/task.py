@@ -49,7 +49,7 @@ return [WOB_REWARD_GLOBAL, WOB_RAW_REWARD_GLOBAL, WOB_REWARD_REASON, WOB_DONE_GL
     def finished(self, obs: Observation | None = None) -> bool:
         return self.tool.evaluate_js("() => {return WOB_DONE_GLOBAL;}")
 
-    def obs_postprocess(self, obs: Observation) -> Observation:
+    def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
         contents = []
         for content in obs.contents:
             if content.name == "screenshot" and isinstance(content.data, Image.Image):
