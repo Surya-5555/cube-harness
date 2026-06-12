@@ -1,6 +1,6 @@
 """Tests for the turn-based multi-agent arena (cube_harness.multi_agent).
 
-Drives a real 2-seat cube `Task` (one shared counter, two `TaskTool` seats) through
+Drives a real 2-seat cube `Task` (one shared counter, two `AgentView` seats) through
 the scheduler + `MultiAgentEpisode`, validating: round-robin, joint budget, the
 all-retired-or-exhausted termination, and per-agent reward from the global evaluate().
 """
@@ -46,20 +46,20 @@ class _TwoSeatTask(Task):
     def agent_roles(self) -> dict[str | None, int]:
         return {"player": self.n_seats}
 
-    def make_tool(self, role=None):
+    def _make_tool(self, role=None):
         # Shared-world topology: every seat acts through the ONE shared counter tool
-        # (the task's own self.tool); role=None makes the real instance (memoized).
-        return super().make_tool(role) if role is None else self.tool
+        # (the task's own self._tool); role=None makes the real instance (memoized).
+        return super()._make_tool(role) if role is None else self._tool
 
     def reset(self) -> tuple[Observation, dict]:
         return Observation.from_text("go"), {}
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict]:
-        c = self.tool.counter
+        c = self._tool.counter
         return float(c), {"counter": c, "per_agent": {f"player-{i}": float(c) for i in range(self.n_seats)}}
 
     def finished(self, obs: Observation | None = None) -> bool:
-        return self.tool.counter >= self.done_at
+        return self._tool.counter >= self.done_at
 
 
 class _TwoSeatTaskConfig(TaskConfig):
@@ -145,7 +145,7 @@ def test_round_robin_retires_one_seat_independently() -> None:
     rounds, exhausted = run_turn_based(seats, budget)
     assert not exhausted
     assert {s.agent_id for s in seats if not s.active} == {"player-0", "player-1"}  # both eventually retired
-    assert task.tool.counter == 3  # only player-1's three incs landed
+    assert task._tool.counter == 3  # only player-1's three incs landed
 
 
 def test_joint_budget_ends_episode_for_everyone() -> None:
@@ -157,7 +157,7 @@ def test_joint_budget_ends_episode_for_everyone() -> None:
     _rounds, exhausted = run_turn_based(seats, budget)
     assert exhausted
     assert all(not s.active for s in seats)
-    assert task.tool.counter == 2  # exactly the budgeted number of tool calls landed
+    assert task._tool.counter == 2  # exactly the budgeted number of tool calls landed
 
 
 # --- MultiAgentEpisode end-to-end -------------------------------------------
@@ -180,7 +180,7 @@ def test_multi_agent_episode_per_agent_reward() -> None:
 
 
 def test_multi_agent_episode_three_seats() -> None:
-    """N>2 works the same — one seat per agent_tools()."""
+    """N>2 works the same — one seat per agent_roles() count."""
     budget = Budget(max_agent_steps=1000)
     ep = MultiAgentEpisode(
         task_config=_TwoSeatTaskConfig(n_seats=3, done_at=6),

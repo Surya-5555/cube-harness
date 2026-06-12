@@ -61,7 +61,6 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
     metadata: TerminalBench2TaskMetadata  # type: ignore[assignment]
 
     validate_per_step: bool = False
-    accept_agent_stop: bool = True
     oracle_mode: bool = False
 
     # Container-side paths — always under /tmp so logic works uniformly on root
@@ -82,7 +81,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             )
         return self.execution_info
 
-    def _build_tool(self) -> None:
+    def _make_tool(self, role: str | None = None) -> ContainerTerminalTool:
         # NON-ROOT DOCKER WORKAROUND
         # tbench2 task images assume root-by-default Docker semantics (Daytona,
         # local Docker, AWS, Azure all give the container `USER root`). On
@@ -118,14 +117,14 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         )
         # /auto-fix(418)
         self._working_dir = new_wd
-        self._tool = self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
+        return self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
 
     def reset(self) -> tuple[Observation, dict[str, Any]]:
-        self.tool.reset()
+        self._tool.reset()
 
         # Fast-fail if the container sandbox is broken (all bash commands return
         # exit_code=1 with no output). Avoids wasting 100 agent steps on a dead env.
-        health = self.tool.bash("echo ok", timeout=15)
+        health = self._tool.bash("echo ok", timeout=15)
         if "ok" not in health:
             raise RuntimeError(f"Container health check failed for {self.metadata.id!r}: {health!r}")
 
@@ -145,7 +144,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             solution_dir = task_path / "solution"
             if self._working_dir != "/app":
                 self._rewrite_files_locally(solution_dir, {"/app/": f"{self._working_dir}/"})
-            self.tool.bash(f"mkdir -p {self._solution_dir}")
+            self._tool.bash(f"mkdir -p {self._solution_dir}")
             self._upload_directory(solution_dir, self._solution_dir)
             # Pre-install python3 + uv so oracle solve.sh scripts work on minimal
             # images (e.g. bare LaTeX) that ship without python3.  In non-oracle
@@ -176,7 +175,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         # Upload test harness to the sandbox
         if self._task_path is not None:
             tests_dir = self._task_path / "tests"
-            self.tool.bash(f"mkdir -p {self._tests_dir} {self._logs_verifier_dir}")
+            self._tool.bash(f"mkdir -p {self._tests_dir} {self._logs_verifier_dir}")
             if tests_dir.exists():
                 # Rewrite hardcoded paths in local test files before uploading.
                 # Done in Python (not via sed) to avoid shell-quoting pitfalls
@@ -196,7 +195,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
                     path_subs["'/app'"] = f"'{self._working_dir}'"
                 self._rewrite_files_locally(tests_dir, path_subs)
                 self._upload_directory(tests_dir, self._tests_dir)
-                self.tool.bash(f"chmod +x {self._tests_dir}/test.sh")
+                self._tool.bash(f"chmod +x {self._tests_dir}/test.sh")
 
         # Pre-install `uv` + fake HOME so test.sh's
         #   curl https://astral.sh/uv/…/install.sh | sh  →  source $HOME/.local/bin/env
@@ -214,7 +213,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         # `max_timeout` (900s, an abuse guard for the *agent*) and truncates output —
         # which silently killed the verifier at 900s for the 20 tasks whose
         # max_test_timeout_sec exceeds 900 (e.g. reshard-c4-data=3600, sam-cell-seg=7200).
-        output = self.tool.bash_unlimited(
+        output = self._tool.bash_unlimited(
             f"export HOME=/tmp/fakehome && bash {self._tests_dir}/test.sh",
             timeout=self._exec.max_test_timeout_sec,
         )
@@ -225,11 +224,11 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         # report survives the heavy eval-time `apt`/`uvx` install logs that
         # routinely truncate pytest's summary out of the captured stdout, and it
         # is immune to pytest text-format drift.
-        ctrf_raw = self.tool.bash(f"cat {self._logs_verifier_dir}/ctrf.json 2>/dev/null || true")
+        ctrf_raw = self._tool.bash(f"cat {self._logs_verifier_dir}/ctrf.json 2>/dev/null || true")
         test_results, verifier_ran = self._parse_verifier_results(ctrf_raw, output)
 
         # Read reward written by test.sh
-        reward_output = self.tool.bash(f"cat {self._logs_verifier_dir}/reward.txt 2>/dev/null || echo 0")
+        reward_output = self._tool.bash(f"cat {self._logs_verifier_dir}/reward.txt 2>/dev/null || echo 0")
         try:
             reward = float(reward_output.strip().split()[0])
         except (ValueError, IndexError):
@@ -342,7 +341,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         bootstrap step only) and finally ``pip install uv``.
         """
         marker = "/tmp/fakehome/.local/bin/uv"
-        probe = self.tool.bash(f"test -x {marker} && echo EXISTS || echo MISSING", timeout=15)
+        probe = self._tool.bash(f"test -x {marker} && echo EXISTS || echo MISSING", timeout=15)
         if "EXISTS" in probe:
             return
 
@@ -352,7 +351,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         # on minimal images lacking python3, curl, AND apt sources.  Note: EAI data
         # mounts are read-only and strip the execute bit (mode 0600), so we use
         # ``-f`` for the probe and ``chmod +x`` after copying into the writable HOME.
-        assets_probe = self.tool.bash(
+        assets_probe = self._tool.bash(
             "test -f /opt/cube/uv && test -f /opt/cube/uvx && echo YES || echo NO",
             timeout=15,
         )
@@ -372,13 +371,13 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             # silently producing reward=0 on tasks the agent solved correctly.
             # When the probe fails we fall through to the pip-install path so a
             # stale bundle in any user's cube_assets is self-healing.
-            version_probe = self.tool.bash(
+            version_probe = self._tool.bash(
                 "/opt/cube/uvx --help 2>&1 | grep -q -- ' --with ' && echo OK || echo OLD",
                 timeout=15,
             )
             if "OK" in version_probe:
                 logger.info("Using mounted /opt/cube/uv for uv install (version supports --with)")
-                self.tool.bash(
+                self._tool.bash(
                     "export HOME=/tmp/fakehome && "
                     "mkdir -p $HOME/.local/bin && "
                     "cp /opt/cube/uv /opt/cube/uvx $HOME/.local/bin/ && "
@@ -395,14 +394,14 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
 
         # Some minimal images (e.g. bare LaTeX) ship without python3.
         # Try root apt-get first (works on Docker/local backends).
-        has_python = self.tool.bash("python3 --version 2>/dev/null && echo HAS_PYTHON || echo NO_PYTHON", timeout=15)
+        has_python = self._tool.bash("python3 --version 2>/dev/null && echo HAS_PYTHON || echo NO_PYTHON", timeout=15)
         if "NO_PYTHON" in has_python:
             logger.info("python3 not found — trying apt-get install (root path)")
-            self.tool.bash(
+            self._tool.bash(
                 "apt-get update -qq && apt-get install -y --no-install-recommends python3 python3-pip 2>&1",
                 timeout=120,
             )
-            has_python = self.tool.bash(
+            has_python = self._tool.bash(
                 "python3 --version 2>/dev/null && echo HAS_PYTHON || echo NO_PYTHON", timeout=15
             )
 
@@ -411,7 +410,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             # root and extract them to /tmp/python3_pkg.
             logger.info("root apt-get failed — trying non-root apt download + dpkg-deb extract")
             self._install_python3_nonroot()
-            has_python = self.tool.bash(
+            has_python = self._tool.bash(
                 "test -x /tmp/python3_pkg/usr/bin/python3.12 && echo HAS_PYTHON || echo NO_PYTHON", timeout=10
             )
 
@@ -421,14 +420,14 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
 
         logger.info("Pre-installing uv into /tmp/fakehome/.local/bin (backend-portable workaround)")
 
-        use_extracted = "exists" in self.tool.bash(
+        use_extracted = "exists" in self._tool.bash(
             "test -x /tmp/python3_pkg/usr/bin/python3.12 && echo exists || echo missing", timeout=5
         )
 
         if use_extracted:
             # Bootstrap pip via get-pip.py (SSL verification disabled for this
             # one-time download from bootstrap.pypa.io; pip itself uses certifi).
-            self.tool.write_file(
+            self._tool.write_file(
                 "/tmp/_dl_pip.py",
                 "import ssl, urllib.request as R\n"
                 "ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)\n"
@@ -458,7 +457,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
                 "printf 'export PATH=\"$HOME/.local/bin:$PATH\"\\n' > $HOME/.local/bin/env"
             )
 
-        result = self.tool.bash(cmd, timeout=300)
+        result = self._tool.bash(cmd, timeout=300)
         if not result or "error" in result.lower():
             logger.warning("uv pre-install may have failed; test.sh will fall back to curl: %s", result[:200])
 
@@ -473,7 +472,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             "python3.12-minimal libpython3.12-minimal libpython3.12-stdlib python3-minimal 2>&1 && "
             'for deb in /tmp/*.deb; do dpkg-deb --extract "$deb" /tmp/python3_pkg/; done'
         )
-        result = self.tool.bash(cmd, timeout=180)
+        result = self._tool.bash(cmd, timeout=180)
         logger.info("python3 nonroot install: %s", (result or "")[-300:])
 
     def finished(self, obs: Observation | None = None) -> bool:

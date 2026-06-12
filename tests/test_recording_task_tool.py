@@ -1,9 +1,9 @@
-"""Tests for RecordingTaskTool — the runtime view over cube-standard's TaskTool.
+"""Tests for RecordingTaskTool — the runtime view over cube-standard's AgentView.
 
-RecordingTaskTool adds only runtime concerns over `TaskTool`: budget enforcement,
+RecordingTaskTool adds only runtime concerns over `AgentView`: budget enforcement,
 `ToolCallEvent` emission, and the per-action `finished()`/`evaluate()` cadence.
 The task semantics (STOP, dispatch, obs_postprocess, tool-error-as-observation)
-live in `TaskTool`/`Task` and are exercised here through the real path.
+live in `AgentView`/`Task` and are exercised here through the real path.
 """
 
 import asyncio
@@ -49,10 +49,10 @@ class _EchoTask(Task):
         return Observation.from_text("ready"), {}
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict]:
-        return (1.0 if self.tool.calls >= self.done_after_n else 0.0), {"calls": self.tool.calls}
+        return (1.0 if self._tool.calls >= self.done_after_n else 0.0), {"calls": self._tool.calls}
 
     def finished(self, obs: Observation | None = None) -> bool:
-        return self.tool.calls >= self.done_after_n
+        return self._tool.calls >= self.done_after_n
 
 
 def _make_task(done_after_n: int = 99, validate_per_step: bool = False) -> _EchoTask:
@@ -114,7 +114,7 @@ def test_execute_action_dispatches_and_records() -> None:
     obs = env_tool.execute_action(_echo("hello"))
     assert isinstance(obs, Observation)
     assert "hello" in obs.to_markdown()
-    assert task.tool.calls == 1
+    assert task._tool.calls == 1
     assert sum(1 for e in storage.outputs() if isinstance(e, ToolCallEvent)) == 1
 
 
@@ -175,7 +175,7 @@ def test_budget_exhausted_raises_before_dispatch() -> None:
     except BudgetExceeded:
         raised = True
     assert raised
-    assert task.tool.calls == 1  # 2nd never dispatched
+    assert task._tool.calls == 1  # 2nd never dispatched
 
 
 def test_async_execute_action_dispatches_and_records() -> None:
@@ -184,5 +184,5 @@ def test_async_execute_action_dispatches_and_records() -> None:
     obs = asyncio.run(env_tool.async_execute_action(_echo("async")))
     assert isinstance(obs, Observation)
     assert "async" in obs.to_markdown()
-    assert task.tool.calls == 1
+    assert task._tool.calls == 1
     assert sum(1 for e in storage.outputs() if isinstance(e, ToolCallEvent)) == 1

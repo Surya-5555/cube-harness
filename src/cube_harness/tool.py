@@ -1,9 +1,9 @@
-"""RecordingTaskTool — the runtime's instrumented view over a cube-standard `TaskTool`.
+"""RecordingTaskTool — the runtime's instrumented view over a cube-standard `AgentView`.
 
-The agent drives a `TaskTool` (cube-standard's agent-facing view of a `Task`:
+The agent drives an `AgentView` (cube-standard's agent-facing view of a `Task`:
 dynamic `action_set` + `execute_action(action) -> Observation`). All the *task
 semantics* — STOP (`final_step` -> `AgentStop`), tool dispatch, `obs_postprocess`,
-and tool-error-becomes-observation — live in `TaskTool` / `Task`. This module adds
+and tool-error-becomes-observation — live in `AgentView` / `Task`. This module adds
 only the *runtime* concerns the harness owns:
 
   * budget enforcement (`BudgetExceeded`),
@@ -18,7 +18,7 @@ only the *runtime* concerns the harness owns:
 
 This replaces the old `MonitoredTool` + `build_monitored_env_tool` +
 `_dedup_stop_actions`: there is no per-leaf wrapping and no per-leaf STOP append —
-a `TaskTool` is a single surface over `task.action_set` (which already carries STOP),
+an `AgentView` is a single surface over `task.action_set` (which already carries STOP),
 and the task's `Toolbox` dispatches internally.
 """
 
@@ -26,8 +26,8 @@ import logging
 import time
 from typing import Any, Callable
 
-from cube.core import Action, ActionSchema, Observation
-from cube.task import AgentStop, Task, TaskTool
+from cube.core import Action, ActionSchema, AgentStop, Observation
+from cube.task import AgentView, Task
 
 from cube_harness.budget import Budget, BudgetExceeded
 from cube_harness.core import EvaluationEvent, ToolCallEvent, TrajectoryEvent
@@ -37,15 +37,15 @@ logger = logging.getLogger(__name__)
 # Re-export Budget + BudgetExceeded so existing call sites
 # `from cube_harness.tool import Budget` keep working. Canonical home
 # is `cube_harness.budget`. `AgentStop` (the clean end-of-episode signal,
-# raised by cube-standard's TaskTool) is re-exported for the same reason.
+# raised by cube-standard's AgentView) is re-exported for the same reason.
 __all__ = ["Budget", "BudgetExceeded", "AgentStop", "RecordingTaskTool", "build_agent_tools"]
 
 
 class RecordingTaskTool:
-    """Wraps a cube-standard `TaskTool` to add budget enforcement, `ToolCallEvent`
+    """Wraps a cube-standard `AgentView` to add budget enforcement, `ToolCallEvent`
     emission, and the per-action `finished()` / `evaluate()` cadence.
 
-    Holds the `TaskTool` (the agent surface) and the live `Task` (for `finished` /
+    Holds the `AgentView` (the agent surface) and the live `Task` (for `finished` /
     `evaluate` / `validate_per_step`). One instance per agent seat — `agent_id`
     tags its events. Construction is per-episode; re-using across episodes is a bug
     (budget + trajectory are episode-scoped).
@@ -53,7 +53,7 @@ class RecordingTaskTool:
 
     def __init__(
         self,
-        task_tool: TaskTool,
+        agent_view: AgentView,
         task: Task,
         emit: "Callable[[TrajectoryEvent], str]",
         budget: Budget,
@@ -61,7 +61,7 @@ class RecordingTaskTool:
         agent_id: str = "agent",
         role: str | None = None,
     ) -> None:
-        self._task_tool = task_tool
+        self._agent_view = agent_view
         self._task = task
         self._emit = emit
         self._budget = budget
@@ -69,12 +69,12 @@ class RecordingTaskTool:
         self.agent_id = agent_id
         self.role = role
         self._last_tool_event_id = "no-parent"
-        # The per-step eval now fires inside TaskTool.execute_action (cube-standard);
+        # The per-step eval now fires inside AgentView.execute_action (cube-standard);
         # we recuperate (reward, info) through this callback and emit the EvaluationEvent
         # AFTER recording the ToolCallEvent so its parent id is correct. The harness no
         # longer reaches into task.validate_per_step / task.evaluate for the per-step case.
         self._pending_eval: tuple[float, dict] | None = None
-        self._task_tool.set_eval_callback(self._on_eval)
+        self._agent_view.set_eval_callback(self._on_eval)
 
     def _on_eval(self, reward: float, info: dict) -> None:
         self._pending_eval = (reward, info)
@@ -83,21 +83,21 @@ class RecordingTaskTool:
 
     @property
     def action_set(self) -> list[ActionSchema]:
-        """The actions legal right now — delegates to the `TaskTool` (dynamic;
+        """The actions legal right now — delegates to the `AgentView` (dynamic;
         already includes STOP when the task accepts it)."""
-        return self._task_tool.action_set
+        return self._agent_view.action_set
 
     # --- monitored execution ---
 
     def execute_action(self, action: Action) -> Observation:
-        """Sync dispatch. Budget -> `TaskTool.execute_action` (which may raise
+        """Sync dispatch. Budget -> `AgentView.execute_action` (which may raise
         `AgentStop` on STOP and may fire the eval callback) -> record -> emit any
         per-step eval -> finished check. Returns the observation only."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
         self._pending_eval = None
         start = time.time()
-        obs = self._task_tool.execute_action(action)
+        obs = self._agent_view.execute_action(action)
         end = time.time()
         self._record_tool_call(action, obs, start, end)
         self._post_action(obs)
@@ -109,7 +109,7 @@ class RecordingTaskTool:
             raise BudgetExceeded(action=action)
         self._pending_eval = None
         start = time.time()
-        obs = await self._task_tool.async_execute_action(action)
+        obs = await self._agent_view.async_execute_action(action)
         end = time.time()
         self._record_tool_call(action, obs, start, end)
         self._post_action(obs)
@@ -127,14 +127,14 @@ class RecordingTaskTool:
     def _record_tool_call(self, action: Action, obs: Observation, start: float, end: float) -> str:
         """Emit one `ToolCallEvent` and bump the budget. The error text is folded into
         `obs` (errors are observations, non-terminal); the *structured* error is also
-        recorded on the event for telemetry/stats — `Task._last_action_error` holds it
+        recorded on the event for telemetry/stats — `obs.error` carries the StepError
         for the action just dispatched (None when it succeeded)."""
         event = ToolCallEvent(
             parent_event_id=self._parent_event_id(),
             action_id=action.id,
             action=action,
             obs=obs,
-            error=getattr(self._task, "_last_action_error", None),
+            error=obs.error,
             agent_id=self.agent_id,
         )
         self._emit(TrajectoryEvent(output=event, start_time=start, end_time=end))
@@ -144,7 +144,7 @@ class RecordingTaskTool:
 
     def _post_action(self, obs: Observation) -> None:
         """The runtime cadence after each action: emit the step-wise `EvaluationEvent`
-        the TaskTool's eval callback just handed us (when `validate_per_step`), parented
+        the AgentView's eval callback just handed us (when `validate_per_step`), parented
         to the ToolCallEvent just recorded; then the `finished()` check that ends the
         episode via `AgentStop` (termination stays the runtime's call)."""
         if self._pending_eval is not None:
@@ -169,25 +169,31 @@ class RecordingTaskTool:
 
 
 def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
-    """Build one `RecordingTaskTool` per agent seat from `task.agent_tools()`.
+    """Build one `RecordingTaskTool` per agent seat from `task.agent_roles()`.
 
-    Single-agent tasks return a one-element list (the default `agent_tools()` =
-    N=1); multi-agent tasks return N, one per seat over the one shared `Task`.
+    Walks the roster (`agent_roles()` -> {role: count}) and, for each role and seat,
+    grabs a per-seat `AgentView` via `task.get_agent_view(role, seat)`. Single-agent
+    tasks have the default roster `{None: 1}` -> one view (`agent_id` "agent");
+    multi-agent tasks yield N views, one per seat over the one shared `Task`.
     `streamer` is an `EventStreamer`; we read `.emit`, `.budget`, and
     `.current_parent_event_id`.
     """
     emit = streamer.emit
     budget = streamer.budget
     parent_event_id_getter = streamer.current_parent_event_id
-    return [
-        RecordingTaskTool(
-            task_tool,
-            task,
-            emit,
-            budget,
-            parent_event_id_getter,
-            agent_id=getattr(task_tool, "agent_id", "agent"),
-            role=getattr(task_tool, "role", None),
-        )
-        for task_tool in task.agent_tools()
-    ]
+    tools: list[RecordingTaskTool] = []
+    for role, count in task.agent_roles().items():
+        for seat in range(count):
+            agent_view = task.get_agent_view(role, seat=seat)
+            tools.append(
+                RecordingTaskTool(
+                    agent_view,
+                    task,
+                    emit,
+                    budget,
+                    parent_event_id_getter,
+                    agent_id=agent_view.agent_id,
+                    role=agent_view.role,
+                )
+            )
+    return tools

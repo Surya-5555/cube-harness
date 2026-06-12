@@ -18,7 +18,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from cube.infra_utils import open_tunnel
@@ -111,14 +111,14 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
     _chromium_port: int = PrivateAttr(default=_CHROMIUM_PORT)
     _vlc_port: int = PrivateAttr(default=_VLC_PORT)
 
-    def model_post_init(self, __context: Any) -> None:
+    def _make_tool(self, role: str | None = None) -> "ComputerBase":
         """Create the Computer tool without a VM — VM is deferred to reset()."""
-        self._tool = self.tool_config.make(container=None)
+        return self.tool_config.make(container=None)  # type: ignore[return-value]
 
     @property
     def _computer(self) -> "ComputerBase":
-        """Return self.tool cast to ComputerBase for type-checker satisfaction."""
-        return self.tool  # type: ignore[return-value]
+        """Return self._tool cast to ComputerBase for type-checker satisfaction."""
+        return self._tool  # type: ignore[return-value]
 
     @property
     def _exec(self) -> OSWorldExecutionInfo:
@@ -291,7 +291,7 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
           6. Return (obs, info)
         """
         self._ensure_vm()
-        self.tool.reset()
+        self._tool.reset()
         task_data = {
             "id": self.metadata.id,
             "instruction": self.metadata.instruction,
@@ -415,7 +415,7 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
     def close(self) -> None:
         """Clean up task resources: stop tool, then close VM handle."""
         logger.info("Closing OSWorldTask: %s", self.metadata.id)
-        super().close()  # calls self.tool.close()
+        super().close()  # calls self._tool.close()
         for tunnel in self._extra_tunnels:
             try:
                 tunnel.terminate()

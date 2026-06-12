@@ -1,10 +1,10 @@
 """Multi-agent arena — a turn-based scheduler over one shared cube-standard `Task`.
 
-`task.agent_tools()` returns N `TaskTool` seats over a single shared `Task`
-(single-agent = N=1). The arena builds one agent per seat (homogeneous v1: one
-`AgentConfig` parameterized by `agent_id`), drives them **turn-based** (round-robin,
-one agent-step per seat per round), and finalizes per-agent reward from the task's
-**global** `evaluate()`.
+`task.agent_roles()` gives the roster ({role: count}); each (role, seat) yields an
+`AgentView` over a single shared `Task` (single-agent = the default `{None: 1}`).
+The arena builds one agent per seat (homogeneous v1: one `AgentConfig` parameterized
+by `agent_id`), drives them **turn-based** (round-robin, one agent-step per seat per
+round), and finalizes per-agent reward from the task's **global** `evaluate()`.
 
 v1 scope (the decisions settled in the RFC):
   * fixed N · turn-based · homogeneous · sync;
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Seat:
-    """One agent occupying one `TaskTool` seat over the shared task."""
+    """One agent occupying one `AgentView` seat over the shared task."""
 
     agent_id: str
     agent: Agent
@@ -103,9 +103,9 @@ class MultiAgentEpisode:
     """Drives N agents over one shared task, turn-based, under a joint budget.
 
     Thin orchestrator: builds the task, one `RecordingTaskTool` seat per
-    `task.agent_tools()`, one agent per seat (from a single `AgentConfig`), runs the
-    turn-based scheduler, then scores per-agent reward from the task's global
-    `evaluate()`.
+    `AgentView` in `task.agent_roles()`, one agent per seat (from a single
+    `AgentConfig`), runs the turn-based scheduler, then scores per-agent reward
+    from the task's global `evaluate()`.
     """
 
     def __init__(

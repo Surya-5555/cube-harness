@@ -113,7 +113,7 @@ class ToolCallEvent(TypedBaseModel):
     Reward / done / info are NOT part of this event:
 
     - `done` propagates as an `AgentStop(BaseException)` raised by the
-      underlying `TaskTool` (cube-standard) when `task.finished()` returns
+      underlying `AgentView` (cube-standard) when `task.finished()` returns
       True. There is no `done` field anywhere in the trajectory.
     - Step-wise reward (when `task.validate_per_step=True`) lives on a
       separate `EvaluationEvent` whose `parent_event_id` references this

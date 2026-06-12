@@ -240,8 +240,8 @@ class Episode:
                     metadata_updates=metadata_updates,
                 )
                 # 4. Build the agent-facing tool the agent drives: a
-                # `RecordingTaskTool` over cube-standard's `TaskTool`
-                # (`task.agent_tools()`, single-agent = one seat). The `Task`
+                # `RecordingTaskTool` over cube-standard's `AgentView`
+                # (`task.agent_roles()`, single-agent = one seat). The `Task`
                 # itself is never handed to the agent — only the obs-in/action-out
                 # view. The task keeps its concrete tool so its own
                 # setup/reset/evaluate/finished reach concrete methods (`bash`,

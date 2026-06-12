@@ -167,7 +167,6 @@ class WAATask(Task):
         tool_config:     ToolConfig            — pass ComputerConfig(...)
         infra:           InfraConfig           — used to launch task VMs.
         validate_per_step: bool                — inherited; default False
-        accept_agent_stop: bool                — inherited; default True
     """
 
     infra: InfraConfig | None = None
@@ -178,13 +177,13 @@ class WAATask(Task):
 
     _resource_handle: ResourceHandle | None = PrivateAttr(default=None)
 
-    def model_post_init(self, __context: Any) -> None:
+    def _make_tool(self, role: str | None = None) -> "ComputerBase":
         """Create the Computer tool without a VM — VM is deferred to reset()."""
-        self._tool = self.tool_config.make(container=None)
+        return self.tool_config.make(container=None)  # type: ignore[return-value]
 
     @property
     def _computer(self) -> "ComputerBase":
-        return self.tool  # type: ignore[return-value]
+        return self._tool  # type: ignore[return-value]
 
     def _os_type(self) -> str:
         """WAA always runs Windows 11."""
@@ -601,7 +600,7 @@ class WAATask(Task):
     def close(self) -> None:
         """Clean up task resources: stop tool and release infra handle."""
         logger.info("Closing WAATask: %s", self.metadata.id)
-        super().close()  # calls self.tool.close()
+        super().close()  # calls self._tool.close()
         if self._resource_handle is not None:
             try:
                 self._resource_handle.close()

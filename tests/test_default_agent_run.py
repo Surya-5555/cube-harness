@@ -1,9 +1,9 @@
 """Default Agent.run tests — verify the base class implementation
 reproduces today's gym-style loop and integrates with EventStreamer +
-RecordingTaskTool (the runtime view over cube-standard's TaskTool).
+RecordingTaskTool (the runtime view over cube-standard's AgentView).
 
 Uses a real-but-minimal cube `Task` (a counter tool, no LLM, no infra), so
-the test drives the actual `task.agent_tools()` -> `TaskTool` ->
+the test drives the actual `task.agent_roles()` -> `AgentView` ->
 `RecordingTaskTool` path and stays fast + deterministic. The structural-parity
 check for real cubes lives in `cube test <name>`.
 """
@@ -54,11 +54,11 @@ class _MockTask(Task):
         return Observation.from_text("ready"), {}
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict]:
-        done = self.tool.counter >= self.done_after_n
-        return (1.0 if done else 0.0), {"counter": self.tool.counter}
+        done = self._tool.counter >= self.done_after_n
+        return (1.0 if done else 0.0), {"counter": self._tool.counter}
 
     def finished(self, obs: Observation | None = None) -> bool:
-        return self.tool.counter >= self.done_after_n
+        return self._tool.counter >= self.done_after_n
 
 
 def _make_task(done_after_n: int = 3) -> _MockTask:
@@ -149,7 +149,7 @@ def test_default_run_completes_when_task_signals_done() -> None:
     # MockAgent has no LLM → no LLMCallEvent. Three rounds emit three
     # ToolCallEvents; the 3rd raises AgentStop AFTER recording.
     assert n_tool == 3
-    assert task.tool.counter == 3
+    assert task._tool.counter == 3
 
 
 def test_default_run_terminates_on_empty_actions() -> None:
@@ -175,7 +175,7 @@ def test_default_run_terminates_on_empty_actions() -> None:
     # No LLM call + empty actions => nothing was emitted by the agent loop.
     assert sum(1 for e in outputs if isinstance(e, LLMCallEvent)) == 0
     assert sum(1 for e in outputs if isinstance(e, ToolCallEvent)) == 0
-    assert task.tool.counter == 0
+    assert task._tool.counter == 0
 
 
 def test_default_run_records_parent_event_id_on_tool_calls() -> None:

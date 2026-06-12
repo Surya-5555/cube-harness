@@ -13,8 +13,8 @@ import re
 from typing import Any
 
 from cube.container import relocate_if_readonly
-from cube.core import ActionSchema, Observation
-from cube.task import STOP_ACTION, RuntimeContext, Task, TaskConfig, TaskExecutionInfo, TaskMetadata
+from cube.core import Observation
+from cube.task import RuntimeContext, Task, TaskConfig, TaskExecutionInfo, TaskMetadata
 
 from cube.tools.terminal import ContainerTerminalTool, TerminalToolConfig
 
@@ -102,7 +102,6 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
     """A single SWE-bench Live task with test-based validation."""
 
     validate_per_step: bool = False
-    accept_agent_stop: bool = True
 
     include_hints: bool = False
     """If True, append hints_text to the problem statement in reset()."""
@@ -126,18 +125,7 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
             )
         return self.execution_info
 
-    def filter_actions(self, actions: list[ActionSchema]) -> list[ActionSchema]:
-        # TODO: remove once cube-standard auto-includes STOP_ACTION in Task.action_set
-        # (upstream fix: Task.action_set appends STOP_ACTION when accept_agent_stop=True,
-        # and STOP_ACTION constant gets the Anthropic-compatible parameters schema).
-        stop = ActionSchema(
-            name=STOP_ACTION.name,
-            description=STOP_ACTION.description,
-            parameters={"type": "object", "properties": {}},
-        )
-        return actions + [stop]
-
-    def _build_tool(self) -> None:
+    def _make_tool(self, role: str | None = None) -> ContainerTerminalTool:
         """Ensure /testbed files are writable and git-safe, then build the tool.
 
         NON-ROOT DOCKER WORKAROUND. Upstream SWE-bench-Live images assume
@@ -199,20 +187,20 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
                 timeout=30,
             )
             logger.info("Editable-install path update: %s", result.stdout.strip())
-        self._tool = self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
+        return self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
 
     def reset(self) -> tuple[Observation, dict[str, Any]]:
-        self.tool.reset()
+        self._tool.reset()
 
         # Oracle mode: write gold patch for debug/baseline use
         if self.oracle_mode and self._exec.patch:
             b64 = base64.b64encode(self._exec.patch.encode()).decode()
-            self.tool.bash(f"echo '{b64}' | base64 -d > /tmp/gold_patch.diff")
+            self._tool.bash(f"echo '{b64}' | base64 -d > /tmp/gold_patch.diff")
 
         instruction = self._exec.problem_statement
         if self.include_hints and self._exec.hints_text:
             instruction += f"\n\n## Hints\n{self._exec.hints_text}"
-        instruction += f"\n\n[Working directory: {self.tool._config.working_dir}]"
+        instruction += f"\n\n[Working directory: {self._tool._config.working_dir}]"
         if self.append_submission_instructions:
             test_cmd = self._exec.test_cmds[0] if self._exec.test_cmds else "pytest"
             instruction += f"\n\n{_TASK_INSTRUCTIONS_TEMPLATE.format(test_cmd=test_cmd)}"
@@ -281,19 +269,19 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
     def _apply_patch(self, patch: str) -> str:
         """Apply a unified diff patch to /testbed using git apply with fallbacks."""
         b64 = base64.b64encode(patch.encode()).decode()
-        self.tool.bash_unlimited(f"echo '{b64}' | base64 -d > /tmp/patch.diff")
+        self._tool.bash_unlimited(f"echo '{b64}' | base64 -d > /tmp/patch.diff")
 
         # Try git apply first
         # Commands run in tool.working_dir (may be relocated to writable copy).
-        result = self.tool.bash_unlimited("git apply /tmp/patch.diff 2>&1", timeout=30)
+        result = self._tool.bash_unlimited("git apply /tmp/patch.diff 2>&1", timeout=30)
         if "[exit_code:" not in result and "[error]" not in result:
             return result
 
-        result = self.tool.bash_unlimited("git apply --reject /tmp/patch.diff 2>&1", timeout=30)
+        result = self._tool.bash_unlimited("git apply --reject /tmp/patch.diff 2>&1", timeout=30)
         if "[exit_code:" not in result and "[error]" not in result:
             return result
 
-        result = self.tool.bash_unlimited("patch --batch --forward --fuzz=5 -p1 -i /tmp/patch.diff 2>&1", timeout=60)
+        result = self._tool.bash_unlimited("patch --batch --forward --fuzz=5 -p1 -i /tmp/patch.diff 2>&1", timeout=60)
         if "[exit_code:" in result or "[error]" in result:
             logger.warning("_apply_patch: all methods failed.\npatch output:\n%s", result)
         return result
@@ -304,7 +292,7 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
             return "(no test commands)"
 
         outputs = []
-        working_dir = self.tool._config.working_dir
+        working_dir = self._tool._config.working_dir
         # Activate conda first, then set PYTHONPATH so that conda activation cannot
         # clear it. Prepending working_dir (and src/ for src-layout packages) ensures
         # source files patched in working_dir take precedence over site-packages.
@@ -315,7 +303,7 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
         tika_log = "mkdir -p /tmp/tika_cube_eval && export TIKA_LOG_PATH=/tmp/tika_cube_eval"
         for cmd in test_cmds:
             full_cmd = f"{CONDA_ACTIVATE} && {pythonpath} && {tika_log} && {cmd}"
-            output = self.tool.bash_unlimited(full_cmd, timeout=timeout)
+            output = self._tool.bash_unlimited(full_cmd, timeout=timeout)
             outputs.append(output)
         return "\n".join(outputs)
 
