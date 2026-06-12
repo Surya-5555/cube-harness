@@ -7,9 +7,9 @@ all-retired-or-exhausted termination, and per-agent reward from the global evalu
 
 from cube.container import Container
 from cube.core import Action, ActionSchema, Observation
-from cube.task import Task, TaskConfig, TaskMetadata
+from cube.task import AgentView, Task, TaskConfig, TaskMetadata
 from cube.tool import Tool, ToolConfig, tool_action
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.budget import Budget
@@ -42,14 +42,19 @@ class _TwoSeatTask(Task):
 
     n_seats: int = 2
     done_at: int = 4
+    _next_seat: int = PrivateAttr(default=0)  # internal seat counter (the task owns seat)
 
     def agent_roles(self) -> dict[str | None, int]:
         return {"player": self.n_seats}
 
-    def _make_tool(self, role=None):
+    def get_agent_view(self, role=None) -> AgentView:
         # Shared-world topology: every seat acts through the ONE shared counter tool
-        # (the task's own self._tool); role=None makes the real instance (memoized).
-        return super()._make_tool(role) if role is None else self._tool
+        # (self._tool). The task owns the seat index, handed out per get_agent_view call.
+        if role is None:
+            return super().get_agent_view(None)
+        seat = self._next_seat
+        self._next_seat += 1
+        return AgentView(self, role=role, tool=self._tool, seat=seat)
 
     def reset(self) -> tuple[Observation, dict]:
         return Observation.from_text("go"), {}

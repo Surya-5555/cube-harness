@@ -171,11 +171,12 @@ class RecordingTaskTool:
 def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
     """Build one `RecordingTaskTool` per agent seat from `task.agent_roles()`.
 
-    Walks the roster (`agent_roles()` -> {role: count}) and, for each role and seat,
-    grabs a per-seat `AgentView` via `task.get_agent_view(role, seat)`. Single-agent
-    tasks have the default roster `{None: 1}` -> one view (`agent_id` "agent");
-    multi-agent tasks yield N views, one per seat over the one shared `Task`.
-    `streamer` is an `EventStreamer`; we read `.emit`, `.budget`, and
+    Walks the roster (`agent_roles()` -> {role: count}) and grabs one `AgentView` per
+    seat via `task.get_agent_view(role)` — called `count` times per role. The seat index
+    is the task's internal concern: a multi-agent task overrides `get_agent_view` and
+    hands out a distinct view (stable `agent_id`) on each call. Single-agent tasks have
+    the default roster `{None: 1}` -> one view (`agent_id` "agent"). All views share the
+    one `Task`. `streamer` is an `EventStreamer`; we read `.emit`, `.budget`, and
     `.current_parent_event_id`.
     """
     emit = streamer.emit
@@ -183,8 +184,8 @@ def build_agent_tools(task: Task, streamer: Any) -> list[RecordingTaskTool]:
     parent_event_id_getter = streamer.current_parent_event_id
     tools: list[RecordingTaskTool] = []
     for role, count in task.agent_roles().items():
-        for seat in range(count):
-            agent_view = task.get_agent_view(role, seat=seat)
+        for _ in range(count):
+            agent_view = task.get_agent_view(role)
             tools.append(
                 RecordingTaskTool(
                     agent_view,
