@@ -183,7 +183,7 @@ class WAATask(Task):
 
     @property
     def _computer(self) -> "ComputerBase":
-        return self._tool  # type: ignore[return-value]
+        return self.tool  # type: ignore[return-value]
 
     def _os_type(self) -> str:
         """WAA always runs Windows 11."""
@@ -600,7 +600,7 @@ class WAATask(Task):
     def close(self) -> None:
         """Clean up task resources: stop tool and release infra handle."""
         logger.info("Closing WAATask: %s", self.metadata.id)
-        super().close()  # calls self._tool.close()
+        super().close()  # calls self.tool.close()
         if self._resource_handle is not None:
             try:
                 self._resource_handle.close()

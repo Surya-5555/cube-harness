@@ -27,27 +27,27 @@ class MiniWobTask(Task):
 
     @property
     def tool(self) -> BrowserTool:  # type: ignore[override]
-        return self._tool  # type: ignore[return-value]
+        return self.tool  # type: ignore[return-value]
 
     @property
     def url(self) -> str:
         return f"{self.base_url}/{self.metadata.id}.html"
 
     def reset(self) -> tuple[Observation, dict[str, Any]]:
-        self._tool.reset()
-        self._tool.goto(self.url)
-        setup_result = self._tool.evaluate_js(_build_setup_js(self.remove_human_display, self.episode_max_time))
+        self.tool.reset()
+        self.tool.goto(self.url)
+        setup_result = self.tool.evaluate_js(_build_setup_js(self.remove_human_display, self.episode_max_time))
         goal, info = _parse_setup_result(setup_result)
-        obs = Observation.from_text(goal) + self.obs_postprocess(self._tool.page_obs())
+        obs = Observation.from_text(goal) + self.obs_postprocess(self.tool.page_obs())
         return obs, {**info, "task_id": self.id, "task_url": self.url, "goal": goal}
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
-        result = self._tool.evaluate_js("""() => {
+        result = self.tool.evaluate_js("""() => {
 return [WOB_REWARD_GLOBAL, WOB_RAW_REWARD_GLOBAL, WOB_REWARD_REASON, WOB_DONE_GLOBAL, WOB_EPISODE_ID, WOB_TASK_READY];}""")
         return _parse_validation_result(result)
 
     def finished(self, obs: Observation | None = None) -> bool:
-        return self._tool.evaluate_js("() => {return WOB_DONE_GLOBAL;}")
+        return self.tool.evaluate_js("() => {return WOB_DONE_GLOBAL;}")
 
     def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
         contents = []

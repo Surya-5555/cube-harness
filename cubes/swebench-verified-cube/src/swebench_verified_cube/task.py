@@ -211,17 +211,17 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
     # /auto-fix(446)
 
     def reset(self) -> tuple[Observation, dict[str, Any]]:
-        self._tool.reset()
+        self.tool.reset()
         # auto-fix(446): fail loud (IncompatibleInfraError), not silent-0, if the gold
         # patch's target files aren't writable on this (non-root) infra. Called here —
         # inside reset(), which the episode runs within its try/except — so the error
         # is classified terminal & non-retriable (episode.py) rather than escaping setup.
-        self._raise_if_unpatchable(self._tool._config.working_dir)
+        self._raise_if_unpatchable(self.tool._config.working_dir)
 
         # Oracle mode: write gold patch for debug/baseline use
         if self.oracle_mode and self._exec.patch:
             b64 = base64.b64encode(self._exec.patch.encode()).decode()
-            self._tool.bash(f"echo '{b64}' | base64 -d > /tmp/gold_patch.diff")
+            self.tool.bash(f"echo '{b64}' | base64 -d > /tmp/gold_patch.diff")
 
         instruction = self._exec.problem_statement
         if self.append_submission_instructions:
@@ -320,18 +320,18 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
     def _apply_patch(self, patch: str) -> str:
         """Apply a unified diff patch to /testbed using git apply with fallbacks."""
         b64 = base64.b64encode(patch.encode()).decode()
-        self._tool.bash_unlimited(f"echo '{b64}' | base64 -d > /tmp/patch.diff")
+        self.tool.bash_unlimited(f"echo '{b64}' | base64 -d > /tmp/patch.diff")
 
         # Try git apply first
         # Commands run in tool.working_dir (set by SWEBenchToolConfig) — no need
         # to cd, and hardcoding '/testbed' breaks when the tool relocated to a
         # writable copy (see _maybe_relocate_testbed).
-        result = self._tool.bash_unlimited("git apply /tmp/patch.diff 2>&1", timeout=30)
+        result = self.tool.bash_unlimited("git apply /tmp/patch.diff 2>&1", timeout=30)
         if "[exit_code:" not in result and "[error]" not in result:
             return result
 
         # Fallback: git apply --reject
-        result = self._tool.bash_unlimited("git apply --reject /tmp/patch.diff 2>&1", timeout=30)
+        result = self.tool.bash_unlimited("git apply --reject /tmp/patch.diff 2>&1", timeout=30)
         if "[exit_code:" not in result and "[error]" not in result:
             return result
 
@@ -339,7 +339,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
         # (patch --batch otherwise treats "content already present" as a reversed patch
         # and removes it, causing test_empty_name_not_allowed-style evaluation failures
         # when the agent proactively added test content that the test_patch also adds).
-        result = self._tool.bash_unlimited("patch --batch --forward --fuzz=5 -p1 -i /tmp/patch.diff 2>&1", timeout=60)
+        result = self.tool.bash_unlimited("patch --batch --forward --fuzz=5 -p1 -i /tmp/patch.diff 2>&1", timeout=60)
         if "[exit_code:" in result or "[error]" in result:
             logger.warning("_apply_patch: all methods failed.\npatch output:\n%s", result)
         return result
@@ -367,7 +367,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
             return True, ""
 
         test_cmd = f"{CONDA_ACTIVATE} && {self._build_test_cmd(repo, test_directives)}"
-        result = self._tool._container.exec(test_cmd, timeout=timeout, workdir=self._tool._config.working_dir)
+        result = self.tool._container.exec(test_cmd, timeout=timeout, workdir=self.tool._config.working_dir)
 
         raw = (result.stdout or "") + (result.stderr or "")
         output = "\n".join(raw.splitlines()[-200:])

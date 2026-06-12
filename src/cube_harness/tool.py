@@ -69,15 +69,6 @@ class RecordingTaskTool:
         self.agent_id = agent_id
         self.role = role
         self._last_tool_event_id = "no-parent"
-        # The per-step eval now fires inside AgentView.execute_action (cube-standard);
-        # we recuperate (reward, info) through this callback and emit the EvaluationEvent
-        # AFTER recording the ToolCallEvent so its parent id is correct. The harness no
-        # longer reaches into task.validate_per_step / task.evaluate for the per-step case.
-        self._pending_eval: tuple[float, dict] | None = None
-        self._agent_view.set_eval_callback(self._on_eval)
-
-    def _on_eval(self, reward: float, info: dict) -> None:
-        self._pending_eval = (reward, info)
 
     # --- delegation ---
 
@@ -90,12 +81,11 @@ class RecordingTaskTool:
     # --- monitored execution ---
 
     def execute_action(self, action: Action) -> Observation:
-        """Sync dispatch. Budget -> `AgentView.execute_action` (which may raise
-        `AgentStop` on STOP and may fire the eval callback) -> record -> emit any
-        per-step eval -> finished check. Returns the observation only."""
+        """Sync dispatch. Budget -> `AgentView.execute_action` (may raise `AgentStop` on
+        STOP) -> record ToolCallEvent -> per-step evaluate/emit + finished check
+        (`_post_action`). Returns the observation only."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
-        self._pending_eval = None
         start = time.time()
         obs = self._agent_view.execute_action(action)
         end = time.time()
@@ -107,7 +97,6 @@ class RecordingTaskTool:
         """Async (parallel-safe) twin of `execute_action`."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
-        self._pending_eval = None
         start = time.time()
         obs = await self._agent_view.async_execute_action(action)
         end = time.time()
@@ -143,19 +132,18 @@ class RecordingTaskTool:
         return event.id
 
     def _post_action(self, obs: Observation) -> None:
-        """The runtime cadence after each action: emit the step-wise `EvaluationEvent`
-        the AgentView's eval callback just handed us (when `validate_per_step`), parented
-        to the ToolCallEvent just recorded; then the `finished()` check that ends the
-        episode via `AgentStop` (termination stays the runtime's call)."""
-        if self._pending_eval is not None:
-            reward, info = self._pending_eval
-            self._pending_eval = None
+        """The runtime cadence after each action: when `task.validate_per_step`, score the
+        step and emit a step-wise `EvaluationEvent` parented to the ToolCallEvent just
+        recorded (reward is the runtime's concern, never the agent's — it only sees `obs`);
+        then the `finished()` check that ends the episode via `AgentStop`."""
+        if self._task.validate_per_step:
+            reward, info = self._task.evaluate(obs)
             now = time.time()
             self._emit(
                 TrajectoryEvent(
                     output=EvaluationEvent(
-                        reward=reward,
-                        info=info,
+                        reward=float(reward),
+                        info=dict(info),
                         is_terminal=False,
                         parent_event_id=self._last_tool_event_id,
                         agent_id=self.agent_id,

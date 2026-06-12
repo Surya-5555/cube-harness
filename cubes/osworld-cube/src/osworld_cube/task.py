@@ -117,8 +117,8 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
 
     @property
     def _computer(self) -> "ComputerBase":
-        """Return self._tool cast to ComputerBase for type-checker satisfaction."""
-        return self._tool  # type: ignore[return-value]
+        """Return self.tool cast to ComputerBase for type-checker satisfaction."""
+        return self.tool  # type: ignore[return-value]
 
     @property
     def _exec(self) -> OSWorldExecutionInfo:
@@ -291,7 +291,7 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
           6. Return (obs, info)
         """
         self._ensure_vm()
-        self._tool.reset()
+        self.tool.reset()
         task_data = {
             "id": self.metadata.id,
             "instruction": self.metadata.instruction,
@@ -415,7 +415,7 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
     def close(self) -> None:
         """Clean up task resources: stop tool, then close VM handle."""
         logger.info("Closing OSWorldTask: %s", self.metadata.id)
-        super().close()  # calls self._tool.close()
+        super().close()  # calls self.tool.close()
         for tunnel in self._extra_tunnels:
             try:
                 tunnel.terminate()

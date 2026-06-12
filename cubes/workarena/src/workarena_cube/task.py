@@ -52,12 +52,12 @@ class WorkArenaTask(Task):
     @property
     def _browser_tool(self) -> WorkArenaBrowserTool:
         """Resolve the browser tool whether it's direct or inside a Toolbox."""
-        if isinstance(self._tool, Toolbox):
-            tool = self._tool.find_tool(BrowserTool)
+        if isinstance(self.tool, Toolbox):
+            tool = self.tool.find_tool(BrowserTool)
             if tool is None:
                 raise RuntimeError("No BrowserTool found in Toolbox")
         else:
-            tool = self._tool
+            tool = self.tool
         if not isinstance(tool, WorkArenaBrowserTool):
             raise RuntimeError(
                 f"The browser tool must satisfy the WorkArenaBrowserTool protocol (e.g., BgymTool or SyncPlaywrightTool), got {type(tool).__name__}"
@@ -67,15 +67,15 @@ class WorkArenaTask(Task):
     @property
     def _chat_tool(self) -> ChatTool | None:
         """Return the ChatTool if present in a Toolbox, else None."""
-        if isinstance(self._tool, Toolbox):
-            return self._tool.find_tool(ChatTool)  # type: ignore
+        if isinstance(self.tool, Toolbox):
+            return self.tool.find_tool(ChatTool)  # type: ignore
         return None
 
     @property
     def _infeasible_tool(self) -> WorkArenaInfeasibleTool | None:
         """Return the WorkArenaInfeasibleTool if present in a Toolbox, else None."""
-        if isinstance(self._tool, Toolbox):
-            tool = self._tool.find_tool(WorkArenaInfeasibleTool)
+        if isinstance(self.tool, Toolbox):
+            tool = self.tool.find_tool(WorkArenaInfeasibleTool)
             return tool if isinstance(tool, WorkArenaInfeasibleTool) else None
         return None
 
@@ -86,7 +86,7 @@ class WorkArenaTask(Task):
         if self._workarena_task is None:
             raise RuntimeError("Failed to initialize WorkArena task.")
         _apply_task_runtime_preferences(self._browser_tool, self._workarena_task)
-        self._tool.reset()
+        self.tool.reset()
         self._validate_cache = None
         if isinstance(self._browser_tool, WorkArenaCheatTool):
             self._browser_tool._workarena_task = self._workarena_task
