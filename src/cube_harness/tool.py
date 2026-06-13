@@ -64,6 +64,15 @@ class MonitoredTool:
         self.agent_id = agent_id
         self.role = role
         self._last_tool_event_id = "no-parent"
+        # Per-step eval fires inside AgentView.execute_action and is surfaced out-of-band
+        # via this callback; we stash it and emit the EvaluationEvent in `_post_action`,
+        # AFTER the ToolCallEvent is recorded, so its `parent_event_id` is the action it
+        # scores (and the events stay in causal order in the stream).
+        self._pending_eval: tuple[float, dict] | None = None
+        self._agent_view.set_eval_callback(self._on_eval)
+
+    def _on_eval(self, reward: float, info: dict) -> None:
+        self._pending_eval = (reward, info)
 
     # --- delegation ---
 
@@ -81,6 +90,7 @@ class MonitoredTool:
         (`_post_action`). Returns the observation only."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
+        self._pending_eval = None
         start = time.time()
         obs = self._agent_view.execute_action(action)
         end = time.time()
@@ -92,6 +102,7 @@ class MonitoredTool:
         """Async (parallel-safe) twin of `execute_action`."""
         if self._budget.exhausted:
             raise BudgetExceeded(action=action)
+        self._pending_eval = None
         start = time.time()
         obs = await self._agent_view.async_execute_action(action)
         end = time.time()
@@ -127,18 +138,19 @@ class MonitoredTool:
         return event.id
 
     def _post_action(self, obs: Observation) -> None:
-        """The runtime cadence after each action: when `task.validate_per_step`, score the
-        step and emit a step-wise `EvaluationEvent` parented to the ToolCallEvent just
-        recorded (reward is the runtime's concern, never the agent's — it only sees `obs`);
-        then the `finished()` check that ends the episode via `AgentStop`."""
-        if self._task.validate_per_step:
-            reward, info = self._task.evaluate(obs)
+        """The runtime cadence after each action: emit the step-wise `EvaluationEvent` the
+        AgentView's eval callback just handed us (when `validate_per_step`), parented to the
+        ToolCallEvent just recorded (reward is the runtime's concern, never the agent's — it
+        only sees `obs`); then the `finished()` check that ends the episode via `AgentStop`."""
+        if self._pending_eval is not None:
+            reward, info = self._pending_eval
+            self._pending_eval = None
             now = time.time()
             self._emit(
                 TrajectoryEvent(
                     output=EvaluationEvent(
-                        reward=float(reward),
-                        info=dict(info),
+                        reward=reward,
+                        info=info,
                         is_terminal=False,
                         parent_event_id=self._last_tool_event_id,
                         agent_id=self.agent_id,
