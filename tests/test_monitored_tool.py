@@ -186,3 +186,22 @@ def test_async_execute_action_dispatches_and_records() -> None:
     assert "async" in obs.to_markdown()
     assert task._tool.calls == 1
     assert sum(1 for e in storage.outputs() if isinstance(e, ToolCallEvent)) == 1
+
+
+def test_concurrent_eval_events_parented_to_distinct_tool_calls() -> None:
+    # Parallel tool calls share ONE MonitoredTool (one `_pending_eval` / `_last_tool_event_id`).
+    # The per-step EvaluationEvent of each action must be parented to ITS OWN ToolCallEvent —
+    # i.e. no cross-action leak from the shared stash. Guards the gather/validate_per_step
+    # interleaving (a future `await` inside the stash->record->emit region would break this).
+    task = _make_task(validate_per_step=True)
+    env_tool, storage = _setup(task, Budget(max_agent_steps=99))
+
+    async def run() -> None:
+        await asyncio.gather(*(env_tool.async_execute_action(_echo(f"a{i}")) for i in range(3)))
+
+    asyncio.run(run())
+    outs = storage.outputs()
+    tool_ids = sorted(e.id for e in outs if isinstance(e, ToolCallEvent))
+    eval_parents = sorted(e.parent_event_id for e in outs if isinstance(e, EvaluationEvent))
+    assert len(tool_ids) == 3 and len(eval_parents) == 3
+    assert eval_parents == tool_ids  # each eval parented to a distinct, correct tool call
