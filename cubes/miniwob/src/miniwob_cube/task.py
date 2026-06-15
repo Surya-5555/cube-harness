@@ -19,15 +19,14 @@ class MiniWobTaskMetadata(TaskMetadata):
 logger = logging.getLogger(__name__)
 
 
-class MiniWobTask(Task):
+class MiniWobTask(Task[MiniWobTaskMetadata, BrowserTool]):
     validate_per_step: bool = True
     base_url: str = "http://localhost:8000/miniwob"
     remove_human_display: bool = True
     episode_max_time: int = 1000000
 
-    @property
-    def tool(self) -> BrowserTool:  # type: ignore[override]
-        return self.tool  # type: ignore[return-value]
+    # `self.tool` is typed `BrowserTool` via the Task[..., BrowserTool] generic — no
+    # per-cube property override needed (an override returning `self.tool` self-recurses).
 
     @property
     def url(self) -> str:
