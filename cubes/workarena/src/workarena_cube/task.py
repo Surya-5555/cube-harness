@@ -152,14 +152,11 @@ class WorkArenaTask(Task):
         return self._validate_cache  # type: ignore[return-value]
 
     @override
-    def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
-        # Invalidate the per-action validate cache at the post-action boundary that
-        # BOTH views share: the gym `step` runs obs_postprocess once per batch, and
-        # the agent's `AgentView.execute_action` runs it once per action. So the next
-        # `finished()` / `evaluate()` always re-validates against the latest world
-        # state. Replaces the old `step()` override, which the agent path never called.
+    def _post_action(self, obs: Observation, role: str | None = None) -> None:
+        # Invalidate the per-step validate cache after each action so the next
+        # `finished()` / `evaluate()` re-validates against the latest world state.
+        # `_post_action` fires on BOTH the gym `step` and agent (`AgentView`) paths.
         self._validate_cache = None
-        return super().obs_postprocess(obs, role)
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
         """Score the current task state via WorkArena's validate()."""
