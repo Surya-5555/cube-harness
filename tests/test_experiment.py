@@ -59,20 +59,12 @@ def _make_failing_benchmark() -> CubeBenchmarkConfig:
 
 def _make_neverending_benchmark(max_steps: int) -> CubeBenchmarkConfig:
     """BenchmarkConfig whose single task never signals done — `finished()`
-    returns False so MonitoredTool never raises TaskDone. The agent
-    runs until `Budget.max_agent_steps` triggers BudgetExceeded → MAX_STEPS_REACHED.
-
-    Also overrides `accept_agent_stop=False` so MockAgent's final_step
-    action gets routed to the tool (and fails with ValueError on the
-    unknown action) — wait no, simpler: accept_agent_stop=False AND
-    a tool that records the action without failing. Easiest: keep
-    accept_agent_stop=True so STOP_ACTION raises TaskDone, but never
-    fire because MockAgent only emits final_step from step()."""
+    returns False, so the only termination is `Budget.max_agent_steps`
+    (BudgetExceeded → MAX_STEPS_REACHED). Pair it with an agent that never
+    emits `final_step` (otherwise that raises AgentStop and ends the episode)."""
     _ = max_steps  # parameter retained for backward-compat with old test signature
 
     class _NeverDoneTask(MockCubeTask):
-        accept_agent_stop: bool = False  # ignore the agent's final_step → tool will reject
-
         def finished(self, obs=None) -> bool:
             _ = obs
             return False  # never done — Budget.max_agent_steps is the only termination

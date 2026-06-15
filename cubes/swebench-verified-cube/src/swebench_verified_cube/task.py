@@ -9,9 +9,9 @@ import shlex
 from typing import Any
 
 from cube.container import relocate_if_readonly
-from cube.core import ActionSchema, Observation
+from cube.core import Observation
 from cube.resource import IncompatibleInfraError
-from cube.task import STOP_ACTION, RuntimeContext, Task, TaskConfig, TaskExecutionInfo, TaskMetadata
+from cube.task import RuntimeContext, Task, TaskConfig, TaskExecutionInfo, TaskMetadata
 
 from cube.tools.terminal import ContainerTerminalTool, TerminalToolConfig
 
@@ -105,7 +105,6 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
     """A single SWE-bench Verified task with test-based validation."""
 
     validate_per_step: bool = False
-    accept_agent_stop: bool = True
 
     oracle_mode: bool = False
     """If True, write the gold patch to /tmp/gold_patch.diff in reset()."""
@@ -126,18 +125,7 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
             )
         return self.execution_info
 
-    def filter_actions(self, actions: list[ActionSchema]) -> list[ActionSchema]:
-        # Anthropic requires input_schema to have {"type": "object"}, not {}.
-        # STOP_ACTION uses parameters={}, which LiteLLM passes through verbatim
-        # and Anthropic rejects. Override with a valid empty-object schema.
-        stop = ActionSchema(
-            name=STOP_ACTION.name,
-            description=STOP_ACTION.description,
-            parameters={"type": "object", "properties": {}},
-        )
-        return actions + [stop]
-
-    def _build_tool(self) -> None:
+    def _make_tool(self, role: str | None = None) -> ContainerTerminalTool:
         """Ensure /testbed files are writable and git-safe, then build the tool.
 
         NON-ROOT DOCKER WORKAROUND. Upstream SWE-bench images assume `USER root`
@@ -177,14 +165,14 @@ class SWEBenchVerifiedTask(Task[SWEBenchVerifiedTaskMetadata, ContainerTerminalT
             "/tmp/testbed",
             extra_setup="git config --global --add safe.directory /tmp/testbed",
         )
-        self._tool = self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
+        return self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
 
     # auto-fix(446)↓ fail loud, not silent-0.
     _GOLD_TARGET_RE = re.compile(r"^\+\+\+ b/(.+)$", re.MULTILINE)
 
     def _raise_if_unpatchable(self, working_dir: str) -> None:
         """Raise ``IncompatibleInfraError`` if the gold patch's target files can't be
-        written after the writability normalisation in ``_build_tool``.
+        written after the writability normalisation in ``_make_tool``.
 
         On non-root infra (EAI toolkit, uid 13011) some images ship root-owned package
         subdirs (e.g. psf/requests' ``/testbed/requests/``) that ``cp/mv`` can't reparent
@@ -505,7 +493,7 @@ class SWEBenchVerifiedTaskConfig(TaskConfig[SWEBenchVerifiedTaskMetadata]):
 #              patch (gold or agent) silently scores 0.
 #   invariant: a writability defect of the infra must NOT masquerade as an agent
 #              failure (reward 0). Fail loud (IncompatibleInfraError) instead.
-#   why:       band-aid — detects the unpatchable dir at _build_tool and raises the
+#   why:       band-aid — detects the unpatchable dir at _make_tool and raises the
 #              cube's IncompatibleInfraError (terminal/non-retriable). The full
 #              resolution (declare container:root vs skip vs relocate) is the
 #              design decision tracked in #446; no in-place non-root fix exists.

@@ -72,7 +72,7 @@ bench.close()
 - **`include_hints`** — surface the curated hints text shipped with each task (when present).
 - **`oracle_mode`** — writes the gold patch to `/tmp/gold_patch.diff` so an oracle agent can apply it directly. Used by the debug suite.
 - **`filter_actions()`** — patches `STOP_ACTION`'s empty parameters schema to `{"type": "object", "properties": {}}` so Anthropic models don't reject it.
-- **`_build_tool()`** — pre-flight `git config --global --add safe.directory` plus a writable-file `cp + mv` pass so non-root containers can edit the testbed.
+- **`_make_tool()`** — pre-flight `git config --global --add safe.directory` plus a writable-file `cp + mv` pass so non-root containers can edit the testbed.
 
 ## Evaluation
 

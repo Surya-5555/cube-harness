@@ -333,7 +333,7 @@ class EventStreamer:
         ts = time.time()
         self.emit(TrajectoryEvent(output=ev, start_time=ts, end_time=ts))
 
-    # ----- read-only state surfaced for MonitoredTool's getter --------------
+    # ----- read-only state surfaced for MonitoredTool's getter ----------
 
     def current_parent_event_id(self) -> str:
         """The id of the most recently emitted LLMCallEvent, or

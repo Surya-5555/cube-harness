@@ -4,9 +4,9 @@
 
 ## Purpose
 
-Expose any `AbstractTool` / `AbstractAsyncTool` as an MCP (Model Context Protocol)
-server. Agents built on MCP-native frameworks (Claude Desktop, MCP clients, etc.)
-can drive CUBE tools directly without going through the harness's episode loop.
+Expose any `AbstractTool` as an MCP (Model Context Protocol) server. Agents built
+on MCP-native frameworks (Claude Desktop, MCP clients, etc.) can drive CUBE tools
+directly without going through the harness's episode loop.
 
 ## Public API
 
@@ -22,7 +22,7 @@ class McpServerConfig(TypedBaseModel):
 ### `McpServer`
 ```python
 class McpServer:
-    def __init__(self, tool: AbstractTool | AbstractAsyncTool, config: McpServerConfig | None = None)
+    def __init__(self, tool: AbstractTool, config: McpServerConfig | None = None)
 
     @property
     def raw(self) -> FastMCP           # escape hatch — constitution SR-003
@@ -30,8 +30,14 @@ class McpServer:
     def run(self) -> None              # blocks; runs the FastMCP event loop
 ```
 
+cube-standard merged `Tool` + `AsyncTool` into one unified `Tool` (it exposes both
+`execute_action` and `async_execute_action`), so the single `AbstractTool` type
+covers sync and async tools alike.
+
 On init, iterates `tool.action_set` and registers each action as an MCP tool on
-`FastMCP`, preserving name and description.
+`FastMCP`, preserving name and description. `final_step` is a universal `@tool_action`
+on the `Tool` base (it raises `AgentStop`), so it is in every tool's `action_set` —
+a `tools/list` therefore always includes `final_step`.
 
 ### `observation_to_mcp_content` (`cube_harness.mcp.convert`)
 Converts a CUBE `Observation` into a list of MCP content items (`TextContent`,
@@ -39,8 +45,9 @@ Converts a CUBE `Observation` into a list of MCP content items (`TextContent`,
 
 ## Contracts
 
-- MCP tool handlers use `FastMCP`'s async interface. Sync `AbstractTool` actions are
-  wrapped in an async adapter (`_make_async_handler`) that runs them in a thread.
+- MCP tool handlers use `FastMCP`'s async interface. The adapter
+  (`_make_async_handler`) always dispatches through `tool.async_execute_action`, which
+  handles both sync actions (hopped to a thread) and async actions (awaited directly).
 - MCP clients expect each tool to return content; CUBE `Observation.to_llm_messages`
   is not directly compatible with MCP — conversion must go through
   `observation_to_mcp_content`.

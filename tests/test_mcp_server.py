@@ -14,11 +14,16 @@ class TestMcpServer:
         return McpServer(tool=tool, config=McpServerConfig(server_name="test"))
 
     def test_registers_all_tool_actions(self, server: McpServer) -> None:
-        """All MockTool actions should be registered as MCP tools."""
+        """All MockTool actions should be registered as MCP tools.
+
+        Includes the universal ``final_step`` (STOP) action every cube-standard
+        ``Tool`` exposes in its ``action_set``, alongside MockTool's own two.
+        """
         tools = server.raw._tool_manager._tools
         assert "click" in tools
         assert "type_text" in tools
-        assert len(tools) == 2
+        assert "final_step" in tools
+        assert len(tools) == 3
 
     def test_tool_schemas_have_correct_parameters(self, server: McpServer) -> None:
         """Registered tools should have parameter schemas matching the original methods."""

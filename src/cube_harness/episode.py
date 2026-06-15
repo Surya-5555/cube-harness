@@ -20,7 +20,7 @@ from cube_harness.llm import is_permanent_llm_error
 from cube_harness.metrics.tracer import get_tracer
 from cube_harness.storage import FileStorage, Storage, TrajectoryView
 from cube_harness.streamer import EventStreamer, EventStreamerConfig
-from cube_harness.tool import Budget, BudgetExceeded, TaskDone, build_monitored_env_tool
+from cube_harness.tool import AgentStop, Budget, BudgetExceeded, build_agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +167,8 @@ class Episode:
 
         Flow:
             1. setup (status, task, action_set, agent, trajectory, dirs).
-            2. build the monitored env_tool the agent drives
-               (build_monitored_env_tool) — task keeps its concrete tool.
+            2. build the agent-facing env_tool the agent drives
+               (build_agent_tools) — task keeps its concrete tool.
             3. build EventStreamer bound to trajectory + storage + summary.
             4. record initial obs (streamer.record_reset).
             5. agent.run(initial.obs, env_tool) — sync dispatch. For
@@ -250,20 +250,17 @@ class Episode:
                     metadata_updates=metadata_updates,
                 )
                 streamer._sinks.extend(self.config.recorder_config.extra_sinks)
-                # 4. Build the monitored env-tool the agent drives. This does
-                # NOT mutate `task.tool` / `task.toolbox`: the task keeps its
-                # concrete tool so its own setup/reset/evaluate/finished reach
-                # concrete methods (`bash`, `evaluate_js`), private attrs
-                # (`_container`, `_config`), and type checks (`isinstance`,
-                # `find_tool`). The agent's monitored view shares the same
-                # inner tool instance(s), so env state is shared. `Agent.run`
-                # picks `_run` (sync) or `_arun` (async gather) by
-                # `AgentConfig.parallel_actions`; the unified `Tool` handles
-                # per-method sync/async routing internally, so the agent
-                # doesn't need to reshape the tool. The `task` reference
-                # never reaches the agent. Agent-private tools live on the
-                # agent itself.
-                env_tool = build_monitored_env_tool(task, streamer)
+                # 4. Build the agent-facing tool the agent drives: a
+                # `MonitoredTool` over cube-standard's `AgentView`
+                # (`task.agent_roles()`, single-agent = one seat). The `Task`
+                # itself is never handed to the agent — only the obs-in/action-out
+                # view. The task keeps its concrete tool so its own
+                # setup/reset/evaluate/finished reach concrete methods (`bash`,
+                # `evaluate_js`), private attrs (`_container`, `_config`), and
+                # type checks; the agent's view shares the same inner tool
+                # instance(s), so env state is shared. `Agent.run` picks `_run`
+                # (sync) or `_arun` (async gather) by `AgentConfig.parallel_actions`.
+                env_tool = build_agent_tools(task, streamer)[0]
 
                 # 5. Record the initial obs as a synthetic ToolCallEvent
                 # whose parent is the RESET sentinel.
@@ -284,10 +281,10 @@ class Episode:
                     logger.info(colored(f"Budget exceeded: {e}", "yellow"))
                     streamer.record_failure(e)
                     max_steps_reached = True
-                except TaskDone:
+                except AgentStop:
                     # Clean episode end from the task side — agent emitted
-                    # STOP_ACTION or task.finished() returned True. Not a
-                    # failure; just proceed to finalization.
+                    # STOP_ACTION (final_step) or task.finished() returned True.
+                    # Not a failure; just proceed to finalization.
                     logger.info(colored("Task finished", "blue"))
                 except Exception as e:
                     # Agent / env exceptions during the run. Permanent

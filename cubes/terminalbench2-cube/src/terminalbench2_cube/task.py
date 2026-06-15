@@ -61,7 +61,6 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
     metadata: TerminalBench2TaskMetadata  # type: ignore[assignment]
 
     validate_per_step: bool = False
-    accept_agent_stop: bool = True
     oracle_mode: bool = False
 
     # Container-side paths — always under /tmp so logic works uniformly on root
@@ -82,7 +81,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
             )
         return self.execution_info
 
-    def _build_tool(self) -> None:
+    def _make_tool(self, role: str | None = None) -> ContainerTerminalTool:
         # NON-ROOT DOCKER WORKAROUND
         # tbench2 task images assume root-by-default Docker semantics (Daytona,
         # local Docker, AWS, Azure all give the container `USER root`). On
@@ -118,7 +117,7 @@ class TerminalBench2Task(Task[TerminalBench2TaskMetadata, ContainerTerminalTool]
         )
         # /auto-fix(418)
         self._working_dir = new_wd
-        self._tool = self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
+        return self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
 
     def reset(self) -> tuple[Observation, dict[str, Any]]:
         self.tool.reset()

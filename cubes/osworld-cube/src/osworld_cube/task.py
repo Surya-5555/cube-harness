@@ -18,7 +18,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from cube.infra_utils import open_tunnel
@@ -111,9 +111,9 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
     _chromium_port: int = PrivateAttr(default=_CHROMIUM_PORT)
     _vlc_port: int = PrivateAttr(default=_VLC_PORT)
 
-    def model_post_init(self, __context: Any) -> None:
+    def _make_tool(self, role: str | None = None) -> "ComputerBase":
         """Create the Computer tool without a VM — VM is deferred to reset()."""
-        self._tool = self.tool_config.make(container=None)
+        return self.tool_config.make(container=None)  # type: ignore[return-value]
 
     @property
     def _computer(self) -> "ComputerBase":
@@ -344,7 +344,7 @@ class OSWorldTask(Task[OSWorldTaskMetadata]):
         """Return True if the task has reached a terminal state (done() or fail() called)."""
         return self._computer._is_done
 
-    def obs_postprocess(self, obs: Observation) -> Observation:
+    def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
         """Post-process raw observation before returning to the agent."""
         if self.use_som:
             return self._postprocess_som(obs)

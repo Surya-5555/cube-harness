@@ -24,7 +24,7 @@ class Budget(TypedBaseModel):
 
     Caps:
       - `max_agent_steps`: agent loop iterations (one `Agent.step()` call).
-      - `max_tool_calls`: monitored tool dispatches.
+      - `max_tool_calls`: recorded tool dispatches.
       - `max_cost_usd`: cumulative LLM call cost (from `LLMCall.usage.cost`).
       - `max_prompt_tokens` / `max_completion_tokens`: per-direction
         cumulative token usage.

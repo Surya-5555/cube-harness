@@ -13,8 +13,8 @@ import re
 from typing import Any
 
 from cube.container import relocate_if_readonly
-from cube.core import ActionSchema, Observation
-from cube.task import STOP_ACTION, RuntimeContext, Task, TaskConfig, TaskExecutionInfo, TaskMetadata
+from cube.core import Observation
+from cube.task import RuntimeContext, Task, TaskConfig, TaskExecutionInfo, TaskMetadata
 
 from cube.tools.terminal import ContainerTerminalTool, TerminalToolConfig
 
@@ -102,7 +102,6 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
     """A single SWE-bench Live task with test-based validation."""
 
     validate_per_step: bool = False
-    accept_agent_stop: bool = True
 
     include_hints: bool = False
     """If True, append hints_text to the problem statement in reset()."""
@@ -126,18 +125,7 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
             )
         return self.execution_info
 
-    def filter_actions(self, actions: list[ActionSchema]) -> list[ActionSchema]:
-        # TODO: remove once cube-standard auto-includes STOP_ACTION in Task.action_set
-        # (upstream fix: Task.action_set appends STOP_ACTION when accept_agent_stop=True,
-        # and STOP_ACTION constant gets the Anthropic-compatible parameters schema).
-        stop = ActionSchema(
-            name=STOP_ACTION.name,
-            description=STOP_ACTION.description,
-            parameters={"type": "object", "properties": {}},
-        )
-        return actions + [stop]
-
-    def _build_tool(self) -> None:
+    def _make_tool(self, role: str | None = None) -> ContainerTerminalTool:
         """Ensure /testbed files are writable and git-safe, then build the tool.
 
         NON-ROOT DOCKER WORKAROUND. Upstream SWE-bench-Live images assume
@@ -199,7 +187,7 @@ class SWEBenchLiveTask(Task[SWEBenchLiveTaskMetadata, ContainerTerminalTool]):
                 timeout=30,
             )
             logger.info("Editable-install path update: %s", result.stdout.strip())
-        self._tool = self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
+        return self.tool_config.model_copy(update={"working_dir": new_wd}).make(container=self._container)
 
     def reset(self) -> tuple[Observation, dict[str, Any]]:
         self.tool.reset()

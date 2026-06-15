@@ -19,15 +19,14 @@ class MiniWobTaskMetadata(TaskMetadata):
 logger = logging.getLogger(__name__)
 
 
-class MiniWobTask(Task):
+class MiniWobTask(Task[MiniWobTaskMetadata, BrowserTool]):
     validate_per_step: bool = True
     base_url: str = "http://localhost:8000/miniwob"
     remove_human_display: bool = True
     episode_max_time: int = 1000000
 
-    @property
-    def tool(self) -> BrowserTool:  # type: ignore[override]
-        return self._tool  # type: ignore[return-value]
+    # `self.tool` is typed `BrowserTool` via the Task[..., BrowserTool] generic — no
+    # per-cube property override needed (an override returning `self.tool` self-recurses).
 
     @property
     def url(self) -> str:
@@ -49,7 +48,7 @@ return [WOB_REWARD_GLOBAL, WOB_RAW_REWARD_GLOBAL, WOB_REWARD_REASON, WOB_DONE_GL
     def finished(self, obs: Observation | None = None) -> bool:
         return self.tool.evaluate_js("() => {return WOB_DONE_GLOBAL;}")
 
-    def obs_postprocess(self, obs: Observation) -> Observation:
+    def obs_postprocess(self, obs: Observation, role: str | None = None) -> Observation:
         contents = []
         for content in obs.contents:
             if content.name == "screenshot" and isinstance(content.data, Image.Image):

@@ -112,9 +112,9 @@ class ToolCallEvent(TypedBaseModel):
     The agent receives `obs` (or `error`) from `MonitoredTool.execute_action`.
     Reward / done / info are NOT part of this event:
 
-    - `done` propagates as a `TaskDone(BaseException)` raised by
-      `MonitoredTool` when `task.finished()` returns True. There is no
-      `done` field anywhere in the trajectory.
+    - `done` propagates as an `AgentStop(BaseException)` raised by the
+      underlying `AgentView` (cube-standard) when `task.finished()` returns
+      True. There is no `done` field anywhere in the trajectory.
     - Step-wise reward (when `task.validate_per_step=True`) lives on a
       separate `EvaluationEvent` whose `parent_event_id` references this
       `ToolCallEvent.id` and whose `is_terminal` is False.
@@ -135,8 +135,9 @@ class ToolCallEvent(TypedBaseModel):
     parent_event_id: str
     action_id: str | None = None  # echoes Action.id; nullable for legacy actions
     action: Action | None = None  # full action payload (nullable for legacy decode)
-    obs: Observation = Field(default_factory=Observation)  # empty when error is set
-    error: StepError | None = None
+    obs: Observation = Field(default_factory=Observation)  # carries the error text too (errors are observations)
+    error: StepError | None = None  # structured error for telemetry; non-terminal (also folded into obs)
+    agent_id: str | None = None  # which seat emitted this (multi-agent); None / "agent" for single-agent
 
 
 class EvaluationEvent(TypedBaseModel):
@@ -160,6 +161,7 @@ class EvaluationEvent(TypedBaseModel):
     info: dict = Field(default_factory=dict)
     is_terminal: bool = False
     parent_event_id: str | None = None
+    agent_id: str | None = None  # which seat this reward is for (multi-agent); None for single-agent
 
 
 TrajectoryEventOutput = LLMCallEvent | ToolCallEvent | EvaluationEvent | AgentErrorEvent

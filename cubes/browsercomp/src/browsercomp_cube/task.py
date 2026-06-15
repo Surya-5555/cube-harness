@@ -72,7 +72,6 @@ class BrowseCompTask(Task[BrowseCompTaskMetadata]):
     """A single BrowseComp information-retrieval task."""
 
     validate_per_step: bool = False
-    accept_agent_stop: bool = True
     grader_retries: int = 3
     scorer_model: str
 

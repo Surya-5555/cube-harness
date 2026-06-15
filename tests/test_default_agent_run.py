@@ -1,63 +1,72 @@
 """Default Agent.run tests — verify the base class implementation
 reproduces today's gym-style loop and integrates with EventStreamer +
-MonitoredTool.
+MonitoredTool (the runtime view over cube-standard's AgentView).
 
-Uses a hand-rolled mock task (no LLM, no cube), so the test runs fast
-and deterministically. The structural-parity check for real cubes lives
-in Phase G (`cube test <name>` for every in-tree benchmark).
-
-Post-Trajectory-removal: events stream to a Storage hook; tests inspect
-the captured event stream rather than walking an in-memory list.
+Uses a real-but-minimal cube `Task` (a counter tool, no LLM, no infra), so
+the test drives the actual `task.agent_roles()` -> `AgentView` ->
+`MonitoredTool` path and stays fast + deterministic. The structural-parity
+check for real cubes lives in `cube test <name>`.
 """
 
+from cube.container import Container
 from cube.core import Action, ActionSchema, Observation
-from cube.tool import AbstractTool
+from cube.task import Task, TaskMetadata
+from cube.tool import Tool, ToolConfig, tool_action
 
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.core import AgentOutput, LLMCallEvent, ToolCallEvent, TrajectoryEvent
 from cube_harness.streamer import EventStreamer
-from cube_harness.tool import Budget, BudgetExceeded, TaskDone, build_monitored_env_tool
+from cube_harness.tool import AgentStop, Budget, BudgetExceeded, build_agent_tools
 
 # ---------------------------------------------------------------------------
-# Mock pieces: a tiny "task" with a sync step that increments a counter
+# Mock pieces: a real cube Task whose single action bumps a counter, and that
+# reports finished() after N increments.
 # ---------------------------------------------------------------------------
 
 
-class _CounterTool(AbstractTool):
-    """Single-action tool. The action just bumps the task's counter."""
+class _CounterTool(Tool):
+    """Single-action cube tool. `inc` bumps an internal counter."""
 
-    def __init__(self, task: "_MockTask") -> None:
-        self._task = task
-
-    @property
-    def action_set(self) -> list[ActionSchema]:
-        return [ActionSchema(name="inc", description="bump counter", parameters={"type": "object", "properties": {}})]
-
-    def execute_action(self, action: Action) -> Observation:
-        self._task.counter += 1
-        return Observation.from_text(f"counter={self._task.counter}")
-
-
-class _MockTask:
-    """Minimal Task look-alike: exposes `toolbox` (a single Tool, the
-    counter) and a `finished(obs)` hook that returns True after N counter
-    increments. MonitoredTool polls `finished()` after each tool call
-    and raises TaskDone — that's how the loop terminates under the
-    agent-owns-loop design."""
-
-    def __init__(self, done_after_n: int = 3) -> None:
+    def __init__(self) -> None:
+        super().__init__()
         self.counter = 0
-        self.done_after_n = done_after_n
-        self.toolbox = _CounterTool(self)
-        self.accept_agent_stop = True
-        self.validate_per_step = False
+
+    @tool_action
+    def inc(self) -> str:
+        """Bump the counter."""
+        self.counter += 1
+        return f"counter={self.counter}"
+
+
+class _CounterToolConfig(ToolConfig):
+    def make(self, container: Container | None = None) -> _CounterTool:
+        return _CounterTool()
+
+
+class _MockTask(Task):
+    """Minimal real Task: `finished()` returns True after `done_after_n`
+    increments. The agent's `MonitoredTool` polls `finished()` after each
+    action and raises `AgentStop` — that's how the loop terminates."""
+
+    done_after_n: int = 3
+
+    def reset(self) -> tuple[Observation, dict]:
+        return Observation.from_text("ready"), {}
+
+    def evaluate(self, obs: Observation | None = None) -> tuple[float, dict]:
+        done = self._tool.counter >= self.done_after_n
+        return (1.0 if done else 0.0), {"counter": self._tool.counter}
 
     def finished(self, obs: Observation | None = None) -> bool:
-        _ = obs
-        return self.counter >= self.done_after_n
+        return self._tool.counter >= self.done_after_n
 
-    def obs_postprocess(self, obs: Observation) -> Observation:
-        return obs
+
+def _make_task(done_after_n: int = 3) -> _MockTask:
+    return _MockTask(
+        metadata=TaskMetadata(id="counter-task"),
+        tool_config=_CounterToolConfig(),
+        done_after_n=done_after_n,
+    )
 
 
 class _CounterAgentConfig(AgentConfig):
@@ -85,13 +94,9 @@ class _CounterAgent(Agent):
         )
 
 
-def _action(name: str = "inc") -> Action:
-    return Action(id=f"id-{name}", name=name, arguments={})
-
-
 class _FakeStorage:
     """Captures every save_event call + assigns event_nums itself
-    (matches the new Storage.save_event(event, id) -> int contract)."""
+    (matches the Storage.save_event(event, id) -> int contract)."""
 
     def __init__(self) -> None:
         self.events: list[tuple[str, int, TrajectoryEvent]] = []
@@ -107,14 +112,14 @@ class _FakeStorage:
         return [te.output for _, _, te in self.events]
 
 
-def _setup(task, budget: Budget) -> tuple[EventStreamer, _FakeStorage, object]:
-    """Build EventStreamer + storage + the monitored env_tool — the way
-    Episode does it. Storage owns event numbering; nothing to thread. The
-    returned env_tool is what the agent drives (task's own tool is left
-    concrete)."""
+def _setup(task: _MockTask, budget: Budget) -> tuple[EventStreamer, _FakeStorage, object]:
+    """Build EventStreamer + storage + the agent-facing env_tool — the way
+    Episode does it. Storage owns event numbering. The returned env_tool is a
+    `MonitoredTool` over the task's single agent seat; the task keeps its
+    concrete tool."""
     storage = _FakeStorage()
     streamer = EventStreamer(trajectory_id="t", storage=storage, budget=budget)
-    env_tool = build_monitored_env_tool(task, streamer)
+    env_tool = build_agent_tools(task, streamer)[0]
     return streamer, storage, env_tool
 
 
@@ -124,11 +129,11 @@ def _setup(task, budget: Budget) -> tuple[EventStreamer, _FakeStorage, object]:
 
 
 def test_default_run_completes_when_task_signals_done() -> None:
-    """task.finished() returning True triggers TaskDone from MonitoredTool;
-    Episode catches it normally. The unit test catches here since there's
-    no Episode to drive."""
+    """task.finished() returning True triggers AgentStop from MonitoredTool;
+    Episode catches it normally. The unit test catches here since there's no
+    Episode to drive."""
 
-    task = _MockTask(done_after_n=3)
+    task = _make_task(done_after_n=3)
     budget = Budget(max_agent_steps=100)
     recorder, storage, env_tool = _setup(task, budget)
 
@@ -136,20 +141,19 @@ def test_default_run_completes_when_task_signals_done() -> None:
     agent.attach_recorder(recorder)
     try:
         agent.run(initial_obs=Observation(), env_tool=env_tool)
-    except TaskDone:
+    except AgentStop:
         pass  # expected: task.finished() returned True after 3 counter increments
 
     outputs = storage.outputs()
     n_tool = sum(1 for e in outputs if isinstance(e, ToolCallEvent))
     # MockAgent has no LLM → no LLMCallEvent. Three rounds emit three
-    # ToolCallEvents; the 3rd's MonitoredTool raises TaskDone AFTER
-    # recording.
+    # ToolCallEvents; the 3rd raises AgentStop AFTER recording.
     assert n_tool == 3
-    assert task.counter == 3
+    assert task._tool.counter == 3
 
 
 def test_summary_stats_counts_agent_steps_without_llm_calls() -> None:
-    task = _MockTask(done_after_n=3)
+    task = _make_task(done_after_n=3)
     budget = Budget(max_agent_steps=10)
     recorder, _storage, env_tool = _setup(task, budget)
     agent = _CounterAgent(_CounterAgentConfig())
@@ -157,7 +161,7 @@ def test_summary_stats_counts_agent_steps_without_llm_calls() -> None:
 
     try:
         agent.run(initial_obs=Observation(), env_tool=env_tool)
-    except TaskDone:
+    except AgentStop:
         pass
 
     stats = recorder.summary_stats(duration=1.0, final_reward=0.0)
@@ -178,32 +182,31 @@ def test_default_run_terminates_on_empty_actions() -> None:
         def step(self, obs: Observation) -> AgentOutput:
             return AgentOutput(actions=[])
 
-    task = _MockTask(done_after_n=100)
+    task = _make_task(done_after_n=100)
     budget = Budget(max_agent_steps=10)
     recorder, storage, env_tool = _setup(task, budget)
     agent = _NoopAgent(_CounterAgentConfig())
     agent.attach_recorder(recorder)
     agent.run(initial_obs=Observation(), env_tool=env_tool)
     outputs = storage.outputs()
-    # No LLM call + empty actions => nothing was emitted by the agent
-    # loop (LLM auto-emit doesn't fire; ToolCallEvent dispatch doesn't fire).
+    # No LLM call + empty actions => nothing was emitted by the agent loop.
     assert sum(1 for e in outputs if isinstance(e, LLMCallEvent)) == 0
     assert sum(1 for e in outputs if isinstance(e, ToolCallEvent)) == 0
-    assert task.counter == 0
+    assert task._tool.counter == 0
 
 
 def test_default_run_records_parent_event_id_on_tool_calls() -> None:
     """Each ToolCallEvent must reference either the RESET sentinel
     (LLM-less paths) or a preceding LLMCallEvent."""
 
-    task = _MockTask(done_after_n=2)
+    task = _make_task(done_after_n=2)
     budget = Budget(max_agent_steps=10)
     recorder, storage, env_tool = _setup(task, budget)
     agent = _CounterAgent(_CounterAgentConfig())
     agent.attach_recorder(recorder)
     try:
         agent.run(Observation(), env_tool)
-    except TaskDone:
+    except AgentStop:
         pass
 
     valid_parents: set[str] = {"reset"}
@@ -217,10 +220,10 @@ def test_default_run_records_parent_event_id_on_tool_calls() -> None:
 
 
 def test_default_run_propagates_budget_exceeded() -> None:
-    """BudgetExceeded from a monitored tool must surface through
+    """BudgetExceeded from the MonitoredTool must surface through
     agent.run for Episode to capture."""
 
-    task = _MockTask(done_after_n=100)
+    task = _make_task(done_after_n=100)
     budget = Budget(max_agent_steps=100, max_tool_calls=1)
     recorder, storage, env_tool = _setup(task, budget)
 

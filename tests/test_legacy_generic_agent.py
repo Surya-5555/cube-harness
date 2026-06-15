@@ -829,7 +829,9 @@ class TestGenericAgentConfig:
         action_set = [ActionSchema(name="click", description="Click", parameters={})]
         agent = config.make(action_set=action_set)
         assert agent.config == config
-        assert len(agent.action_set) == 2  # click + stop action
+        # The agent uses the given action_set as-is; it no longer appends a STOP action
+        # (final_step is the task's universal action, already present in real action_sets).
+        assert len(agent.action_set) == 1
 
 
 # ============================================================================

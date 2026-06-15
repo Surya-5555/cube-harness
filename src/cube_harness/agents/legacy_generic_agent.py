@@ -933,9 +933,7 @@ class GenericAgent(Agent):
         self.llm = config.llm_config.make()
         self.token_counter = config.llm_config.make_counter()
 
-        # Build action set with stop action
         self.action_set = list(action_set)
-        self.action_set.append(STOP_ACTION)
 
         # Convert action schemas to tool dicts for LLM tool calling
         self.tools: list[dict] = [a.as_dict() for a in self.action_set]
