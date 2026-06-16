@@ -14,11 +14,11 @@ from cube.task import TaskExecutionInfo
 from bfcl_cube._vendor.ast_checker import ast_checker
 from bfcl_cube._vendor.schema_convert import bfcl_parameters_to_openai, normalize_function_name
 from bfcl_cube.benchmark import BfclBenchmarkConfig
-from bfcl_cube.debug import _TASK_ACTIONS, get_debug_benchmark
+from bfcl_cube.debug import debug_task_actions, get_debug_benchmark
 from bfcl_cube.task import BfclExecutionInfo, BfclTaskConfig, BfclTaskMetadata
 from bfcl_cube.tool import BfclTool, BfclToolConfig
 
-_DEBUG_TASK_IDS = list(_TASK_ACTIONS)
+_DEBUG_TASK_IDS = list(debug_task_actions())
 
 
 # ── BenchmarkConfig contract ────────────────────────────────────────────────

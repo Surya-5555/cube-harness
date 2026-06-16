@@ -14,15 +14,16 @@ Public API: ``get_debug_benchmark()``, ``make_debug_agent(task_id)``.
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
+from functools import lru_cache
 from importlib.resources import files
+from typing import Any
 
 from cube.core import Action, ActionSchema, Observation
 
 from bfcl_cube._vendor.schema_convert import normalize_function_name
-from bfcl_cube.benchmark import BfclBenchmarkConfig
+from bfcl_cube.benchmark import BfclBenchmarkConfig, iter_data_records
 from bfcl_cube.task import _IRRELEVANCE_CATEGORIES, _RELEVANCE_CATEGORIES
 
 logger = logging.getLogger(__name__)
@@ -31,13 +32,7 @@ _FINAL_STEP = Action(name="final_step", arguments={})
 
 
 def _load_records() -> dict[str, dict]:
-    raw = (files("bfcl_cube") / "data/bfcl_single_turn.jsonl.gz").read_bytes()
-    records = {}
-    for line in gzip.decompress(raw).decode("utf-8").splitlines():
-        if line.strip():
-            r = json.loads(line)
-            records[r["id"]] = r
-    return records
+    return {r["id"]: r for r in iter_data_records()}
 
 
 def _load_categories() -> dict[str, str]:
@@ -48,7 +43,7 @@ def _load_categories() -> dict[str, str]:
 _MISSING = object()
 
 
-def _concretize(acceptable: list):
+def _concretize(acceptable: list) -> Any:
     """Reduce a BFCL acceptable-value list to one concrete value.
 
     Picks the first non-empty-string entry and concretizes it; returns
@@ -60,7 +55,7 @@ def _concretize(acceptable: list):
     return _MISSING
 
 
-def _concretize_value(v):
+def _concretize_value(v: Any) -> Any:
     """Concretize one acceptable value, recursing into nested ground-truth shapes.
 
     BFCL ground truth nests acceptable-lists: a dict parameter is
@@ -100,8 +95,13 @@ def _gold_actions(category: str, record: dict) -> list[Action]:
     return actions
 
 
-def _select_debug_tasks() -> dict[str, list[Action]]:
-    """One representative task per category → its gold action sequence + final_step."""
+@lru_cache(maxsize=1)
+def debug_task_actions() -> dict[str, list[Action]]:
+    """One representative task per category → its gold action sequence + final_step.
+
+    Cached and computed lazily so a plain ``import bfcl_cube`` does not pay the
+    cost of reading/decompressing the bundled data (only debug paths need it).
+    """
     records = _load_records()
     categories = _load_categories()
     by_category: dict[str, str] = {}
@@ -114,18 +114,16 @@ def _select_debug_tasks() -> dict[str, list[Action]]:
     return plan
 
 
-_TASK_ACTIONS: dict[str, list[Action]] = _select_debug_tasks()
-
-
 class DebugAgent:
     """Replays a fixed action sequence for one task."""
 
     def __init__(self, task_id: str) -> None:
-        if task_id not in _TASK_ACTIONS:
-            raise ValueError(f"No debug actions for {task_id!r}. Known: {list(_TASK_ACTIONS)}")
+        actions = debug_task_actions()
+        if task_id not in actions:
+            raise ValueError(f"No debug actions for {task_id!r}. Known: {list(actions)}")
         self._task_id = task_id
         self._step = 0
-        self._actions = list(_TASK_ACTIONS[task_id])
+        self._actions = list(actions[task_id])
 
     def get_action(self, obs: Observation) -> Action:
         if self._step >= len(self._actions):
@@ -139,7 +137,7 @@ class DebugAgent:
 
 
 def get_debug_benchmark() -> BfclBenchmarkConfig:
-    return BfclBenchmarkConfig().subset_from_list(list(_TASK_ACTIONS.keys()))
+    return BfclBenchmarkConfig().subset_from_list(list(debug_task_actions().keys()))
 
 
 def make_debug_agent(task_id: str) -> DebugAgent:

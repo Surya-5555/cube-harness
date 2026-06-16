@@ -15,7 +15,7 @@ from typing import Any
 
 from cube.container import Container
 from cube.core import Action, ActionSchema, Content, Observation
-from cube.tool import Tool, ToolConfig, tool_action  # noqa: F401  (tool_action re-exported for parity)
+from cube.tool import Tool, ToolConfig, tool_action
 
 from bfcl_cube._vendor.schema_convert import bfcl_parameters_to_openai, normalize_function_name
 

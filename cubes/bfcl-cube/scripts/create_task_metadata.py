@@ -98,6 +98,9 @@ def main(
                 raise ValueError(f"Duplicate task id across categories: {tid}")
             seen_ids.add(tid)
 
+            # One step per gold call (the agent may emit them across steps) + one
+            # for final_step; abstention categories (no ground truth) need just 1.
+            n_calls = len(ground_truth_by_id.get(tid) or [])
             metadata.append(
                 {
                     # Polymorphic discriminator so the framework's metadata loader
@@ -105,7 +108,7 @@ def main(
                     "_type": "bfcl_cube.task.BfclTaskMetadata",
                     "id": tid,
                     "abstract_description": _abstract(row["question"]),
-                    "recommended_max_steps": 3,
+                    "recommended_max_steps": max(n_calls, 1) + 1,
                     "category": category,
                     "language": "python",
                     "collection": COLLECTIONS[category],

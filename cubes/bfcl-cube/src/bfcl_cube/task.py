@@ -22,6 +22,11 @@ from bfcl_cube.tool import BfclTool, BfclToolConfig
 _IRRELEVANCE_CATEGORIES = frozenset({"irrelevance", "live_irrelevance"})
 _RELEVANCE_CATEGORIES = frozenset({"live_relevance"})
 
+# Marker file written last by BfclBenchmarkConfig.install(); its presence means
+# the per-task cache is complete. Defined here (not in benchmark.py) so
+# verify_installed() can reference it without a circular import.
+INSTALL_SENTINEL = ".installed"
+
 
 class BfclTaskMetadata(TaskMetadata):
     """Lightweight per-task fields (shipped in ``task_metadata.json``)."""
@@ -118,9 +123,9 @@ class BfclTaskConfig(TaskConfig[BfclTaskMetadata]):
 
     def verify_installed(self) -> None:
         cache_dir = type(self).task_execution_cache_dir()
-        if not cache_dir.exists() or not any(cache_dir.iterdir()):
+        if not (cache_dir / INSTALL_SENTINEL).exists():
             raise RuntimeError(
-                f"bfcl-cube per-task execution cache is empty at {cache_dir}. "
+                f"bfcl-cube per-task execution cache is not installed at {cache_dir}. "
                 f"Run `cube install bfcl-cube` (or `BfclBenchmarkConfig.install()`) first."
             )
 
