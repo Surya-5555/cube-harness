@@ -26,9 +26,13 @@ AST-scored tasks (not network calls).
   (BFCL types → OpenAI/JSON-Schema), rather than from fixed `@tool_action`
   methods. `execute_action` **records** each call; single-turn BFCL never
   executes the functions. `final_step` is the STOP / abstain action.
-- **Task** (`BfclTask`) — `reset()` presents the query; the episode ends on
-  `final_step`; `evaluate()` AST-matches the recorded calls against the ground
-  truth (or checks call presence/absence for the (ir)relevance categories).
+- **Task** (`BfclTask`) — `reset()` presents the query; `evaluate()` AST-matches
+  the recorded calls against the ground truth (or checks call presence/absence for
+  the (ir)relevance categories). **Termination is category-aware** (single-turn
+  BFCL scores one model response): exactly-one-call and abstain categories end
+  after the agent's first call, so a model that re-issues a correct call across
+  steps is not over-counted; the **parallel** categories accumulate calls across
+  steps (harness agents emit one call per step) and end on `final_step`.
 - **Benchmark** (`BfclBenchmarkConfig`) — lightweight metadata ships in
   `task_metadata.json`; heavy per-task data (question, function schemas, ground
   truth) ships gzipped and is unpacked into the per-task cache by `install()`.

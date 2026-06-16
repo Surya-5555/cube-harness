@@ -162,7 +162,7 @@ def test_tool_action_set_and_record() -> None:
 
     tool.reset()
     obs = tool.execute_action(Action(name="calculate_triangle_area", arguments={"base": 10, "height": 5}))
-    assert obs.error is None
+    assert obs.contents  # benign recorded-call observation
     assert len(tool.recorded_calls) == 1
     assert tool.recorded_calls[0].arguments == {"base": 10, "height": 5}
 

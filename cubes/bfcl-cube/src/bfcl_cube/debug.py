@@ -97,7 +97,11 @@ def _gold_actions(category: str, record: dict) -> list[Action]:
 
 @lru_cache(maxsize=1)
 def debug_task_actions() -> dict[str, list[Action]]:
-    """One representative task per category → its gold action sequence + final_step.
+    """One representative task per category → its gold action sequence.
+
+    One call per step (matching how harness agents act), then ``final_step``.
+    ``BfclTask.finished()`` ends non-parallel tasks after the first call, so the
+    trailing ``final_step`` only matters for the parallel/abstain cases.
 
     Cached and computed lazily so a plain ``import bfcl_cube`` does not pay the
     cost of reading/decompressing the bundled data (only debug paths need it).
@@ -115,7 +119,7 @@ def debug_task_actions() -> dict[str, list[Action]]:
 
 
 class DebugAgent:
-    """Replays a fixed action sequence for one task."""
+    """Replays a fixed action sequence for one task (one action per step)."""
 
     def __init__(self, task_id: str) -> None:
         actions = debug_task_actions()

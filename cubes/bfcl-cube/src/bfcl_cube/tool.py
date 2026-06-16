@@ -70,7 +70,11 @@ class BfclTool(Tool):
         if action.name not in self._known_names:
             return super().execute_action(action)
         self._calls.append(action)
-        msg = f"Recorded call to {action.name}({action.arguments})."
+        msg = (
+            f"Recorded call to {action.name}({action.arguments}). "
+            "Make any other function calls this request requires, then call "
+            "final_step to submit. Do not repeat a call you have already made."
+        )
         return Observation(contents=[Content.from_data(msg, tool_call_id=action.id)])
 
     @property

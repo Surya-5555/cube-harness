@@ -55,10 +55,15 @@ class BfclExecutionInfo(TaskExecutionInfo):
     """BFCL possible-answer ``ground_truth`` (None for (ir)relevance categories)."""
 
 
-class BfclTask(Task[BfclTaskMetadata, BfclTool]):
+class BfclTask(Task[BfclTaskMetadata]):
     """A single BFCL single-turn function-calling task."""
 
     validate_per_step: bool = False
+
+    @property
+    def _bfcl_tool(self) -> BfclTool:
+        assert isinstance(self.tool, BfclTool)
+        return self.tool
 
     @property
     def _exec(self) -> BfclExecutionInfo:
@@ -79,15 +84,21 @@ class BfclTask(Task[BfclTaskMetadata, BfclTool]):
         }
 
     def finished(self, obs: Observation | None = None) -> bool:
-        # Single-turn BFCL gives the model one response. The episode ends when the
-        # agent calls ``final_step`` (AgentStop) — including the abstain case for
-        # (ir)relevance — or hits max_steps; the harness evaluates either way.
-        # We do not auto-finish on a recorded call so that parallel calls emitted
-        # across separate agent steps all accumulate before scoring.
-        return False
+        # BFCL scores one model response. The cleanest faithful mapping is to end
+        # the episode after the agent's first function call. But harness agents
+        # (Genny, ReAct) emit ONE call per step, so a parallel task (N>1 expected
+        # calls) can only be expressed by accumulating calls across steps — there
+        # we must NOT stop early. So:
+        #   - parallel categories  → accumulate; episode ends on final_step.
+        #   - everything else (exactly-one-call or abstain) → end after the first
+        #     call, which also prevents the over-count false negative where a model
+        #     re-issues a correct single call across steps (→ AST wrong_count).
+        if "parallel" in self.metadata.category:
+            return False
+        return len(self._bfcl_tool.recorded_calls) > 0
 
     def evaluate(self, obs: Observation | None = None) -> tuple[float, dict[str, Any]]:
-        calls = self.tool.recorded_calls
+        calls = self._bfcl_tool.recorded_calls
         category = self.metadata.category
 
         if category in _IRRELEVANCE_CATEGORIES:
