@@ -18,6 +18,7 @@ from cube_harness.episode import MAX_STEPS, Episode
 from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.episode_status import RETRIABLE_STATUSES, EpisodeStatus, should_sweep_running_to_stale
 from cube_harness.eval_log import EvalLog, ExperimentRecord
+from cube_harness.metrics.profiler import ProfileConfig
 from cube_harness.storage import FileStorage
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,11 @@ class Experiment(TypedBaseModel):
     max_cost_usd: Annotated[float, Field(gt=0)] | None = None
     max_retries: Annotated[int, Field(ge=0)] = 3
     git_cwd: str | None = None
+    profile: ProfileConfig | None = None
+    """Opt-in episode profiling (resource sampling + phase timing). ``None``
+    (default) ⇒ no profiling. Propagated onto every episode; each writes a
+    ``profile.json`` beside its trajectory. Aggregate across a run with
+    ``ch-profile``. Never affects scoring — `is_official` runs may set it."""
     debug_limit: int | None = None
     """If set, the runner truncates the task list to the first N entries.
 
@@ -211,6 +217,7 @@ class Experiment(TypedBaseModel):
                 max_cost_usd=self.max_cost_usd,
                 runtime_context=runtime_context,
                 storage=None,
+                profile=self.profile,
             )
             for i, tc in enumerate(task_configs)
         ]

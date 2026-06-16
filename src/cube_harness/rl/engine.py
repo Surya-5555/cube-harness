@@ -315,6 +315,7 @@ class RolloutEngine:
             "service_name": self.config.name,
             "benchmark_name": self.benchmark_name,
             "max_steps": self.config.max_steps,
+            "profile": self.config.profile,
             "event_context": self.event_context(request),
         }
 

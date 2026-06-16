@@ -21,9 +21,13 @@ class Storage(Protocol):
     def write_episode_status(self, trajectory_id: str, status: EpisodeStatus) -> None
     def read_episode_status(self, trajectory_id: str) -> EpisodeStatus | None
     def archive_episode(self, trajectory_id: str) -> None
+    def episode_dir(self, trajectory_id: str) -> Path | None
 ```
 
-Custom backends (cloud storage, DB) must implement all seven.
+Custom backends (cloud storage, DB) must implement all eight. `episode_dir`
+returns the on-disk artifact directory for an episode (where side artifacts
+like `profile.json` land), or `None` for non-persistent storage
+(`InMemoryStorage`).
 
 ### `FileStorage`
 Writes V2 only. Reads V2 + V1.
