@@ -1,0 +1,46 @@
+[project]
+name = "bfcl-cube"
+version = "0.1.0"
+description = "Berkeley Function Calling Leaderboard (v4) — Python single-turn, AST-scored"
+requires-python = ">=3.12"
+dependencies = [
+    "cube-standard>=0.1.0rc8",
+]
+
+[project.entry-points."cube.benchmarks"]
+bfcl-cube = "bfcl_cube.benchmark:BfclBenchmarkConfig"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv-build]
+include = [
+    "src/bfcl_cube/task_metadata.json",
+    "src/bfcl_cube/data/bfcl_single_turn.jsonl.gz",
+]
+
+[tool.uv.sources]
+cube-standard = { git = "https://github.com/The-AI-Alliance/cube-standard", branch = "dev" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+]
+# Author-time only: regenerate task_metadata.json + data bundle from BFCL v4.
+#   uv sync --group gen && uv run scripts/create_task_metadata.py
+gen = [
+    "typer>=0.12",
+    "bfcl-eval",
+]
+
+[tool.ruff]
+fix = true
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint.per-file-ignores]
+# Vendored from bfcl_eval (Apache-2.0): preserve upstream idioms for easy
+# re-diffing. E721 (exact `type(x) == T`) is intentional in the AST checker —
+# e.g. a bool value must not match an int parameter type.
+"src/bfcl_cube/_vendor/*" = ["E721"]
