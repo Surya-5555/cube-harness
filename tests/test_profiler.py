@@ -109,6 +109,37 @@ def test_episode_config_profile_defaults_off_and_serializes() -> None:
     assert isinstance(TaskConfig, type)  # import sanity
 
 
+def test_breakdown_agent_loop_splits_llm_tool_and_per_tool() -> None:
+    from cube.core import Action  # noqa: PLC0415 - test-local
+
+    from cube_harness.core import LLMCallEvent, ToolCallEvent, TrajectoryEvent  # noqa: PLC0415
+    from cube_harness.metrics.profiler import breakdown_agent_loop
+
+    def tool(name: str, action_id: str, start: float, end: float) -> TrajectoryEvent:
+        return TrajectoryEvent(
+            output=ToolCallEvent(parent_event_id="p", action_id=action_id, action=Action(name=name, arguments={})),
+            start_time=start,
+            end_time=end,
+        )
+
+    events = [
+        TrajectoryEvent(output=LLMCallEvent(), start_time=0.0, end_time=2.0),  # llm 2s
+        tool("reset", "reset", 2.0, 2.1),  # excluded — synthetic initial obs
+        tool("bash", "a1", 2.1, 3.1),  # bash 1.0s
+        tool("bash", "a2", 3.1, 3.6),  # bash 0.5s
+        tool("read_file", "a3", 3.6, 3.7),  # read_file 0.1s
+        TrajectoryEvent(output=LLMCallEvent(), start_time=3.7, end_time=4.7),  # llm 1s
+    ]
+    bd = breakdown_agent_loop(events)
+    assert bd.n_llm_calls == 2
+    assert abs(bd.llm_wait_s - 3.0) < 1e-6
+    assert bd.n_tool_calls == 3  # reset excluded
+    assert abs(bd.tool_exec_s - 1.6) < 1e-6
+    assert bd.tools["bash"].count == 2
+    assert abs(bd.tools["bash"].total_s - 1.5) < 1e-6
+    assert "reset" not in bd.tools
+
+
 def test_live_episode_writes_profile(tmp_dir, mock_agent_config, mock_cube_task_config) -> None:  # noqa: ANN001 - fixtures
     """End-to-end: an Episode run with profile set drops profile.json with phases."""
     episode = Episode(

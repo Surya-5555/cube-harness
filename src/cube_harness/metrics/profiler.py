@@ -35,10 +35,14 @@ from pathlib import Path
 import psutil
 from pydantic import BaseModel, Field
 
+from cube_harness.core import LLMCallEvent, ToolCallEvent
+
 try:  # optional: only used when ``ProfileConfig.gpu`` and an NVIDIA GPU is present
     import pynvml
 except ImportError:  # pragma: no cover - exercised only on GPU hosts
     pynvml = None
+
+RESET_ACTION_ID = "reset"  # synthetic initial-obs ToolCallEvent — setup, not a real tool call
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +143,73 @@ class EpisodeProfile(BaseModel):
         except Exception:
             logger.warning("Failed to read %s", path, exc_info=True)
             return None
+
+
+class ToolStat(BaseModel):
+    """Per-tool (per-action-name) aggregate within the agent loop."""
+
+    count: int = 0
+    total_s: float = 0.0
+
+
+class AgentLoopBreakdown(BaseModel):
+    """Decomposition of the ``agent_loop`` phase, derived from trajectory events.
+
+    The coarse ``agent_loop`` phase lumps three very different costs; this
+    splits them so the rollup can tell model latency from env transport from
+    harness overhead:
+
+    - ``llm_wait_s`` — summed wall-clock of every ``LLMCallEvent`` (network +
+      inference). Model/provider-owned.
+    - ``tool_exec_s`` — summed wall-clock of every ``ToolCallEvent`` (the
+      agent↔env hop + in-container work), broken out per tool in ``tools``.
+      Infra/transport-owned — this is where remote backends (Daytona) hurt.
+    - ``overhead_s`` (derived in the rollup as ``agent_loop − llm − tool``) —
+      everything between calls: parsing, prompt build, obs formatting,
+      serialization. Harness-owned.
+
+    Computed post-hoc from persisted events, so it works on any past run with
+    no hot-path cost — events already carry ``start_time``/``end_time``.
+    """
+
+    llm_wait_s: float = 0.0
+    tool_exec_s: float = 0.0
+    n_llm_calls: int = 0
+    n_tool_calls: int = 0
+    tools: dict[str, ToolStat] = Field(default_factory=dict)
+
+
+def _event_duration(event: object) -> float:
+    start, end = getattr(event, "start_time", None), getattr(event, "end_time", None)
+    if start is None or end is None:
+        return 0.0
+    return max(0.0, end - start)
+
+
+def breakdown_agent_loop(events: object) -> AgentLoopBreakdown:
+    """Decompose the agent loop from an iterable of ``TrajectoryEvent``.
+
+    Each event must expose ``start_time``/``end_time`` and ``output``. The
+    synthetic reset ToolCallEvent (initial obs) is excluded — it's setup, not
+    a tool call.
+    """
+    bd = AgentLoopBreakdown()
+    for event in events:
+        out = getattr(event, "output", None)
+        dur = _event_duration(event)
+        if isinstance(out, LLMCallEvent):
+            bd.n_llm_calls += 1
+            bd.llm_wait_s += dur
+        elif isinstance(out, ToolCallEvent):
+            if out.action_id == RESET_ACTION_ID:
+                continue
+            name = (out.action.name if out.action is not None else None) or "unknown"
+            bd.n_tool_calls += 1
+            bd.tool_exec_s += dur
+            stat = bd.tools.setdefault(name, ToolStat())
+            stat.count += 1
+            stat.total_s += dur
+    return bd
 
 
 def _percentile(values: list[float], q: float) -> float:

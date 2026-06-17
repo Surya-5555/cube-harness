@@ -30,7 +30,8 @@ from typing import Annotated
 
 import typer
 
-from cube_harness.metrics.profiler import PHASE_OWNER, EpisodeProfile
+from cube_harness.metrics.profiler import PHASE_AGENT_LOOP, PHASE_OWNER, EpisodeProfile, breakdown_agent_loop
+from cube_harness.storage import FileStorage
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,62 @@ def _aggregate_resources(profiles: list[EpisodeProfile]) -> list[dict]:
     return rows
 
 
+def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict:
+    """Split the aggregate ``agent_loop`` wall-clock into llm / tool / overhead
+    plus a per-tool table, computed from each episode's persisted events.
+
+    Event-derived and post-hoc: works on any past run, no hot-path cost. The
+    ``overhead`` slice is the residual (agent_loop − llm − tool): parsing,
+    prompt build, obs formatting, serialization.
+    """
+    storage = FileStorage(exp_dir)
+    n = len(profiles) or 1
+    agent_loop_total = sum(p.phases.get(PHASE_AGENT_LOOP, 0.0) for p in profiles)
+    llm_total = tool_total = 0.0
+    n_llm = n_tool = 0
+    tools: dict[str, dict] = {}
+    covered = 0
+    for prof in profiles:
+        if not prof.trajectory_id:
+            continue
+        try:
+            view = storage.load_episode(prof.trajectory_id)
+        except Exception:
+            logger.warning("Could not load events for %s (skipping breakdown)", prof.trajectory_id, exc_info=True)
+            continue
+        bd = breakdown_agent_loop(view)
+        covered += 1
+        llm_total += bd.llm_wait_s
+        tool_total += bd.tool_exec_s
+        n_llm += bd.n_llm_calls
+        n_tool += bd.n_tool_calls
+        for name, stat in bd.tools.items():
+            agg = tools.setdefault(name, {"count": 0, "total_s": 0.0})
+            agg["count"] += stat.count
+            agg["total_s"] += stat.total_s
+    overhead_total = max(0.0, agent_loop_total - llm_total - tool_total)
+    base = agent_loop_total or 1.0
+    tool_rows = sorted(
+        (
+            {"tool": k, "mean_s": v["total_s"] / n, "calls": v["count"], "share_of_loop": v["total_s"] / base}
+            for k, v in tools.items()
+        ),
+        key=lambda r: r["mean_s"],
+        reverse=True,
+    )
+    return {
+        "episodes_covered": covered,
+        "split": [
+            {"part": "llm_wait", "mean_s": llm_total / n, "share": llm_total / base, "owner": "model"},
+            {"part": "tool_exec", "mean_s": tool_total / n, "share": tool_total / base, "owner": "infra/transport"},
+            {"part": "overhead", "mean_s": overhead_total / n, "share": overhead_total / base, "owner": "harness"},
+        ],
+        "mean_llm_calls": n_llm / n,
+        "mean_tool_calls": n_tool / n,
+        "tools": tool_rows,
+    }
+
+
 def build_rollup(exp_dir: Path) -> dict:
     """Assemble the full rollup dict (also the ``--json`` payload)."""
     profiles = _load_profiles(exp_dir)
@@ -97,6 +154,7 @@ def build_rollup(exp_dir: Path) -> dict:
         "episodes": len(profiles),
         "mean_wall_s": (sum(p.wall_time_s for p in profiles) / len(profiles)) if profiles else 0.0,
         "phases": _aggregate_phases(profiles),
+        "agent_loop": _aggregate_agent_loop(exp_dir, profiles) if profiles else {},
         "resources": _aggregate_resources(profiles),
     }
 
@@ -111,6 +169,26 @@ def _render(rollup: dict) -> str:
     ]
     for r in rollup["phases"]:
         lines.append(f"  {r['phase']:<14}{r['mean_s']:>10.2f}{r['share'] * 100:>8.1f}%  {r['owner']}")
+
+    al = rollup.get("agent_loop") or {}
+    if al.get("split"):
+        lines += [
+            "",
+            f"agent_loop breakdown (mean seconds / share of agent_loop / owner)"
+            f"  [{al.get('mean_llm_calls', 0):.1f} llm calls, {al.get('mean_tool_calls', 0):.1f} tool calls/ep]:",
+            f"  {'part':<14}{'mean_s':>10}{'share':>9}  owner",
+        ]
+        for r in al["split"]:
+            lines.append(f"  {r['part']:<14}{r['mean_s']:>10.2f}{r['share'] * 100:>8.1f}%  {r['owner']}")
+        if al.get("tools"):
+            lines += [
+                "",
+                "  per-tool (mean seconds / calls-per-ep / share of agent_loop):",
+                f"    {'tool':<16}{'mean_s':>10}{'calls':>8}{'share':>9}",
+            ]
+            for r in al["tools"]:
+                lines.append(f"    {r['tool']:<16}{r['mean_s']:>10.2f}{r['calls']:>8}{r['share_of_loop'] * 100:>8.1f}%")
+
     lines += [
         "",
         "Resource peaks (mean / p95 / max across episodes):",
