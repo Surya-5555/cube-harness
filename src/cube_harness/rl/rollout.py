@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, SerializeAsAny
 
 from cube_harness.agent import AgentConfig
 from cube_harness.episode import MAX_STEPS
+from cube_harness.metrics.profiler import ProfileConfig
 from cube_harness.rl.llm import RolloutLLMConfig
 
 
@@ -58,3 +59,9 @@ class RolloutConfig(BaseModel):
     max_steps: int = MAX_STEPS
     execution_mode: Literal["ray", "local"] = "ray"
     ray: RayConfig = Field(default_factory=RayConfig)
+    profile: ProfileConfig | None = Field(
+        default=None,
+        description="Opt-in per-rollout profiling (resource sampling + phase timing). Each rollout "
+        "writes a profile.json beside its trajectory when persist_rollout is set. The "
+        "inference-server / GPU side is profiled separately (see metrics/profiler).",
+    )

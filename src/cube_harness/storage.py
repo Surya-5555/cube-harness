@@ -74,6 +74,12 @@ class Storage(Protocol):
 
     def archive_episode(self, trajectory_id: str) -> None: ...
 
+    def episode_dir(self, trajectory_id: str) -> Path | None:
+        """On-disk directory for this episode's artifacts, or None for
+        non-persistent storage. Used to drop side artifacts (e.g.
+        ``profile.json``) beside the trajectory."""
+        ...
+
 
 class InMemoryTrajectoryView:
     """Minimal TrajectoryView-compatible object for streaming-only episodes.
@@ -191,6 +197,9 @@ class InMemoryStorage:
         self._events.pop(trajectory_id, None)
         self._statuses.pop(trajectory_id, None)
         self._episode_configs.pop(trajectory_id, None)
+
+    def episode_dir(self, trajectory_id: str) -> Path | None:
+        return None  # in-memory storage has no on-disk artifact directory
 
 
 _thread_local = threading.local()
@@ -809,6 +818,13 @@ class FileStorage:
 
     def _episode_dir(self, trajectory_id: str) -> Path:
         return self.output_dir / EPISODES_DIR / trajectory_id
+
+    def episode_dir(self, trajectory_id: str) -> Path | None:
+        # Pure accessor: the directory is already created by save_metadata /
+        # save_episode_config before any caller needs it. Side artifacts
+        # (profile.json) are written best-effort, so a missing dir on an
+        # early-setup crash just degrades to no-write rather than forcing one.
+        return self._episode_dir(trajectory_id)
 
     def _episode_dirs(self) -> Iterator[Path]:
         episodes_dir = self.output_dir / EPISODES_DIR
