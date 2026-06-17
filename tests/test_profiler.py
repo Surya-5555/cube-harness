@@ -184,6 +184,64 @@ def test_live_episode_without_profile_writes_nothing(tmp_dir, mock_agent_config,
     assert EpisodeProfile.load(Path(tmp_dir) / "episodes" / view.id) is None
 
 
+def test_build_rollup_agent_loop_transport_floor_split(tmp_path: Path) -> None:
+    """End-to-end rollup: persist events for 2 episodes with differing per-call
+    tool durations and assert the transport-floor split uses PER-EPISODE floors
+    (not global-min × global-count) and divides by covered episodes."""
+    from cube.core import Action  # noqa: PLC0415
+
+    from cube_harness.core import (  # noqa: PLC0415
+        ToolCallEvent,
+        TrajectoryEvent,
+        TrajectoryMetadata,
+    )
+    from cube_harness.metrics.profile_rollup import build_rollup  # noqa: PLC0415
+    from cube_harness.storage import FileStorage  # noqa: PLC0415
+
+    storage = FileStorage(tmp_path)
+
+    def write_ep(tid: str, durations: list[float]) -> None:
+        agent_loop = sum(durations) + 1.0  # +1s of non-tool agent-loop time (overhead+llm)
+        storage.save_metadata(TrajectoryMetadata(id=tid, start_time=0.0))
+        t = 0.0
+        for d in durations:
+            storage.save_event(
+                TrajectoryEvent(
+                    output=ToolCallEvent(parent_event_id="p", action_id="x", action=Action(name="bash", arguments={})),
+                    start_time=t,
+                    end_time=t + d,
+                ),
+                tid,
+            )
+            t += d
+        EpisodeProfile(
+            task_id=tid,
+            trajectory_id=tid,
+            wall_time_s=agent_loop,
+            phases={"agent_loop": agent_loop},
+            sample_count=0,
+        ).write(tmp_path / "episodes" / tid)
+
+    # ep0: bash calls 1.0 + 3.0  (floor=1.0 each → 2×1.0=2.0 floor, work=2.0)
+    # ep1: bash calls 2.0 + 2.0  (floor=2.0 each → 2×2.0=4.0 floor, work=0.0)
+    write_ep("ep0", [1.0, 3.0])
+    write_ep("ep1", [2.0, 2.0])
+
+    rollup = build_rollup(tmp_path)
+    al = rollup["agent_loop"]
+    assert al["episodes_covered"] == 2
+    tes = al["tool_exec_split"]
+    # tool_exec total = 8.0 over 2 episodes → mean 4.0/ep
+    tool_split = next(s for s in al["split"] if s["part"] == "tool_exec")
+    assert abs(tool_split["mean_s"] - 4.0) < 1e-6
+    # PER-EPISODE floor: ep0 2×1.0=2.0, ep1 2×2.0=4.0 → 6.0 total → 3.0/ep.
+    # (A global-min×global-count bug would give 4×1.0=4.0 → 2.0/ep — wrong.)
+    assert abs(tes["transport_floor_s"] - 3.0) < 1e-6
+    assert abs(tes["work_s"] - 1.0) < 1e-6  # (8.0 - 6.0)/2
+    # reclaimable: ep0 (2-1)×1.0=1.0, ep1 (2-1)×2.0=2.0 → 3.0 total → 1.5/ep
+    assert abs(tes["reclaimable_by_batching_s"] - 1.5) < 1e-6
+
+
 def test_build_rollup_pareto_ranks_phases(tmp_path: Path) -> None:
     # two episodes, each with profile.json under episodes/<id>/
     for i, (setup, loop, evaluate) in enumerate([(1.0, 8.0, 3.0), (2.0, 10.0, 4.0)]):

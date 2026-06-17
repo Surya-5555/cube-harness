@@ -99,9 +99,12 @@ def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict
     prompt build, obs formatting, serialization.
     """
     storage = FileStorage(exp_dir)
-    n = len(profiles) or 1
-    agent_loop_total = sum(p.phases.get(PHASE_AGENT_LOOP, 0.0) for p in profiles)
-    llm_total = tool_total = 0.0
+    # Aggregate only over episodes whose events we can load (covered); means
+    # divide by `covered`, not len(profiles), so RL in-memory rollouts / unreadable
+    # episodes don't dilute the per-episode numbers (or dump their agent_loop into
+    # the overhead bucket).
+    agent_loop_total = llm_total = tool_total = 0.0
+    floor_total = reclaimable_total = 0.0  # accumulated PER EPISODE (honest floors)
     n_llm = n_tool = 0
     tools: dict[str, dict] = {}
     covered = 0
@@ -115,29 +118,31 @@ def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict
             continue
         bd = breakdown_agent_loop(view)
         covered += 1
+        agent_loop_total += prof.phases.get(PHASE_AGENT_LOOP, 0.0)
         llm_total += bd.llm_wait_s
         tool_total += bd.tool_exec_s
         n_llm += bd.n_llm_calls
         n_tool += bd.n_tool_calls
+        # Per-episode transport floor: each call pays at least this episode's
+        # cheapest call of that tool; what's reclaimable by batching is the
+        # floor on every call past the first (you can't collapse a tool to zero).
+        for stat in bd.tools.values():
+            floor_total += stat.count * stat.min_s
+            reclaimable_total += (stat.count - 1) * stat.min_s
         for name, stat in bd.tools.items():
-            agg = tools.setdefault(name, {"count": 0, "total_s": 0.0, "min_s": stat.min_s, "max_s": 0.0})
+            agg = tools.setdefault(
+                name, {"count": 0, "total_s": 0.0, "min_s": stat.min_s, "max_s": 0.0, "floor_s": 0.0}
+            )
             agg["count"] += stat.count
             agg["total_s"] += stat.total_s
-            agg["min_s"] = min(agg["min_s"], stat.min_s)
-            agg["max_s"] = max(agg["max_s"], stat.max_s)
+            agg["floor_s"] += stat.count * stat.min_s  # per-episode floor contribution (honest across episodes)
+            agg["min_s"] = min(agg["min_s"], stat.min_s)  # display only
+            agg["max_s"] = max(agg["max_s"], stat.max_s)  # display only
+
+    cov = covered or 1
     overhead_total = max(0.0, agent_loop_total - llm_total - tool_total)
     base = agent_loop_total or 1.0
-
-    # Transport-floor vs work decomposition. Every call of a tool pays at least
-    # that tool's cheapest observed call (min_s) = per-call RPC/transport floor.
-    # floor_total = Σ count×min is the time attributable to per-call overhead
-    # (addressable by batching / co-locating the agent with the sandbox); the
-    # remainder is in-container command work (≈ irreducible per rollout).
-    # Reclaimable ≈ floor minus one call kept per tool (you can't batch to zero).
-    floor_total = sum(v["count"] * v["min_s"] for v in tools.values())
-    one_call_floor = sum(v["min_s"] for v in tools.values())
     work_total = max(0.0, tool_total - floor_total)
-    reclaimable = max(0.0, floor_total - one_call_floor)
     tool_base = tool_total or 1.0
 
     tool_rows = sorted(
@@ -149,7 +154,7 @@ def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict
                 "min_s": v["min_s"],
                 "max_s": v["max_s"],
                 "share_of_loop": v["total_s"] / base,
-                "floor_frac": (v["count"] * v["min_s"]) / (v["total_s"] or 1.0),  # how transport-bound this tool is
+                "floor_frac": v["floor_s"] / (v["total_s"] or 1.0),  # how transport-bound this tool is
             }
             for k, v in tools.items()
         ),
@@ -159,19 +164,19 @@ def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict
     return {
         "episodes_covered": covered,
         "split": [
-            {"part": "llm_wait", "mean_s": llm_total / n, "share": llm_total / base, "owner": "model"},
-            {"part": "tool_exec", "mean_s": tool_total / n, "share": tool_total / base, "owner": "infra/transport"},
-            {"part": "overhead", "mean_s": overhead_total / n, "share": overhead_total / base, "owner": "harness"},
+            {"part": "llm_wait", "mean_s": llm_total / cov, "share": llm_total / base, "owner": "model"},
+            {"part": "tool_exec", "mean_s": tool_total / cov, "share": tool_total / base, "owner": "infra/transport"},
+            {"part": "overhead", "mean_s": overhead_total / cov, "share": overhead_total / base, "owner": "harness"},
         ],
         "tool_exec_split": {
-            "transport_floor_s": floor_total / n,
+            "transport_floor_s": floor_total / cov,
             "transport_floor_frac": floor_total / tool_base,
-            "work_s": work_total / n,
+            "work_s": work_total / cov,
             "work_frac": work_total / tool_base,
-            "reclaimable_by_batching_s": reclaimable / n,
+            "reclaimable_by_batching_s": reclaimable_total / cov,
         },
-        "mean_llm_calls": n_llm / n,
-        "mean_tool_calls": n_tool / n,
+        "mean_llm_calls": n_llm / cov,
+        "mean_tool_calls": n_tool / cov,
         "tools": tool_rows,
     }
 
@@ -205,7 +210,8 @@ def _render(rollup: dict) -> str:
         lines += [
             "",
             f"agent_loop breakdown (mean seconds / share of agent_loop / owner)"
-            f"  [{al.get('mean_llm_calls', 0):.1f} llm calls, {al.get('mean_tool_calls', 0):.1f} tool calls/ep]:",
+            f"  [{al.get('mean_llm_calls', 0):.1f} llm calls, {al.get('mean_tool_calls', 0):.1f} tool calls/ep"
+            f"; {al.get('episodes_covered', 0)}/{rollup['episodes']} episodes have events]:",
             f"  {'part':<14}{'mean_s':>10}{'share':>9}  owner",
         ]
         for r in al["split"]:
