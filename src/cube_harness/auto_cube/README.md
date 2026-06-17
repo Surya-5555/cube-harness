@@ -23,7 +23,8 @@ touch the benchmark.
 | `/auto-cube` (alias) | → debug | Defaults to the debug use-case |
 | `/auto-cube-debug` | debug | Curious-scientist sparse-coverage investigation; ships Fix Report PRs |
 | `/auto-cube-hinter` | hinter | Raises benchmark performance by adding knowledge at the right regularization level (task-hint cheat → promoted clarification / benchmark prompt / action description / new action / system prompt); ships promotion PRs |
-| (future) | profile / optimization / capability | Plug into the same skeleton with different goals |
+| `/auto-cube-profile` | profile | Finds where episodes spend wall-clock/resources (phase × resource Pareto via `ch-profile`), optimizes the top *actionable* bottleneck, A/B-verifies the fix. Aggregate rollup — no per-trajectory Investigator |
+| (future) | optimization / capability | Plug into the same skeleton with different goals |
 
 Each use-case lives at `src/cube_harness/auto_cube/use_cases/<name>/` and
 exposes a `SKILL.md` (loaded as the agent's system prompt) plus an

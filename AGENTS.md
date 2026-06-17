@@ -255,6 +255,10 @@ Auto-CUBE agent's system prompt) and an optional `investigator_extra.md`
   right regularization level (low-reg task-hint cheat → promoted task
   clarification / benchmark prompt / action description / new action /
   system prompt). Invoked as `/auto-cube-hinter`.
+- **`profile`** — efficiency: finds where episodes spend wall-clock /
+  resources (phase × resource Pareto via `ch-profile`), optimizes the top
+  *actionable* bottleneck, and A/B-verifies the fix. Uses the aggregate
+  rollup, not a per-trajectory Investigator. Invoked as `/auto-cube-profile`.
 
 `scripts/sync_auto_cube_skills.py` symlinks each SKILL.md into
 `.claude/skills/auto-cube-<name>/` and creates the `auto-cube → debug`
