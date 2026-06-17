@@ -137,6 +137,10 @@ def test_breakdown_agent_loop_splits_llm_tool_and_per_tool() -> None:
     assert abs(bd.tool_exec_s - 1.6) < 1e-6
     assert bd.tools["bash"].count == 2
     assert abs(bd.tools["bash"].total_s - 1.5) < 1e-6
+    # per-call distribution: floor (min) vs max distinguishes transport- from work-bound
+    assert abs(bd.tools["bash"].min_s - 0.5) < 1e-6
+    assert abs(bd.tools["bash"].max_s - 1.0) < 1e-6
+    assert abs(bd.tools["bash"].mean_s - 0.75) < 1e-6
     assert "reset" not in bd.tools
 
 

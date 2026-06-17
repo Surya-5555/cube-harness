@@ -146,10 +146,24 @@ class EpisodeProfile(BaseModel):
 
 
 class ToolStat(BaseModel):
-    """Per-tool (per-action-name) aggregate within the agent loop."""
+    """Per-tool (per-action-name) aggregate within the agent loop.
+
+    ``min_s`` is the cheapest observed call of this tool — a proxy for the
+    per-call **floor** (RPC/transport + trivial work that *every* call pays
+    regardless of the command). The spread between ``min_s`` and ``max_s``
+    tells transport-bound (flat: min≈max, many calls) from work-bound
+    (spiky: max≫min, a few heavy commands). Aggregates cleanly across
+    episodes: count/total add, min/max combine by min/max.
+    """
 
     count: int = 0
     total_s: float = 0.0
+    min_s: float = 0.0
+    max_s: float = 0.0
+
+    @property
+    def mean_s(self) -> float:
+        return self.total_s / self.count if self.count else 0.0
 
 
 class AgentLoopBreakdown(BaseModel):
@@ -206,9 +220,14 @@ def breakdown_agent_loop(events: object) -> AgentLoopBreakdown:
             name = (out.action.name if out.action is not None else None) or "unknown"
             bd.n_tool_calls += 1
             bd.tool_exec_s += dur
-            stat = bd.tools.setdefault(name, ToolStat())
+            stat = bd.tools.get(name)
+            if stat is None:
+                stat = ToolStat(min_s=dur, max_s=dur)
+                bd.tools[name] = stat
             stat.count += 1
             stat.total_s += dur
+            stat.min_s = min(stat.min_s, dur)
+            stat.max_s = max(stat.max_s, dur)
     return bd
 
 

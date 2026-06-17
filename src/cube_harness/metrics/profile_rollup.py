@@ -120,17 +120,40 @@ def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict
         n_llm += bd.n_llm_calls
         n_tool += bd.n_tool_calls
         for name, stat in bd.tools.items():
-            agg = tools.setdefault(name, {"count": 0, "total_s": 0.0})
+            agg = tools.setdefault(name, {"count": 0, "total_s": 0.0, "min_s": stat.min_s, "max_s": 0.0})
             agg["count"] += stat.count
             agg["total_s"] += stat.total_s
+            agg["min_s"] = min(agg["min_s"], stat.min_s)
+            agg["max_s"] = max(agg["max_s"], stat.max_s)
     overhead_total = max(0.0, agent_loop_total - llm_total - tool_total)
     base = agent_loop_total or 1.0
+
+    # Transport-floor vs work decomposition. Every call of a tool pays at least
+    # that tool's cheapest observed call (min_s) = per-call RPC/transport floor.
+    # floor_total = Σ count×min is the time attributable to per-call overhead
+    # (addressable by batching / co-locating the agent with the sandbox); the
+    # remainder is in-container command work (≈ irreducible per rollout).
+    # Reclaimable ≈ floor minus one call kept per tool (you can't batch to zero).
+    floor_total = sum(v["count"] * v["min_s"] for v in tools.values())
+    one_call_floor = sum(v["min_s"] for v in tools.values())
+    work_total = max(0.0, tool_total - floor_total)
+    reclaimable = max(0.0, floor_total - one_call_floor)
+    tool_base = tool_total or 1.0
+
     tool_rows = sorted(
         (
-            {"tool": k, "mean_s": v["total_s"] / n, "calls": v["count"], "share_of_loop": v["total_s"] / base}
+            {
+                "tool": k,
+                "per_call_s": v["total_s"] / (v["count"] or 1),  # per-call mean (comparable to min/max)
+                "calls": v["count"],  # total across episodes
+                "min_s": v["min_s"],
+                "max_s": v["max_s"],
+                "share_of_loop": v["total_s"] / base,
+                "floor_frac": (v["count"] * v["min_s"]) / (v["total_s"] or 1.0),  # how transport-bound this tool is
+            }
             for k, v in tools.items()
         ),
-        key=lambda r: r["mean_s"],
+        key=lambda r: r["share_of_loop"],
         reverse=True,
     )
     return {
@@ -140,6 +163,13 @@ def _aggregate_agent_loop(exp_dir: Path, profiles: list[EpisodeProfile]) -> dict
             {"part": "tool_exec", "mean_s": tool_total / n, "share": tool_total / base, "owner": "infra/transport"},
             {"part": "overhead", "mean_s": overhead_total / n, "share": overhead_total / base, "owner": "harness"},
         ],
+        "tool_exec_split": {
+            "transport_floor_s": floor_total / n,
+            "transport_floor_frac": floor_total / tool_base,
+            "work_s": work_total / n,
+            "work_frac": work_total / tool_base,
+            "reclaimable_by_batching_s": reclaimable / n,
+        },
         "mean_llm_calls": n_llm / n,
         "mean_tool_calls": n_tool / n,
         "tools": tool_rows,
@@ -180,14 +210,29 @@ def _render(rollup: dict) -> str:
         ]
         for r in al["split"]:
             lines.append(f"  {r['part']:<14}{r['mean_s']:>10.2f}{r['share'] * 100:>8.1f}%  {r['owner']}")
+
+        tes = al.get("tool_exec_split") or {}
+        if tes:
+            lines += [
+                "",
+                "  why tool_exec dominates — transport-floor vs in-container work:",
+                f"    transport-floor : {tes['transport_floor_s']:8.2f}s/ep "
+                f"({tes['transport_floor_frac'] * 100:.0f}% of tool_exec)  ← per-call RPC; batch/co-locate",
+                f"    in-container work: {tes['work_s']:8.2f}s/ep "
+                f"({tes['work_frac'] * 100:.0f}% of tool_exec)  ← real command runtime; ≈irreducible",
+                f"    reclaimable by batching/co-location ≈ {tes['reclaimable_by_batching_s']:.2f}s/ep",
+            ]
         if al.get("tools"):
             lines += [
                 "",
-                "  per-tool (mean seconds / calls-per-ep / share of agent_loop):",
-                f"    {'tool':<16}{'mean_s':>10}{'calls':>8}{'share':>9}",
+                "  per-tool, per-call seconds (mean / min=floor / max) · total calls · share of loop · floor%=transport-bound:",
+                f"    {'tool':<14}{'per-call':>9}{'min':>8}{'max':>8}{'calls':>7}{'share':>8}{'floor%':>8}",
             ]
             for r in al["tools"]:
-                lines.append(f"    {r['tool']:<16}{r['mean_s']:>10.2f}{r['calls']:>8}{r['share_of_loop'] * 100:>8.1f}%")
+                lines.append(
+                    f"    {r['tool']:<14}{r['per_call_s']:>9.2f}{r['min_s']:>8.2f}{r['max_s']:>8.2f}"
+                    f"{r['calls']:>7}{r['share_of_loop'] * 100:>7.1f}%{r['floor_frac'] * 100:>7.0f}%"
+                )
 
     lines += [
         "",
