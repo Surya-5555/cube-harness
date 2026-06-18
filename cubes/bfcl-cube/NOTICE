@@ -1,0 +1,27 @@
+bfcl-cube
+=========
+
+This package wraps the Berkeley Function Calling Leaderboard (BFCL) as a CUBE
+benchmark.
+
+Third-party material (Apache License 2.0)
+-----------------------------------------
+The following are derived from / redistributed from the Gorilla project's
+`bfcl_eval` package (https://github.com/ShishirPatil/gorilla), licensed under
+the Apache License, Version 2.0:
+
+  * src/bfcl_cube/_vendor/ast_checker.py    — trimmed Python-only port of
+                                              bfcl_eval.eval_checker.ast_eval.ast_checker
+  * src/bfcl_cube/_vendor/schema_convert.py — adapted from
+                                              bfcl_eval.model_handler.utils
+  * src/bfcl_cube/_vendor/type_mappings.py  — subset of
+                                              bfcl_eval.constants.type_mappings
+  * src/bfcl_cube/data/bfcl_single_turn.jsonl.gz and
+    src/bfcl_cube/task_metadata.json        — the BFCL v4 single-turn dataset
+                                              (questions, function schemas,
+                                              ground truth)
+
+A copy of the Apache License 2.0 is available at
+https://www.apache.org/licenses/LICENSE-2.0.
+
+Please cite the BFCL authors when reporting results obtained with this cube.
