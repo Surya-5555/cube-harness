@@ -9,7 +9,6 @@ dependencies = [
     "cube-browser-tool[bgym]>=0.3.0",
     "cube-chat-tool>=0.1.0",
     "openai",
-    "Pillow",
     "playwright==1.44",
 ]
 

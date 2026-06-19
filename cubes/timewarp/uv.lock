@@ -1570,7 +1570,6 @@ dependencies = [
     { name = "cube-chat-tool" },
     { name = "cube-standard" },
     { name = "openai" },
-    { name = "pillow" },
     { name = "playwright" },
 ]
 
@@ -1586,7 +1585,6 @@ requires-dist = [
     { name = "cube-chat-tool", specifier = ">=0.1.0" },
     { name = "cube-standard", specifier = ">=0.1.0rc8" },
     { name = "openai" },
-    { name = "pillow" },
     { name = "playwright", specifier = "==1.44" },
 ]
 

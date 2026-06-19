@@ -19,10 +19,12 @@ Options:
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 from pathlib import Path
+from typing import Annotated
+
+import typer
 
 import timewarp_cube
 from timewarp_cube._data import load_raw_tasks
@@ -37,9 +39,14 @@ _RECOMMENDED_MAX_STEPS = 30
 
 
 def generate_task_metadata(
-    output_path: Path = _DEFAULT_OUTPUT,
+    output_path: Annotated[
+        Path,
+        typer.Option(
+            "--output", help="Destination file (default: task_metadata.json inside the timewarp_cube package)"
+        ),
+    ] = _DEFAULT_OUTPUT,
     *,
-    force: bool = False,
+    force: Annotated[bool, typer.Option(help="Regenerate even if file already exists")] = False,
 ) -> int:
     """Load tasks from the browsergym-timewarp data file and write task_metadata.json.
 
@@ -81,17 +88,4 @@ def generate_task_metadata(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=_DEFAULT_OUTPUT,
-        help="Destination file (default: task_metadata.json inside the timewarp_cube package)",
-    )
-    parser.add_argument("--force", action="store_true", help="Regenerate even if file already exists")
-    args = parser.parse_args()
-
-    generate_task_metadata(args.output, force=args.force)
+    typer.run(generate_task_metadata)

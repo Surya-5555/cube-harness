@@ -2,16 +2,17 @@
 
 TimeWarp's three web environments (wiki / news / webshop) are external Flask
 servers, addressed via the ``TW_WIKI`` / ``TW_NEWS`` / ``TW_WEBSHOP`` environment
-variables. This cube runs in *manual* mode: the user starts the servers (see
-``timewarp/scripts/environment/run_all_env.sh``) and ``_setup()`` only verifies
-that the configured URLs are set and reachable — there is no Docker provisioning.
+variables. The servers and their start scripts live in the upstream TimeWarp
+project (https://github.com/sparklabutah/timewarp), not in this package. This
+cube runs in *manual* mode: the user starts the servers from that repo (see
+``_START_HINT`` below / the cube README) and ``_setup()`` only verifies that the
+configured URLs are set and reachable — there is no Docker provisioning.
 """
 
 import logging
 import os
 import urllib.error
 import urllib.request
-from collections.abc import Generator
 from typing import ClassVar
 
 from cube.benchmark import Benchmark, BenchmarkConfig, BenchmarkMetadata
@@ -24,10 +25,19 @@ logger = logging.getLogger(__name__)
 #: Environment variables that must point at reachable TimeWarp servers.
 _REQUIRED_ENV_VARS = ("TW_WIKI", "TW_NEWS", "TW_WEBSHOP")
 
+#: Upstream TimeWarp project that ships the environment servers and their start scripts.
+_UPSTREAM_REPO = "https://github.com/sparklabutah/timewarp"
+
 _START_HINT = (
-    "Start the TimeWarp environments first, e.g.:\n"
-    "  bash timewarp/scripts/environment/run_all_env.sh 1\n"
-    "then export TW_WIKI / TW_NEWS / TW_WEBSHOP (and OPENAI_API_KEY for the llm_judge)."
+    "The wiki/news/webshop servers live in the upstream TimeWarp repo, not in this\n"
+    f"package. Clone {_UPSTREAM_REPO} and, from that checkout:\n"
+    "  bash setup.sh                              # one-time: conda env + deps\n"
+    "  bash scripts/environment/run_all_env.sh 1  # start all three (UI version 1)\n"
+    "Then point the cube at the running servers and the judge:\n"
+    "  export TW_WIKI=... TW_NEWS=... TW_WEBSHOP=...   # URLs printed by the script\n"
+    "  export OPENAI_API_KEY=...                       # llm_judge scores every task\n"
+    "Stop them later with scripts/environment/stop_all_ports.sh. See the cube README "
+    "and the upstream README for exact URLs/ports."
 )
 
 
@@ -92,7 +102,3 @@ class TimeWarpBenchmarkConfig(BenchmarkConfig[TimeWarpTaskMetadata]):
     )
     task_config_class: ClassVar[type[TaskConfig]] = TimeWarpTaskConfig
     benchmark_class: ClassVar[type[Benchmark]] = TimeWarpBenchmark
-
-    def get_task_configs(self) -> Generator[TimeWarpTaskConfig, None, None]:
-        for tm in self.tasks().values():
-            yield TimeWarpTaskConfig(metadata=tm, tool_config=self.tool_config)

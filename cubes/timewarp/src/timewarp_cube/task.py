@@ -22,6 +22,10 @@ from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
 
+#: Default seed for a TimeWarp task when none is supplied. TimeWarp is deterministic
+#: per task_id, so the exact value only matters for reproducibility of any randomness.
+_DEFAULT_SEED = 42
+
 
 class TimeWarpTaskMetadata(TaskMetadata):
     """TaskMetadata subclass for TimeWarp tasks.
@@ -58,7 +62,7 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
     """CUBE Task wrapper for a single BrowserGym TimeWarp task."""
 
     metadata: TimeWarpTaskMetadata  # type: ignore[assignment]
-    seed: int = 42
+    seed: int = _DEFAULT_SEED
     # validate_per_step stays at the default (False): TimeWarp only scores the agent's
     # terminal chat answer, so evaluate() need only run once the task is done. Per-step
     # validation added no reward signal (non-answer steps always score 0) and cost a
@@ -165,5 +169,5 @@ class TimeWarpTaskConfig(TaskConfig[TimeWarpTaskMetadata]):
         return TimeWarpTask(
             metadata=self.metadata,
             tool_config=self.tool_config,
-            seed=self.seed if self.seed is not None else 42,
+            seed=self.seed if self.seed is not None else _DEFAULT_SEED,
         )

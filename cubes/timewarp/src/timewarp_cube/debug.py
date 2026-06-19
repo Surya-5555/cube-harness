@@ -5,9 +5,10 @@ servers, the browser + chat tools initialise, and the agent can submit an answer
 through the chat tool that ``GenericTimeWarpTask.validate`` consumes.
 
 Requires the TimeWarp environments running with TW_WIKI / TW_NEWS / TW_WEBSHOP set
-(see timewarp/scripts/environment/run_all_env.sh) and, for a non-zero reward,
-OPENAI_API_KEY (every TimeWarp task is scored by the llm_judge). Like workarena,
-the suite only fails on errors (Python exceptions), not on reward.
+(start them from the upstream TimeWarp repo, https://github.com/sparklabutah/timewarp,
+via scripts/environment/run_all_env.sh — see the cube README) and, for a non-zero
+reward, OPENAI_API_KEY (every TimeWarp task is scored by the llm_judge). Like
+workarena, the suite only fails on errors (Python exceptions), not on reward.
 
 Public API (cube.testing protocol)
 -----------------------------------
