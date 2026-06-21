@@ -20,6 +20,8 @@ from cube_chat_tool import ChatTool
 from playwright.sync_api import Page
 from pydantic import PrivateAttr
 
+from timewarp_cube import provisioning
+
 logger = logging.getLogger(__name__)
 
 #: Default seed for a TimeWarp task when none is supplied. TimeWarp is deterministic
@@ -63,6 +65,12 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
 
     metadata: TimeWarpTaskMetadata  # type: ignore[assignment]
     seed: int = _DEFAULT_SEED
+    tw_urls: dict[str, str] | None = None
+    """site → URL for the running servers, read from the benchmark's ``runtime_context`` in
+    auto mode (see ``TimeWarpTaskConfig.make``). Applied to ``os.environ`` in ``reset()`` (the
+    worker process) because BrowserGym's TimeWarpInstance reads TW_WIKI/TW_NEWS/TW_WEBSHOP from
+    the environment, and driver env does not reach Ray workers. None in manual mode → BrowserGym
+    reads the ambient (shell-exported) env vars."""
     # validate_per_step stays at the default (False): TimeWarp only scores the agent's
     # terminal chat answer, so evaluate() need only run once the task is done. Per-step
     # validation added no reward signal (non-answer steps always score 0) and cost a
@@ -102,6 +110,10 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
         Combines the task intent text with the initial page state. The intent is also
         posted into the chat session as a 'user' message so it stays visible in chat_obs().
         """
+        # Auto mode: inject the resolved server URLs into this worker's env before BrowserGym
+        # reads them. No-op in manual mode (tw_urls is None → ambient TW_* env vars are used).
+        if self.tw_urls is not None:
+            provisioning.apply_to_env(self.tw_urls)
         self._bgym_task = GenericTimeWarpTask(seed=self.seed, task_id=int(self.metadata.id))
         self.tool.reset()
         goal, task_info = self._bgym_task.setup(self._browser_tool.page)
@@ -164,10 +176,13 @@ class TimeWarpTaskConfig(TaskConfig[TimeWarpTaskMetadata]):
         self,
         runtime_context: RuntimeContext | None = None,
     ) -> TimeWarpTask:
-        _ = runtime_context
         assert self.tool_config is not None, "TimeWarpTaskConfig requires a tool_config."
+        # Auto mode publishes the resolved server URLs into runtime_context (re-derived each
+        # run); manual mode leaves it unset → tw_urls None → BrowserGym reads the ambient env.
+        tw_urls = runtime_context.get("tw_urls") if runtime_context else None
         return TimeWarpTask(
             metadata=self.metadata,
             tool_config=self.tool_config,
             seed=self.seed if self.seed is not None else _DEFAULT_SEED,
+            tw_urls=tw_urls,
         )
