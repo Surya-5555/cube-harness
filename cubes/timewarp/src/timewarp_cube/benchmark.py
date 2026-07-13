@@ -21,6 +21,8 @@ Two provisioning modes (``provision_mode`` on the config):
   vars) and ``_setup()`` only verifies they are reachable.
 """
 
+import importlib.resources
+import json
 import logging
 import os
 from pathlib import Path
@@ -47,6 +49,9 @@ _START_HINT = (
     "  export TW_WIKI=... TW_NEWS=... TW_WEBSHOP=...   # URLs printed by the script\n"
     "  export OPENAI_API_KEY=...                       # llm_judge scores every task"
 )
+
+#: Task count derived from the shipped task_metadata.json so ``num_tasks`` can't drift from it.
+_NUM_TASKS = len(json.loads(importlib.resources.files("timewarp_cube").joinpath("task_metadata.json").read_text()))
 
 
 class TimeWarpBenchmark(Benchmark["TimeWarpBenchmarkConfig"]):
@@ -146,7 +151,7 @@ class TimeWarpBenchmarkConfig(BenchmarkConfig[TimeWarpTaskMetadata]):
             "designed to test agent robustness to temporal changes in web UI. "
             "Use named_subset('wiki'/'news'/'webshop') to filter by site."
         ),
-        num_tasks=231,
+        num_tasks=_NUM_TASKS,
         tags=["browser", "web", "ui", "timewarp"],
         named_subsets={
             "wiki": ("sites", "*wiki*"),
@@ -163,35 +168,22 @@ class TimeWarpBenchmarkConfig(BenchmarkConfig[TimeWarpTaskMetadata]):
     ui_version: int = 1
     """Temporal UI era (1-6) the auto-launched servers render. Ignored in manual mode."""
     checkout_dir: Path | None = None
-    """Where the upstream TimeWarp repo is cloned in auto mode. None → ``TIMEWARP_HOME`` env
-    var, else ``~/.cache/timewarp`` (see provisioning.default_checkout_dir). Note: ``install``
-    is a classmethod and cannot see this per-config field, so ``cube install`` always uses the
-    ``TIMEWARP_HOME``/default location — set ``TIMEWARP_HOME`` to relocate both consistently."""
+    """Where ``_setup_auto`` (via ``provisioning.ensure_provisioned``) clones the upstream
+    TimeWarp repo in auto mode. None → ``TIMEWARP_HOME`` env var, else ``~/.cache/timewarp``
+    (see provisioning.default_checkout_dir)."""
 
     @classmethod
     def install(cls) -> None:
-        """L1 — clone the upstream repo and run its (idempotent) setup.sh for auto mode.
+        """L1 hook — intentionally lightweight.
 
-        Invoked by ``cube install timewarp-cube`` to do the slow, once-per-machine prep
-        (conda env + Google-Drive/HuggingFace data) ahead of time. Auto-mode ``_setup()``
-        also calls this path as a safety net, so running ``cube install`` first is optional
-        but makes the first benchmark run fast. Idempotent.
-
-        Skips the heavy work in two cases so it stays safe to call unconditionally (the test
-        harness calls ``install()`` before every ``cube test`` / debug run, including the
-        manual-mode debug suite): when the TW_* servers are already reachable (manual mode, or
-        a prior auto run — nothing to provision), and when ``conda`` is absent (auto mode can't
-        run anyway; ``_setup_auto`` raises an actionable error later if it is genuinely needed).
+        Auto mode provisions the upstream repo + conda env + data lazily on first run
+        (``_setup_auto`` -> ``provisioning.ensure_provisioned``, idempotent), so there is nothing
+        slow to do here. This matters because the test harness calls ``install()`` before every
+        ``cube test`` — including the manual-mode debug suite, which only needs the servers
+        reachable — so heavy provisioning here would run (and usually fail) on the common case of a
+        machine that has conda but no running servers.
         """
         super().install()
-        existing = provisioning.urls_from_env()
-        if existing is not None and all(provisioning.is_reachable(url) for url in existing.values()):
-            logger.info("TimeWarp servers already reachable (%s) — skipping auto-provisioning.", existing)
-            return
-        if not provisioning.has_conda():
-            logger.warning(
-                "conda not found — skipping TimeWarp auto-provisioning in install(). Auto mode will "
-                "provision on first run (and error if conda is still missing); or use manual mode."
-            )
-            return
-        provisioning.ensure_provisioned()
+        logger.info(
+            "timewarp-cube install(): auto mode provisions the environment lazily on first run; nothing to do here."
+        )

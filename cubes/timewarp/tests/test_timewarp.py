@@ -15,7 +15,7 @@ from cube.tool import ToolboxConfig
 from cube_browser_tool.bgym_tool import BgymToolConfig
 from cube_chat_tool import ChatToolConfig
 
-from timewarp_cube import TIMEWARP_CONFIGS, TimeWarpBenchmarkConfig
+from timewarp_cube import TIMEWARP_CONFIGS, TimeWarpBenchmarkConfig, provisioning
 from timewarp_cube.configs import _browser_with_chat
 from timewarp_cube.debug import get_debug_benchmark
 from timewarp_cube.task import TimeWarpTaskConfig, TimeWarpTaskMetadata
@@ -35,6 +35,9 @@ def test_benchmark_config_loads_231_tasks() -> None:
     assert cfg.name == "timewarp-cube"
     assert cfg.benchmark_metadata.num_tasks == 231
     assert len(cfg.task_metadata) == 231
+    # num_tasks is derived from the shipped task_metadata.json (benchmark._NUM_TASKS), so the
+    # metadata count and the registry must always agree — this guards against drift.
+    assert cfg.benchmark_metadata.num_tasks == len(cfg.task_metadata)
 
     tm = next(iter(cfg.tasks().values()))
     assert isinstance(tm, TimeWarpTaskMetadata)
@@ -103,3 +106,22 @@ def test_debug_benchmark_constructs() -> None:
     cfg = get_debug_benchmark()
     assert isinstance(cfg, TimeWarpBenchmarkConfig)
     assert set(cfg.tasks()) == {"1", "2"}
+
+
+def test_install_does_not_provision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """install() is a lightweight L1 hook: auto mode provisions lazily at make()-time, so
+    install() must never trigger a clone/setup.sh — the harness calls it before every debug run.
+
+    Regression for the reviewed footgun: the dangerous state is conda-present + servers-down,
+    which used to kick off a multi-GB download and then fail the manual-mode debug suite. Force
+    that exact state so any re-introduction of gated provisioning in install() trips this test.
+    """
+    for var in provisioning.SITE_ENV_VARS.values():
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(provisioning, "has_conda", lambda: True)
+
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("install() must not provision")
+
+    monkeypatch.setattr(provisioning, "ensure_provisioned", _fail)
+    TimeWarpBenchmarkConfig.install()  # no exception → did not provision

@@ -68,11 +68,11 @@ def make_debug_agent(task_id: str) -> ReferenceAnswerAgent:
 
 
 def get_debug_benchmark() -> TimeWarpBenchmarkConfig:
-    # Manual mode: the debug suite expects the servers already running (TW_* set, see the
-    # module docstring) and must stay lightweight. The test harness calls `config.install()`
-    # before `make()`; `install()` short-circuits when the TW_* servers are already reachable
-    # (or conda is absent), so this manual-mode run does not pull in the auto-mode clone +
-    # conda build + multi-GB download.
+    # Manual mode: the debug suite requires the three TW_* servers already running (see the
+    # module docstring). The test harness calls `config.install()` before `make()`, but
+    # `install()` is now lightweight and does no provisioning, so this suite never triggers the
+    # auto-mode clone + conda build + multi-GB download — it fails fast with an actionable
+    # message (from `_setup_manual`) if the servers aren't up.
     tool_config = _browser_with_chat(use_screenshot=False, headless=True)
     return TimeWarpBenchmarkConfig(tool_config=tool_config, provision_mode="manual").subset_from_list(
         _DEBUG_TASK_IDS, benchmark_name_suffix="debug"

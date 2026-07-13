@@ -34,12 +34,12 @@ start them yourself.
 
 ```bash
 uv pip install timewarp-cube   # not yet on PyPI — see pyproject for the git source
-cube install timewarp-cube     # auto mode: one-time clone + setup.sh (conda env + ~GBs of data)
 ```
 
-`cube install` does the slow once-per-machine L1 prep ahead of time; it's optional (auto mode
-runs the same idempotent step on first use), but doing it upfront makes the first run fast. The
-upstream repo is cloned to `~/.cache/timewarp` — override with the `TIMEWARP_HOME` env var.
+There is no separate heavy install step. In auto mode the cube clones the upstream repo and runs
+its **idempotent** `setup.sh` (conda env + ~GBs of data) lazily on the **first** benchmark run,
+cloning to `~/.cache/timewarp` — override with the `TIMEWARP_HOME` env var. (`cube install
+timewarp-cube` is a lightweight no-op hook; it does not pre-provision.)
 
 ## Setup → run
 
@@ -47,8 +47,10 @@ upstream repo is cloned to `~/.cache/timewarp` — override with the `TIMEWARP_H
 
 ```bash
 export OPENAI_API_KEY=sk-...        # for the llm_judge reward
-make debug                          # provisions if needed, launches servers, runs the smoke
 ```
+
+Calling `make()` provisions and launches the servers on first run (`make debug` does **not** —
+it is a manual-mode smoke; see [Debug / Testing](#debug--testing)):
 
 ```python
 from timewarp_cube import TIMEWARP_CONFIGS
@@ -119,11 +121,16 @@ Subsets **overlap** — a task may require more than one environment (e.g. `site
 ## Debug / Testing
 
 ```bash
-make debug                  # end-to-end smoke; auto mode provisions + launches the servers
+make debug                  # manual-mode smoke: needs the 3 servers already running + OPENAI_API_KEY
 uv run pytest tests/        # fast unit tests — no servers, no browser, no conda, no API key
 ```
 
-The unit tests in [`tests/`](tests/) cover the parts that don't need infrastructure: metadata loads 231 tasks, the named subsets filter/cover correctly, the configs round-trip, the toolbox pairs a browser tool with a `ChatTool`, and the provisioning helpers (mode toggle, `is_provisioned` completeness checks, the auto-launch path, `install()` short-circuits, server teardown, and `runtime_context` URL threading) with subprocess/socket calls mocked. The [`debug.py`](src/timewarp_cube/debug.py) suite exercises the full setup→validate path against live servers (auto mode launches them) with a scripted reference-answer agent.
+`make debug` is a **manual-mode** smoke: it only *verifies* that the three servers are reachable —
+it does not provision or launch anything. Before running it, have the servers up (either left over
+from a prior auto-mode benchmark run, or started manually from the upstream repo — see
+[Manual](#manual)) with `TW_WIKI` / `TW_NEWS` / `TW_WEBSHOP` and `OPENAI_API_KEY` exported.
+
+The unit tests in [`tests/`](tests/) cover the parts that don't need infrastructure: metadata loads 231 tasks, the named subsets filter/cover correctly, the configs round-trip, the toolbox pairs a browser tool with a `ChatTool`, that `install()` stays lightweight (no provisioning), and the provisioning helpers (mode toggle, `is_provisioned` completeness checks, the auto-launch path, server teardown, and `runtime_context` URL threading) with subprocess/socket calls mocked. The [`debug.py`](src/timewarp_cube/debug.py) suite exercises the full setup→validate path against the live servers you started with a scripted reference-answer agent.
 
 `task_metadata.json` is a shipped package resource holding only public fields (`sites`, `intent_template_id`, `eval_types`). TimeWarp has no heavy execution data — all task logic loads from `browsergym-timewarp` at runtime via the numeric task id. To regenerate it after a task-list change (developer use only):
 

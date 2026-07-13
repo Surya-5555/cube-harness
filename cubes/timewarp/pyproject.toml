@@ -2,14 +2,13 @@
 name = "timewarp-cube"
 version = "0.1.0"
 description = "TimeWarp benchmark for cube — 231 temporal-UI web tasks across wiki/news/shop"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"
 dependencies = [
     "cube-standard>=0.1.0rc8",
-    "browsergym-timewarp>=0.1.0",
+    # reproducibility pin (PS-001): task_metadata.json is generated from this exact version.
+    "browsergym-timewarp==0.1.0",
     "cube-browser-tool[bgym]>=0.3.0",
     "cube-chat-tool>=0.1.0",
-    "openai",
-    "playwright==1.44",
 ]
 
 [project.entry-points."cube.benchmarks"]

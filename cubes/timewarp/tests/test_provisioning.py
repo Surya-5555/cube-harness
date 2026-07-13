@@ -146,6 +146,51 @@ def test_build_url_webshop_has_abc_suffix() -> None:
     assert provisioning._build_url("webshop", 5002, "127.0.0.1") == "http://127.0.0.1:5002/abc"
 
 
+# ── log files (_open_logs) ─────────────────────────────────────────────────────
+
+
+def test_open_logs_paths_are_port_qualified(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Two concurrent auto-mode runs share a site name but get distinct ports — the log paths
+    must carry the port so they don't collide and truncate each other's logs (Fix 1)."""
+    monkeypatch.setattr(provisioning.tempfile, "gettempdir", lambda: str(tmp_path))
+    out_a, err_a, err_path_a = provisioning._open_logs("wiki", 5000)
+    out_b, err_b, err_path_b = provisioning._open_logs("wiki", 6000)
+    try:
+        assert err_path_a != err_path_b  # same site, different port → distinct paths
+        assert "5000" in err_path_a.name and "6000" in err_path_b.name
+    finally:
+        for handle in (out_a, err_a, out_b, err_b):
+            handle.close()
+
+
+class _TrackingHandle:
+    """Minimal file-handle stand-in that records whether it was closed."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_open_logs_closes_stdout_when_stderr_open_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If opening the stderr log raises (disk full / perms), the already-open stdout handle
+    must be closed rather than leaked, and the error re-raised (Fix 2)."""
+    handles: list[_TrackingHandle] = []
+
+    def _fake_open(self: Path, *_a: object, **_k: object) -> _TrackingHandle:
+        if not handles:  # first call (stdout) succeeds
+            handle = _TrackingHandle()
+            handles.append(handle)
+            return handle
+        raise OSError("disk full")  # second call (stderr) fails
+
+    monkeypatch.setattr(provisioning.Path, "open", _fake_open)
+    with pytest.raises(OSError, match="disk full"):
+        provisioning._open_logs("wiki", 5000)
+    assert len(handles) == 1 and handles[0].closed  # stdout handle opened then closed, not leaked
+
+
 # ── start_servers / stop (free_port + Popen + healthcheck mocked) ──────────────
 
 
@@ -163,9 +208,9 @@ class _FakeProc:
         return 0
 
 
-def _fake_logs(site: str) -> tuple[io.StringIO, io.StringIO, Path]:
+def _fake_logs(site: str, port: int) -> tuple[io.StringIO, io.StringIO, Path]:
     """Stand-in for _open_logs that touches no filesystem (Popen is mocked, so handles are unused)."""
-    return io.StringIO(), io.StringIO(), Path(f"/tmp/{site}.err")
+    return io.StringIO(), io.StringIO(), Path(f"/tmp/{site}_{port}.err")
 
 
 def _seq_free_port(start: int = 5000, count: int = 1000) -> object:
@@ -358,45 +403,6 @@ def test_urls_from_env_partial_returns_none(monkeypatch: pytest.MonkeyPatch) -> 
     assert provisioning.urls_from_env() is None
 
 
-# ── install() short-circuits (runs before every cube test / debug run) ─────────
-
-
-def test_install_skips_provisioning_when_servers_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Manual-mode debug suite: servers already up → install() must not clone/setup."""
-    for site, var in provisioning.SITE_ENV_VARS.items():
-        monkeypatch.setenv(var, _URLS[site])
-    monkeypatch.setattr(provisioning, "is_reachable", lambda url, timeout=5.0: True)
-
-    def _boom(*_a: object, **_k: object) -> None:
-        raise AssertionError("install() must not provision when servers are reachable")
-
-    monkeypatch.setattr(provisioning, "ensure_provisioned", _boom)
-    TimeWarpBenchmarkConfig.install()  # no raise
-
-
-def test_install_skips_provisioning_when_no_conda(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No conda → auto mode can't run anyway; install() skips instead of cloning + crashing."""
-    for var in provisioning.SITE_ENV_VARS.values():
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(provisioning, "has_conda", lambda: False)
-
-    def _boom(*_a: object, **_k: object) -> None:
-        raise AssertionError("install() must not provision when conda is absent")
-
-    monkeypatch.setattr(provisioning, "ensure_provisioned", _boom)
-    TimeWarpBenchmarkConfig.install()  # no raise
-
-
-def test_install_provisions_when_conda_and_no_servers(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in provisioning.SITE_ENV_VARS.values():
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(provisioning, "has_conda", lambda: True)
-    called: list[bool] = []
-    monkeypatch.setattr(provisioning, "ensure_provisioned", lambda: called.append(True))
-    TimeWarpBenchmarkConfig.install()
-    assert called == [True]
-
-
 # ── healthcheck fails fast and surfaces server stderr ──────────────────────────
 
 
@@ -421,6 +427,20 @@ def test_wait_until_healthy_raises_on_zero_code_early_exit(tmp_path: Path) -> No
     with pytest.raises(RuntimeError, match="exited early") as exc:
         provisioning._wait_until_healthy(servers, timeout_s=1.0)
     assert "address already in use" in str(exc.value)  # crash stderr is surfaced
+
+
+def test_wait_until_healthy_times_out_when_never_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Complement to the early-exit test: the process stays alive but never binds a port, so the
+    site is never reachable — _wait_until_healthy must give up at the deadline with TimeoutError."""
+    monkeypatch.setattr(provisioning, "is_reachable", lambda url, timeout=5.0: False)
+    servers = provisioning.TimeWarpServers(
+        urls={"wiki": "http://127.0.0.1:5000"},
+        checkout_dir=Path("/repo"),
+        _procs=[_FakeProc(["wiki"])],  # poll() → None, i.e. still running  # type: ignore[list-item]
+        _stderr_paths=[Path("/tmp/wiki.err")],
+    )
+    with pytest.raises(TimeoutError, match="not healthy"):
+        provisioning._wait_until_healthy(servers, timeout_s=0.05, interval_s=0.01)
 
 
 def test_get_task_configs_yields_timewarp_configs() -> None:

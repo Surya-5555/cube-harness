@@ -47,10 +47,12 @@ logger = logging.getLogger(__name__)
 UPSTREAM_REPO = "https://github.com/sparklabutah/timewarp"
 UPSTREAM_BRANCH = "master"
 
-#: Optional pinned commit for reproducibility (PS-001). None tracks the branch tip, which is
-#: NOT reproducible; set to a full SHA to lock the provisioned upstream code + data layout.
+#: Pinned commit for reproducibility (PS-001). Locked to upstream master HEAD as of 2026-07-13
+#: (resolved via ``git ls-remote https://github.com/sparklabutah/timewarp``) so the provisioned
+#: upstream code + data layout are deterministic; bump deliberately to adopt newer upstream.
+#: Setting this to None would track the branch tip, which is NOT reproducible.
 #: The resolved HEAD is always logged after a clone so a run records exactly what it used.
-UPSTREAM_COMMIT: str | None = None
+UPSTREAM_COMMIT: str | None = "dc828c36a98b641fee30742eec6935edc5a9b5e1"
 
 #: Conda environment that upstream ``setup.sh`` creates; the servers run inside it.
 CONDA_ENV = "timewarp"
@@ -316,13 +318,25 @@ def _build_url(site: str, port: int, host: str) -> str:
     return f"{base}/abc" if site == "webshop" else base  # webshop is mounted under /abc upstream
 
 
-def _open_logs(site: str) -> tuple[TextIO, TextIO, Path]:
+def _open_logs(site: str, port: int) -> tuple[TextIO, TextIO, Path]:
     """Open per-site stdout/stderr log files so a crashed server's output is inspectable
-    (returns the open handles plus the stderr path for the healthcheck error message)."""
+    (returns the open handles plus the stderr path for the healthcheck error message).
+
+    The filenames are qualified by *port* (not just *site*) so two concurrent auto-mode runs
+    on the same host — which get distinct ports from ``free_port`` but share a ``site`` name —
+    write to separate files instead of truncating/interleaving each other's logs (which would
+    make the healthcheck's ``_tail`` misdiagnose crashes).
+    """
     tmp = Path(tempfile.gettempdir())
-    out_path = tmp / f"timewarp_{site}_stdout.log"
-    err_path = tmp / f"timewarp_{site}_stderr.log"
-    return out_path.open("w"), err_path.open("w"), err_path
+    out_path = tmp / f"timewarp_{site}_{port}_stdout.log"
+    err_path = tmp / f"timewarp_{site}_{port}_stderr.log"
+    out_f = out_path.open("w")
+    try:
+        err_f = err_path.open("w")
+    except OSError:
+        out_f.close()  # don't leak the stdout handle if opening stderr fails (disk full / perms)
+        raise
+    return out_f, err_f, err_path
 
 
 def _tail(path: Path, max_lines: int = 20) -> str:
@@ -367,7 +381,7 @@ def start_servers(
             site_dir = checkout_dir / "env" / site
             cmd = _site_command(site, app_python, port, ui_version)
             logger.info("Starting %s (theme %d) on port %d: %s", site, ui_version, port, " ".join(cmd))
-            out_f, err_f, err_path = _open_logs(site)
+            out_f, err_f, err_path = _open_logs(site, port)
             servers._logs += [out_f, err_f]
             servers._stderr_paths.append(err_path)
             servers._procs.append(
