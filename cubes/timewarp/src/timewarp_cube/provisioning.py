@@ -160,6 +160,19 @@ def _nonempty_dir(path: Path) -> bool:
     return path.is_dir() and any(path.iterdir())
 
 
+def _missing_components(checkout_dir: Path) -> list[str]:
+    """Names of the provisioning pieces upstream ``setup.sh`` should have produced but didn't
+    (absent or empty). Empty list == fully provisioned."""
+    checks = {
+        "upstream checkout (setup.sh)": (checkout_dir / "setup.sh").is_file(),
+        "wiki index (env/wiki/wiki_index.pkl)": _nonempty_file(checkout_dir / "env" / "wiki" / "wiki_index.pkl"),
+        "news index (env/news/news_index.pkl)": _nonempty_file(checkout_dir / "env" / "news" / "news_index.pkl"),
+        "webshop data (env/webshop/data)": _nonempty_dir(checkout_dir / "env" / "webshop" / "data"),
+        f"conda env '{CONDA_ENV}'": _conda_env_exists(),
+    }
+    return [name for name, ok in checks.items() if not ok]
+
+
 def is_provisioned(checkout_dir: Path | None = None) -> bool:
     """True when the repo, the conda env, and the downloaded data/index files are all present
     *and non-empty*.
@@ -171,13 +184,7 @@ def is_provisioned(checkout_dir: Path | None = None) -> bool:
     re-run rather than launching servers against corrupt data.
     """
     checkout_dir = checkout_dir or default_checkout_dir()
-    return (
-        (checkout_dir / "setup.sh").is_file()
-        and _nonempty_file(checkout_dir / "env" / "wiki" / "wiki_index.pkl")
-        and _nonempty_file(checkout_dir / "env" / "news" / "news_index.pkl")
-        and _nonempty_dir(checkout_dir / "env" / "webshop" / "data")
-        and _conda_env_exists()
-    )
+    return not _missing_components(checkout_dir)
 
 
 def _clone_repo(checkout_dir: Path) -> None:
@@ -229,6 +236,15 @@ def ensure_provisioned(checkout_dir: Path | None = None, *, force: bool = False)
     _conda_bin()  # fail fast with an actionable message before the long setup
     logger.info("Running upstream setup.sh in %s (one-time; downloads conda env + data) …", checkout_dir)
     subprocess.run(["bash", "setup.sh"], cwd=str(checkout_dir), check=True, timeout=_SETUP_TIMEOUT_S)
+    # setup.sh is not fail-fast: a swallowed download/env error (e.g. the webshop Google-Drive
+    # data, or its conda-env pip step) still exits 0. Verify the postcondition here so a partial
+    # provision fails with an actionable message instead of crashing later at server launch.
+    missing = _missing_components(checkout_dir)
+    if missing:
+        raise RuntimeError(
+            f"Upstream setup.sh finished but TimeWarp is still not fully provisioned at {checkout_dir} — "
+            f"missing: {', '.join(missing)}. Inspect the setup.sh output above for the step that failed."
+        )
     return checkout_dir
 
 
@@ -254,6 +270,24 @@ def _env_python(env: str = CONDA_ENV) -> str:
     if not lines:
         raise RuntimeError("Could not resolve the timewarp conda env's python interpreter.")
     return lines[-1].strip()
+
+
+def _server_env(app_python: str) -> dict[str, str]:
+    """Process environment for the launched servers.
+
+    The servers run the conda env's interpreter directly (see ``_env_python``), so the env's
+    ``activate.d`` exports never run. Replicate the one the servers depend on: openjdk's
+    ``JAVA_HOME`` (webshop's pyserini/jnius refuses to start without a JVM, even when openjdk
+    is installed in the env). Also prepend the env's ``bin`` so server subprocesses resolve
+    tools (``java``, …) from the same env, exactly as an activated shell would.
+    """
+    env = os.environ.copy()
+    prefix = Path(app_python).parent.parent
+    jvm = prefix / "lib" / "jvm"
+    if jvm.is_dir():
+        env["JAVA_HOME"] = str(jvm)  # override, as conda activation does
+    env["PATH"] = f"{prefix / 'bin'}{os.pathsep}{env.get('PATH', '')}"
+    return env
 
 
 def _site_command(site: str, app_python: str, port: int, ui_version: int) -> list[str]:
@@ -371,6 +405,7 @@ def start_servers(
         raise ValueError(f"ui_version must be 1-6, got {ui_version}")
 
     app_python = _env_python()
+    server_env = _server_env(app_python)
     sites = list(SITE_ENV_VARS)  # wiki, news, webshop
     ports = [free_port(start=start_port) for _ in sites]
     urls = {site: _build_url(site, port, host) for site, port in zip(sites, ports)}
@@ -385,7 +420,9 @@ def start_servers(
             servers._logs += [out_f, err_f]
             servers._stderr_paths.append(err_path)
             servers._procs.append(
-                subprocess.Popen(cmd, cwd=str(site_dir), stdout=out_f, stderr=err_f, start_new_session=True)
+                subprocess.Popen(
+                    cmd, cwd=str(site_dir), env=server_env, stdout=out_f, stderr=err_f, start_new_session=True
+                )
             )
         _wait_until_healthy(servers, timeout_s=healthcheck_timeout_s)
     except Exception:

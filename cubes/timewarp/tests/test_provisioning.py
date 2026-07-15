@@ -124,6 +124,35 @@ def test_is_provisioned_false_when_conda_missing(monkeypatch: pytest.MonkeyPatch
     assert provisioning.is_provisioned(tmp_path) is False
 
 
+# ── ensure_provisioned postcondition ──────────────────────────────────────────
+
+
+def test_ensure_provisioned_skips_setup_when_complete(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _make_provisioned_tree(tmp_path)
+    monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise AssertionError("setup.sh must not run when already provisioned")
+
+    monkeypatch.setattr(provisioning.subprocess, "run", _boom)
+    assert provisioning.ensure_provisioned(tmp_path) == tmp_path
+
+
+def test_ensure_provisioned_raises_when_setup_leaves_gaps(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Upstream setup.sh is not fail-fast (a swallowed download error still exits 0) — a run
+    that leaves the tree incomplete must raise with the missing pieces named, not return
+    normally and crash later at server launch."""
+    _make_provisioned_tree(tmp_path)
+    (tmp_path / "env" / "webshop" / "data" / "items.json").unlink()  # data dir left empty
+    monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
+    monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
+    ran: list[object] = []
+    monkeypatch.setattr(provisioning.subprocess, "run", lambda *a, **k: ran.append(a))
+    with pytest.raises(RuntimeError, match="webshop data"):
+        provisioning.ensure_provisioned(tmp_path)
+    assert ran  # setup.sh was attempted before the postcondition check
+
+
 # ── commands / urls ─────────────────────────────────────────────────────────
 
 
@@ -238,6 +267,51 @@ def test_start_servers_builds_handle(monkeypatch: pytest.MonkeyPatch) -> None:
         ["/py", "-m", "web_agent_site.app", "2", "--port=5002", "--log", "--attrs"],
     ]
     assert servers._procs[0].cwd.endswith("env/wiki")  # type: ignore[attr-defined,union-attr]
+
+
+def test_server_env_threads_conda_java_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Servers are launched via the env's python directly, skipping conda activation — the
+    launch env must replicate openjdk's JAVA_HOME export (webshop's jnius needs a JVM) and
+    put the env's bin first on PATH."""
+    prefix = tmp_path / "envs" / "timewarp"
+    (prefix / "lib" / "jvm").mkdir(parents=True)
+    (prefix / "bin").mkdir(parents=True)
+    monkeypatch.setenv("JAVA_HOME", "/somewhere/else")  # conda activation overrides — so do we
+    env = provisioning._server_env(str(prefix / "bin" / "python"))
+    assert env["JAVA_HOME"] == str(prefix / "lib" / "jvm")
+    assert env["PATH"].startswith(str(prefix / "bin"))
+
+
+def test_server_env_without_jvm_leaves_java_home_alone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("JAVA_HOME", raising=False)
+    (tmp_path / "bin").mkdir(parents=True)
+    env = provisioning._server_env(str(tmp_path / "bin" / "python"))
+    assert "JAVA_HOME" not in env  # no env-provided JVM → nothing to point at
+    assert env["PATH"].startswith(str(tmp_path / "bin"))
+
+
+def test_start_servers_passes_server_env_to_popen(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    prefix = tmp_path / "envs" / "timewarp"
+    (prefix / "lib" / "jvm").mkdir(parents=True)
+    (prefix / "bin").mkdir(parents=True)
+    popen_envs: list[dict[str, str] | None] = []
+
+    class _RecordingProc(_FakeProc):
+        def __init__(
+            self, cmd: list[str], cwd: str | None = None, env: dict[str, str] | None = None, **kw: object
+        ) -> None:
+            super().__init__(cmd, cwd=cwd, **kw)
+            popen_envs.append(env)
+
+    monkeypatch.setattr(provisioning, "_env_python", lambda env=provisioning.CONDA_ENV: str(prefix / "bin" / "python"))
+    monkeypatch.setattr(provisioning, "free_port", _seq_free_port())
+    monkeypatch.setattr(provisioning, "_wait_until_healthy", lambda *a, **k: None)
+    monkeypatch.setattr(provisioning.subprocess, "Popen", _RecordingProc)
+    monkeypatch.setattr(provisioning, "_open_logs", _fake_logs)
+
+    provisioning.start_servers(Path("/repo"), ui_version=1)
+    assert len(popen_envs) == 3
+    assert all(e is not None and e["JAVA_HOME"] == str(prefix / "lib" / "jvm") for e in popen_envs)
 
 
 def test_start_servers_rejects_bad_version(monkeypatch: pytest.MonkeyPatch) -> None:
