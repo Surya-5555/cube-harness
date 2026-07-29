@@ -6,9 +6,9 @@ through the chat tool that ``GenericTimeWarpTask.validate`` consumes.
 
 Requires the TimeWarp environments running with TW_WIKI / TW_NEWS / TW_WEBSHOP set
 (start them from the upstream TimeWarp repo, https://github.com/sparklabutah/timewarp,
-via scripts/environment/run_all_env.sh — see the cube README) and, for a non-zero
-reward, OPENAI_API_KEY (every TimeWarp task is scored by the llm_judge). Like
-workarena, the suite only fails on errors (Python exceptions), not on reward.
+via scripts/environment/run_all_env.sh — see the cube README). No API key: the debug
+tasks are scored by deterministic verifiers. Like workarena, the suite only fails on
+errors (Python exceptions), not on reward.
 
 Public API (cube.testing protocol)
 -----------------------------------
@@ -38,12 +38,17 @@ _DEBUG_TASK_IDS = ["1", "2"]
 
 
 def _reference_answer(task_id: str) -> str:
-    """Read the task's reference answer from the shipped browsergym-timewarp data."""
+    """Read the task's reference answer from the shipped browsergym-timewarp data.
+
+    ``fuzzy_match`` is the human-readable gold answer and is present on every task,
+    including the deterministically-scored ones whose verifier reads other keys
+    (``must_include``, ``number_match``, …) — so it stays the right thing to submit.
+    """
     config = next((c for c in load_raw_tasks() if str(c.get("task_id")) == str(task_id)), None)
     if config is None:
         raise ValueError(f"No TimeWarp task with task_id={task_id}")
     ref = config["eval"].get("reference_answers", {})
-    answer = ref.get("fuzzy_match", ref.get("exact_match", ""))
+    answer = ref.get("fuzzy_match", "")
     if isinstance(answer, list):
         answer = answer[0] if answer else ""
     return str(answer)

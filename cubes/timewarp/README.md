@@ -4,14 +4,16 @@
 
 ## Overview
 
-TimeWarp recreates three web environments in multiple historical UI versions (different eras of design and layout) and asks the agent to complete realistic navigation/information tasks against them. The agent submits its final answer through a `ChatTool`; every task is scored by an LLM judge (`llm_judge`, OpenAI), so a chat answer and `OPENAI_API_KEY` are both required for a non-zero reward.
+TimeWarp recreates three web environments in multiple historical UI versions (different eras of design and layout) and asks the agent to complete realistic navigation/information tasks against them. The agent submits its final answer through a `ChatTool`, so a chat answer is required for a non-zero reward. Since upstream v0.2.0, 229 of the 231 tasks are scored by **deterministic verifiers** (`string_match` / `number_match` / `list_match`); only tasks 32 and 143 still use an LLM judge, so `OPENAI_API_KEY` is **optional**.
+
+> **Upstream version.** This cube pins TimeWarp [`v0.2.0`](https://github.com/sparklabutah/timewarp/releases/tag/v0.2.0) (`312ad52`) and `browsergym-timewarp==0.2.0`. Scores are **not comparable** with runs made against 0.1.0: the gold answers were regenerated for the deterministic verifiers, and a judge verdict-parsing bug that inflated 0.1.0 scores was fixed upstream.
 
 The three environments are **Flask servers** — no Docker. The cube provisions and runs them
 for you (`provision_mode="auto"`, the default); set `provision_mode="manual"` if you'd rather
 start them yourself.
 
 - **auto** (default) — on `_setup()` the cube checks whether the upstream environment is already
-  set up (repo cloned, `timewarp` conda env built, the Google-Drive + HuggingFace data present).
+  set up (repo cloned, `timewarp` conda env built, the HuggingFace data present).
   If not, it runs the upstream **idempotent** `setup.sh` to download/build everything, then
   launches the three Flask apps (at `ui_version`, 1–6) and waits until they're healthy. Resolved
   URLs are published into the benchmark's `runtime_context` (re-derived every run, so a resumed
@@ -28,7 +30,9 @@ start them yourself.
   `setup.sh` builds. The upstream **TimeWarp** repo (<https://github.com/sparklabutah/timewarp>)
   is cloned automatically; the servers are **not** part of the `browsergym-timewarp` package or
   this cube.
-- An **`OPENAI_API_KEY`** for the `llm_judge` evaluator (create one at <https://platform.openai.com/api-keys>).
+- An **`OPENAI_API_KEY`** — *optional*, only for the two `llm_judge` tasks (create one at
+  <https://platform.openai.com/api-keys>), or point `TW_JUDGE*` at another judge. Everything
+  else scores offline.
 
 ## Installation
 
@@ -46,7 +50,7 @@ timewarp-cube` is a lightweight no-op hook; it does not pre-provision.)
 ### Auto (default)
 
 ```bash
-export OPENAI_API_KEY=sk-...        # for the llm_judge reward
+export OPENAI_API_KEY=sk-...        # optional — only the two llm_judge tasks need it
 ```
 
 Calling `make()` provisions and launches the servers on first run (`make debug` does **not** —
@@ -83,7 +87,7 @@ bash scripts/environment/run_all_env.sh 1  # start wiki + news + webshop at UI v
 export TW_WIKI=http://localhost:<wiki-port>
 export TW_NEWS=http://localhost:<news-port>
 export TW_WEBSHOP=http://localhost:<webshop-port>/abc
-export OPENAI_API_KEY=sk-...
+export OPENAI_API_KEY=sk-...               # optional — only the two llm_judge tasks
 bash scripts/environment/stop_all_ports.sh # stop all servers when done
 ```
 
@@ -116,19 +120,21 @@ Subsets **overlap** — a task may require more than one environment (e.g. `site
 | `TW_NEWS`        | manual mode | URL of the news server (same auto behaviour).                            |
 | `TW_WEBSHOP`     | manual mode | URL of the webshop server, with the `/abc` path (same auto behaviour).   |
 | `TIMEWARP_HOME`  | no       | Auto mode: where the upstream repo is cloned (default `~/.cache/timewarp`).  |
-| `OPENAI_API_KEY` | for reward | Consumed by the `llm_judge` evaluator that scores every task              |
+| `OPENAI_API_KEY` | no       | Only the two `llm_judge` tasks (32, 143); without it those episodes error rather than score 0. |
+| `TW_JUDGE`, `TW_JUDGE_MODEL`, `TW_JUDGE_BASE_URL`, `TW_JUDGE_API_KEY` | no | Select/point the judge for those two tasks (e.g. `TW_JUDGE=gemma` against a local OpenAI-compatible endpoint). Read in-process by `browsergym-timewarp` at scoring time. |
 
 ## Debug / Testing
 
 ```bash
-make debug                  # manual-mode smoke: needs the 3 servers already running + OPENAI_API_KEY
+make debug                  # manual-mode smoke: needs the 3 servers already running (no API key)
 uv run pytest tests/        # fast unit tests — no servers, no browser, no conda, no API key
 ```
 
 `make debug` is a **manual-mode** smoke: it only *verifies* that the three servers are reachable —
 it does not provision or launch anything. Before running it, have the servers up (either left over
 from a prior auto-mode benchmark run, or started manually from the upstream repo — see
-[Manual](#manual)) with `TW_WIKI` / `TW_NEWS` / `TW_WEBSHOP` and `OPENAI_API_KEY` exported.
+[Manual](#manual)) with `TW_WIKI` / `TW_NEWS` / `TW_WEBSHOP` exported. Both debug tasks are
+scored by deterministic verifiers, so no API key is needed.
 
 The unit tests in [`tests/`](tests/) cover the parts that don't need infrastructure: metadata loads 231 tasks, the named subsets filter/cover correctly, the configs round-trip, the toolbox pairs a browser tool with a `ChatTool`, that `install()` stays lightweight (no provisioning), and the provisioning helpers (mode toggle, `is_provisioned` completeness checks, the auto-launch path, server teardown, and `runtime_context` URL threading) with subprocess/socket calls mocked. The [`debug.py`](src/timewarp_cube/debug.py) suite exercises the full setup→validate path against the live servers you started with a scripted reference-answer agent.
 

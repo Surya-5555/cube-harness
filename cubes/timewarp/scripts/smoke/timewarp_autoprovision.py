@@ -2,8 +2,8 @@
 """SMOKE: exercise TimeWarp's non-Docker auto-provisioning end-to-end.
 
 Runs the real L1+L2 path the benchmark uses in auto mode:
-  1. ensure_provisioned() — clone the upstream repo + run its idempotent setup.sh
-     (conda env + Google-Drive/HuggingFace data) if not already set up,
+  1. ensure_provisioned() — clone (or advance to the pinned commit) the upstream repo and
+     run its idempotent setup.sh (conda env + HuggingFace data) if not already set up,
   2. start_servers(1)     — launch wiki/news/webshop Flask apps and wait until healthy,
   3. assert all three URLs are reachable, then stop() them.
 

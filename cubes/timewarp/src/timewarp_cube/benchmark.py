@@ -9,7 +9,7 @@ Two provisioning modes (``provision_mode`` on the config):
 
 * ``"auto"`` (default) — the cube stands the servers up itself, no Docker. On setup it
   checks whether the environment is already provisioned (repo cloned, conda env built,
-  Google-Drive + HuggingFace data present); if not, it runs the upstream (idempotent)
+  HuggingFace data present); if not, it runs the upstream (idempotent)
   ``setup.sh`` to download/build, then launches the three Flask apps and waits until they
   are healthy. If ``TW_WIKI`` / ``TW_NEWS`` / ``TW_WEBSHOP`` already point at reachable
   servers, those are used as-is (nothing is launched). The whole flow is single-host —
@@ -45,9 +45,9 @@ _START_HINT = (
     f"start the servers manually from the upstream TimeWarp repo ({provisioning.UPSTREAM_REPO}):\n"
     "  bash setup.sh                              # one-time: conda env + deps + data\n"
     "  bash scripts/environment/run_all_env.sh 1  # start all three (UI version 1)\n"
-    "Then point the cube at the running servers and the judge:\n"
+    "Then point the cube at the running servers:\n"
     "  export TW_WIKI=... TW_NEWS=... TW_WEBSHOP=...   # URLs printed by the script\n"
-    "  export OPENAI_API_KEY=...                       # llm_judge scores every task"
+    "  export OPENAI_API_KEY=...                       # optional: only the two llm_judge tasks"
 )
 
 #: Task count derived from the shipped task_metadata.json so ``num_tasks`` can't drift from it.
@@ -126,10 +126,13 @@ class TimeWarpBenchmarkConfig(BenchmarkConfig[TimeWarpTaskMetadata]):
 
     ``provision_mode="auto"`` (default) stands the wiki/news/webshop Flask servers up with
     no Docker: it checks whether the upstream environment is already set up and, if not,
-    runs the upstream ``setup.sh`` (conda env + Google-Drive/HuggingFace data) before
-    launching the servers at ``ui_version``. ``provision_mode="manual"`` instead expects
-    you to start the servers and set ``TW_WIKI`` / ``TW_NEWS`` / ``TW_WEBSHOP`` yourself.
-    Either way, set ``OPENAI_API_KEY`` for the ``llm_judge`` evaluator.
+    runs the upstream ``setup.sh`` (conda env + HuggingFace data) before launching the
+    servers at ``ui_version``. ``provision_mode="manual"`` instead expects you to start
+    the servers and set ``TW_WIKI`` / ``TW_NEWS`` / ``TW_WEBSHOP`` yourself.
+
+    Scoring is deterministic for all but two tasks, so ``OPENAI_API_KEY`` (or the
+    ``TW_JUDGE*`` vars, to point at another judge) is only needed for those two — without
+    it they error rather than score 0.
 
     Filter by site in user-land via named subsets or glob:
         cfg.named_subset("wiki")
@@ -145,7 +148,7 @@ class TimeWarpBenchmarkConfig(BenchmarkConfig[TimeWarpTaskMetadata]):
 
     benchmark_metadata: ClassVar[BenchmarkMetadata] = BenchmarkMetadata(
         name="timewarp-cube",
-        version="0.1.0",
+        version="0.2.0",
         description=(
             "TimeWarp benchmark — 231 web tasks across wiki, news, and webshop, "
             "designed to test agent robustness to temporal changes in web UI. "

@@ -46,6 +46,14 @@ def test_benchmark_config_loads_231_tasks() -> None:
     assert tm.intent_template_id is None or isinstance(tm.intent_template_id, int)
 
 
+def test_metadata_scoring_is_mostly_deterministic() -> None:
+    """Upstream v0.2.0 moved all but two tasks onto deterministic verifiers. Guards the
+    regeneration of task_metadata.json: a stale snapshot would show 231 llm_judge tasks and
+    silently reintroduce the API-key requirement."""
+    judged = [tm.id for tm in _config().tasks().values() if tm.eval_types == ["llm_judge"]]
+    assert judged == ["32", "143"]
+
+
 def test_named_subsets_registered() -> None:
     assert set(TimeWarpBenchmarkConfig.benchmark_metadata.named_subsets) == set(_SUBSET_COUNTS)
 

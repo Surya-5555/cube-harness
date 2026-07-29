@@ -10,7 +10,7 @@
     ],
     "intent_template_id": 1,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -25,7 +25,7 @@
     ],
     "intent_template_id": 2,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -40,7 +40,7 @@
     ],
     "intent_template_id": 3,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -55,7 +55,7 @@
     ],
     "intent_template_id": 4,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -70,7 +70,7 @@
     ],
     "intent_template_id": 5,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -85,7 +85,7 @@
     ],
     "intent_template_id": 6,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -100,7 +100,7 @@
     ],
     "intent_template_id": 7,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -115,7 +115,7 @@
     ],
     "intent_template_id": 8,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -130,7 +130,7 @@
     ],
     "intent_template_id": 9,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -145,7 +145,7 @@
     ],
     "intent_template_id": 10,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -160,7 +160,7 @@
     ],
     "intent_template_id": 11,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -175,7 +175,7 @@
     ],
     "intent_template_id": 12,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -190,7 +190,7 @@
     ],
     "intent_template_id": 13,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -205,7 +205,7 @@
     ],
     "intent_template_id": 14,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -220,7 +220,7 @@
     ],
     "intent_template_id": 15,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -235,7 +235,7 @@
     ],
     "intent_template_id": 16,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -250,7 +250,7 @@
     ],
     "intent_template_id": 17,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -265,7 +265,7 @@
     ],
     "intent_template_id": 18,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -280,7 +280,7 @@
     ],
     "intent_template_id": 19,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -295,7 +295,7 @@
     ],
     "intent_template_id": 20,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -310,7 +310,7 @@
     ],
     "intent_template_id": 21,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -325,7 +325,7 @@
     ],
     "intent_template_id": 22,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -340,7 +340,7 @@
     ],
     "intent_template_id": 23,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -355,7 +355,7 @@
     ],
     "intent_template_id": 24,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -370,7 +370,7 @@
     ],
     "intent_template_id": 25,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -385,7 +385,7 @@
     ],
     "intent_template_id": 26,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -400,7 +400,7 @@
     ],
     "intent_template_id": 27,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -415,7 +415,7 @@
     ],
     "intent_template_id": 28,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -430,7 +430,7 @@
     ],
     "intent_template_id": 29,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -445,7 +445,7 @@
     ],
     "intent_template_id": 30,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -460,7 +460,7 @@
     ],
     "intent_template_id": 31,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -490,7 +490,7 @@
     ],
     "intent_template_id": 33,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -505,7 +505,7 @@
     ],
     "intent_template_id": 34,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -520,7 +520,7 @@
     ],
     "intent_template_id": 35,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -535,7 +535,7 @@
     ],
     "intent_template_id": 36,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -550,7 +550,7 @@
     ],
     "intent_template_id": 37,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -565,7 +565,7 @@
     ],
     "intent_template_id": 38,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -580,7 +580,7 @@
     ],
     "intent_template_id": 39,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -595,7 +595,7 @@
     ],
     "intent_template_id": 40,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -610,7 +610,7 @@
     ],
     "intent_template_id": 41,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -625,7 +625,7 @@
     ],
     "intent_template_id": 42,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -640,7 +640,7 @@
     ],
     "intent_template_id": 43,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -655,7 +655,7 @@
     ],
     "intent_template_id": 44,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -670,7 +670,7 @@
     ],
     "intent_template_id": 45,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -685,7 +685,7 @@
     ],
     "intent_template_id": 46,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -700,7 +700,7 @@
     ],
     "intent_template_id": 47,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -715,7 +715,7 @@
     ],
     "intent_template_id": 48,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -730,7 +730,7 @@
     ],
     "intent_template_id": 49,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -745,7 +745,7 @@
     ],
     "intent_template_id": 50,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -760,7 +760,7 @@
     ],
     "intent_template_id": 51,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -775,7 +775,7 @@
     ],
     "intent_template_id": 52,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -790,7 +790,7 @@
     ],
     "intent_template_id": 53,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -805,7 +805,7 @@
     ],
     "intent_template_id": 54,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -820,7 +820,7 @@
     ],
     "intent_template_id": 55,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -835,7 +835,7 @@
     ],
     "intent_template_id": 56,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -850,7 +850,7 @@
     ],
     "intent_template_id": 57,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -865,7 +865,7 @@
     ],
     "intent_template_id": 58,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -880,7 +880,7 @@
     ],
     "intent_template_id": 59,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -895,7 +895,7 @@
     ],
     "intent_template_id": 60,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -910,7 +910,8 @@
     ],
     "intent_template_id": 61,
     "eval_types": [
-      "llm_judge"
+      "string_match",
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -925,7 +926,7 @@
     ],
     "intent_template_id": 62,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -940,7 +941,7 @@
     ],
     "intent_template_id": 63,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -955,7 +956,7 @@
     ],
     "intent_template_id": 64,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -970,7 +971,7 @@
     ],
     "intent_template_id": 65,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -985,7 +986,7 @@
     ],
     "intent_template_id": 66,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1000,7 +1001,7 @@
     ],
     "intent_template_id": 67,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1015,7 +1016,7 @@
     ],
     "intent_template_id": 68,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1030,7 +1031,7 @@
     ],
     "intent_template_id": 69,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1045,7 +1046,7 @@
     ],
     "intent_template_id": 70,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1060,7 +1061,7 @@
     ],
     "intent_template_id": 71,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1075,7 +1076,7 @@
     ],
     "intent_template_id": 72,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1090,7 +1091,7 @@
     ],
     "intent_template_id": 73,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1105,7 +1106,7 @@
     ],
     "intent_template_id": 74,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1120,7 +1121,7 @@
     ],
     "intent_template_id": 75,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1135,7 +1136,7 @@
     ],
     "intent_template_id": 76,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1150,7 +1151,7 @@
     ],
     "intent_template_id": 77,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1165,7 +1166,7 @@
     ],
     "intent_template_id": 78,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1180,7 +1181,7 @@
     ],
     "intent_template_id": 79,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1195,7 +1196,7 @@
     ],
     "intent_template_id": 80,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1211,7 +1212,7 @@
     ],
     "intent_template_id": 81,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1227,7 +1228,7 @@
     ],
     "intent_template_id": 82,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1243,7 +1244,7 @@
     ],
     "intent_template_id": 83,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1260,7 +1261,7 @@
     ],
     "intent_template_id": 84,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1276,7 +1277,7 @@
     ],
     "intent_template_id": 85,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1292,7 +1293,7 @@
     ],
     "intent_template_id": 86,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1308,7 +1309,7 @@
     ],
     "intent_template_id": 87,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1324,7 +1325,7 @@
     ],
     "intent_template_id": 88,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1340,7 +1341,7 @@
     ],
     "intent_template_id": 89,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1356,7 +1357,7 @@
     ],
     "intent_template_id": 90,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1372,7 +1373,7 @@
     ],
     "intent_template_id": 91,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1388,7 +1389,7 @@
     ],
     "intent_template_id": 92,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1404,7 +1405,7 @@
     ],
     "intent_template_id": 93,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1421,7 +1422,8 @@
     ],
     "intent_template_id": 94,
     "eval_types": [
-      "llm_judge"
+      "list_match",
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1438,7 +1440,8 @@
     ],
     "intent_template_id": 95,
     "eval_types": [
-      "llm_judge"
+      "list_match",
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1454,7 +1457,7 @@
     ],
     "intent_template_id": 96,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1471,7 +1474,7 @@
     ],
     "intent_template_id": 97,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1487,7 +1490,7 @@
     ],
     "intent_template_id": 98,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1504,7 +1507,7 @@
     ],
     "intent_template_id": 99,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1521,7 +1524,7 @@
     ],
     "intent_template_id": 100,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1537,7 +1540,7 @@
     ],
     "intent_template_id": 101,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1553,7 +1556,7 @@
     ],
     "intent_template_id": 102,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1569,7 +1572,7 @@
     ],
     "intent_template_id": 103,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1584,7 +1587,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1599,7 +1602,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1614,7 +1617,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1629,7 +1632,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1644,7 +1647,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1659,7 +1662,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1674,7 +1677,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1689,7 +1692,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1704,7 +1707,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1719,7 +1722,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1734,7 +1737,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1749,7 +1752,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1764,7 +1767,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1779,7 +1782,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1794,7 +1797,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1809,7 +1812,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1824,7 +1827,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1839,7 +1842,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1854,7 +1857,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1869,7 +1872,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1884,7 +1887,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1899,7 +1902,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1914,7 +1917,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1929,7 +1932,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1944,7 +1947,8 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match",
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1959,7 +1963,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1974,7 +1978,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -1989,7 +1993,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2004,7 +2008,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2019,7 +2023,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2034,7 +2038,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2049,7 +2053,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2064,7 +2068,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2079,7 +2083,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2094,7 +2098,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2109,7 +2113,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2124,7 +2128,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2139,7 +2143,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2154,7 +2158,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2184,7 +2188,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2199,7 +2203,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2214,7 +2218,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2229,7 +2233,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2244,7 +2248,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2259,7 +2263,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2274,7 +2278,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2289,7 +2293,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2304,7 +2308,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2319,7 +2323,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2334,7 +2338,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2349,7 +2353,8 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match",
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2364,7 +2369,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2379,7 +2384,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2394,7 +2399,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2409,7 +2414,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2424,7 +2429,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2439,7 +2444,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2454,7 +2459,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2469,7 +2474,8 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match",
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2484,7 +2490,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2499,7 +2505,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2514,7 +2520,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2529,7 +2535,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2544,7 +2550,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2559,7 +2565,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2574,7 +2580,8 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match",
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2589,7 +2596,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2604,7 +2611,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2619,7 +2626,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2634,7 +2641,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2649,7 +2656,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2664,7 +2671,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2679,7 +2686,8 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match",
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2694,7 +2702,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2709,7 +2717,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2724,7 +2732,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2739,7 +2747,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2754,7 +2762,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2769,7 +2777,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2784,7 +2792,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2799,7 +2807,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2814,7 +2822,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2829,7 +2837,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2844,7 +2852,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2859,7 +2867,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2874,7 +2882,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2889,7 +2897,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2904,7 +2912,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2919,7 +2927,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2934,7 +2942,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2949,7 +2957,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2964,7 +2972,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2979,7 +2987,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -2994,7 +3002,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3009,7 +3017,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3024,7 +3032,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3039,7 +3047,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3054,7 +3062,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3069,7 +3077,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3084,7 +3092,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3100,7 +3108,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3116,7 +3124,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3133,7 +3141,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3149,7 +3157,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3165,7 +3173,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3182,7 +3190,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3198,7 +3206,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3214,7 +3222,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3230,7 +3238,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3246,7 +3254,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3262,7 +3270,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3279,7 +3287,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3296,7 +3304,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3312,7 +3320,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3329,7 +3337,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "list_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3346,7 +3354,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3363,7 +3371,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3379,7 +3387,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3395,7 +3403,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "number_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3411,7 +3419,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3427,7 +3435,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3443,7 +3451,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3459,7 +3467,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3475,7 +3483,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3491,7 +3499,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3507,7 +3515,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   },
@@ -3524,7 +3532,7 @@
     ],
     "intent_template_id": null,
     "eval_types": [
-      "llm_judge"
+      "string_match"
     ],
     "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
   }

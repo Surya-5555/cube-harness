@@ -8,8 +8,8 @@ so the cube can stand the servers up on its own — no Docker, just local proces
     L1 (slow, shared, once per machine) — ``ensure_provisioned()``
         Clone the upstream repo into a cache dir and run its (idempotent) ``setup.sh``:
         create the ``timewarp`` conda env, install Playwright, run the webshop setup
-        (gdown data from Google Drive + faiss index), and fetch the wiki/news index
-        pickles from HuggingFace. Skipped when ``is_provisioned()`` is already True.
+        (data + search index), and fetch the wiki/news index pickles. All downloads come
+        from HuggingFace. Skipped when ``is_provisioned()`` is already True.
 
     L2 (per benchmark run) — ``start_servers()`` / ``TimeWarpServers.stop()``
         Pick free ports via the shared ``cube.infra_utils.free_port`` helper (a
@@ -47,12 +47,13 @@ logger = logging.getLogger(__name__)
 UPSTREAM_REPO = "https://github.com/sparklabutah/timewarp"
 UPSTREAM_BRANCH = "master"
 
-#: Pinned commit for reproducibility (PS-001). Locked to upstream master HEAD as of 2026-07-13
-#: (resolved via ``git ls-remote https://github.com/sparklabutah/timewarp``) so the provisioned
-#: upstream code + data layout are deterministic; bump deliberately to adopt newer upstream.
+#: Pinned commit for reproducibility (PS-001). Locked to upstream tag ``v0.2.0`` (also master
+#: HEAD as of 2026-07-29) so the provisioned upstream code + data layout are deterministic;
+#: bump deliberately, together with the ``browsergym-timewarp`` pin in pyproject.toml — the
+#: servers here and the task data there come from the same upstream release.
 #: Setting this to None would track the branch tip, which is NOT reproducible.
-#: The resolved HEAD is always logged after a clone so a run records exactly what it used.
-UPSTREAM_COMMIT: str | None = "dc828c36a98b641fee30742eec6935edc5a9b5e1"
+#: The resolved HEAD is always logged so a run records exactly what it used.
+UPSTREAM_COMMIT: str | None = "312ad5287499eef2e4dfbd3614f3e1d2f0776d10"
 
 #: Conda environment that upstream ``setup.sh`` creates; the servers run inside it.
 CONDA_ENV = "timewarp"
@@ -325,9 +326,9 @@ def ensure_provisioned(checkout_dir: Path | None = None, *, force: bool = False)
     _conda_bin()  # fail fast with an actionable message before the long setup
     logger.info("Running upstream setup.sh in %s (one-time; downloads conda env + data) …", checkout_dir)
     subprocess.run(["bash", "setup.sh"], cwd=str(checkout_dir), check=True, timeout=_SETUP_TIMEOUT_S)
-    # setup.sh is not fail-fast: a swallowed download/env error (e.g. the webshop Google-Drive
-    # data, or its conda-env pip step) still exits 0. Verify the postcondition here so a partial
-    # provision fails with an actionable message instead of crashing later at server launch.
+    # Belt and braces: upstream setup.sh is fail-fast as of v0.2.0, but a pre-existing broken
+    # conda env or an interrupted run can still leave gaps. Verify the postcondition here so a
+    # partial provision fails with an actionable message instead of crashing at server launch.
     missing = _missing_components(checkout_dir)
     if missing:
         raise RuntimeError(

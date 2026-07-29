@@ -245,16 +245,16 @@ wheels = [
 
 [[package]]
 name = "browsergym-timewarp"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "browsergym-core" },
     { name = "browsergym-experiments" },
     { name = "browsergym-webarena" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b3/97/367d14cd1b79537f701e60f56f0698f67663f68a40430d7609d9f5336e1e/browsergym_timewarp-0.1.0.tar.gz", hash = "sha256:57b312742c8240ee102a9aca7a9a6c9ffc8c16c9a9b2799edd1cb9f930fc8235", size = 53640, upload-time = "2026-03-16T03:08:03.674Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/e3/4526e4ca6ff3ec8af6c4632f6f11ec07690f62ae9d86b928558d5104211a/browsergym_timewarp-0.2.0.tar.gz", hash = "sha256:94d1bab7f186cf549b5aa6d30981c225575aabb9e48a1fae1689cd7a5e825757", size = 234965, upload-time = "2026-07-29T05:39:56.71Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/64/6e36088f3ab04b27cad26c89295a9db433fe0e59f1dab7f59835a7e9c5c8/browsergym_timewarp-0.1.0-py3-none-any.whl", hash = "sha256:de764934ce34f1939a97c8c36567fe0aad7f8f087247ab72ae896a9c951abed5", size = 45017, upload-time = "2026-03-16T03:04:39.369Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/aa/ac6bf9792c79ebd8c922d35df41e09c8b67a0ea0d2bb7da138e66f6e84a2/browsergym_timewarp-0.2.0-py3-none-any.whl", hash = "sha256:00a11de06ec855ef95d44d2f38174ed3d2d969efdea7d7f815ab4c7777751b56", size = 226441, upload-time = "2026-07-29T05:39:55.469Z" },
 ]
 
 [[package]]
@@ -2484,7 +2484,7 @@ wheels = [
 
 [[package]]
 name = "timewarp-cube"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "browsergym-timewarp" },
@@ -2500,7 +2500,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "browsergym-timewarp", specifier = "==0.1.0" },
+    { name = "browsergym-timewarp", specifier = "==0.2.0" },
     { name = "cube-browser-tool", extras = ["bgym"], git = "https://github.com/The-AI-Alliance/cube-standard?subdirectory=cube-tools%2Fcube-browser-tool" },
     { name = "cube-chat-tool", specifier = ">=0.1.0" },
     { name = "cube-standard", specifier = ">=0.1.0rc8" },

@@ -45,7 +45,8 @@ class TimeWarpTaskMetadata(TaskMetadata):
     None when the source task carries no template id (true for most TimeWarp tasks)."""
 
     eval_types: list[str]
-    """Evaluator types for this task, e.g. ['llm_judge'] or ['exact_match']."""
+    """Evaluator types for this task, e.g. ['string_match'], ['number_match'], ['list_match'].
+    ['llm_judge'] on the two tasks upstream still scores with a model."""
 
 
 @runtime_checkable
@@ -135,8 +136,13 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
 
         ``GenericTimeWarpTask.validate`` reads the last chat message (role 'assistant'
         from send_message(), or 'infeasible' from report_infeasible()) and runs the
-        task's evaluator (exact_match or OpenAI llm_judge). Returns 0.0 when no answer
-        has been submitted yet.
+        task's evaluator — deterministic string/number/list matching for all but two
+        tasks, which use an LLM judge. Returns 0.0 when no answer has been submitted
+        yet, without invoking the evaluator at all.
+
+        Evaluator failures propagate (upstream ≥ 0.2.0 no longer swallows them into a
+        0.0 score): the harness records the episode as FAILED with the real error, which
+        is what we want — a judge outage is not the same as an agent getting it wrong.
         """
         if self._bgym_task is None:
             raise RuntimeError("TimeWarp task is not initialized. Call reset() first.")
