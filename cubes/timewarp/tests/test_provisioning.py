@@ -8,6 +8,7 @@ debug suite (``python -m timewarp_cube.debug``) or the smoke script, not here.
 from __future__ import annotations
 
 import io
+import subprocess
 import urllib.error
 from pathlib import Path
 
@@ -124,12 +125,94 @@ def test_is_provisioned_false_when_conda_missing(monkeypatch: pytest.MonkeyPatch
     assert provisioning.is_provisioned(tmp_path) is False
 
 
+# ── checkout reconciliation (_sync_checkout) ──────────────────────────────────
+
+
+class _FakeGit:
+    """Stands in for subprocess.run over `git`, recording the argv of every call.
+
+    ``head`` is what `git rev-parse HEAD` reports; ``status`` is `git status --porcelain`
+    output ("" == clean). Any other git subcommand succeeds silently.
+    """
+
+    def __init__(self, head: str = "old" * 13 + "0", status: str = "") -> None:
+        self.head = head
+        self.status = status
+        self.calls: list[list[str]] = []
+
+    def __call__(self, cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
+        self.calls.append(cmd)
+        stdout = ""
+        if cmd[:2] == ["git", "rev-parse"]:
+            stdout = self.head
+        elif cmd[:2] == ["git", "status"]:
+            stdout = self.status
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout=stdout, stderr="")
+
+    def ran(self, *prefix: str) -> bool:
+        return any(cmd[: len(prefix)] == list(prefix) for cmd in self.calls)
+
+
+def test_sync_checkout_advances_stale_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The pin is a constant in this module — an existing checkout must be moved to it, or the
+    machine silently keeps running the upstream it first cloned."""
+    _make_provisioned_tree(tmp_path)
+    git = _FakeGit(head="stale-sha")
+    monkeypatch.setattr(provisioning.subprocess, "run", git)
+
+    assert provisioning._sync_checkout(tmp_path) is True
+    assert git.ran("git", "fetch", "--depth", "1", "origin", provisioning.UPSTREAM_COMMIT)
+    assert git.ran("git", "checkout", provisioning.UPSTREAM_COMMIT)
+
+
+def test_sync_checkout_noop_when_already_pinned(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _make_provisioned_tree(tmp_path)
+    git = _FakeGit(head=provisioning.UPSTREAM_COMMIT or "")
+    monkeypatch.setattr(provisioning.subprocess, "run", git)
+
+    assert provisioning._sync_checkout(tmp_path) is False
+    assert not git.ran("git", "fetch")
+    assert not git.ran("git", "checkout")
+
+
+def test_sync_checkout_refuses_dirty_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Locally modified *tracked* files would be clobbered by the checkout — refuse instead."""
+    _make_provisioned_tree(tmp_path)
+    git = _FakeGit(head="stale-sha", status=" M setup.sh")
+    monkeypatch.setattr(provisioning.subprocess, "run", git)
+
+    with pytest.raises(RuntimeError, match="locally modified tracked files"):
+        provisioning._sync_checkout(tmp_path)
+    assert not git.ran("git", "fetch")
+
+
+def test_sync_checkout_ignores_untracked_downloads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The multi-GB index/data files setup.sh downloads are untracked and must not read as dirt —
+    the status probe has to pass --untracked-files=no."""
+    _make_provisioned_tree(tmp_path)
+    git = _FakeGit(head="stale-sha")
+    monkeypatch.setattr(provisioning.subprocess, "run", git)
+
+    assert provisioning._sync_checkout(tmp_path) is True
+    assert git.ran("git", "status", "--porcelain", "--untracked-files=no")
+
+
+def test_sync_checkout_clones_when_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cloned: list[Path] = []
+    monkeypatch.setattr(provisioning, "_clone_repo", lambda d: cloned.append(d))
+    monkeypatch.setattr(provisioning.subprocess, "run", _FakeGit())
+
+    assert provisioning._sync_checkout(tmp_path) is True  # tmp_path has no setup.sh
+    assert cloned == [tmp_path]
+
+
 # ── ensure_provisioned postcondition ──────────────────────────────────────────
 
 
 def test_ensure_provisioned_skips_setup_when_complete(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _make_provisioned_tree(tmp_path)
     monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
+    monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: False)
 
     def _boom(*_a: object, **_k: object) -> None:
         raise AssertionError("setup.sh must not run when already provisioned")
@@ -138,14 +221,28 @@ def test_ensure_provisioned_skips_setup_when_complete(monkeypatch: pytest.Monkey
     assert provisioning.ensure_provisioned(tmp_path) == tmp_path
 
 
+def test_ensure_provisioned_reruns_setup_after_pin_advance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A pin bump can need data/packages the old tree lacks, so a moved HEAD re-runs setup.sh
+    even though the tree still looks fully provisioned."""
+    _make_provisioned_tree(tmp_path)
+    monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
+    monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
+    monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: True)
+    ran: list[list[str]] = []
+    monkeypatch.setattr(provisioning.subprocess, "run", lambda cmd, **k: ran.append(cmd))
+
+    assert provisioning.ensure_provisioned(tmp_path) == tmp_path
+    assert ran == [["bash", "setup.sh"]]
+
+
 def test_ensure_provisioned_raises_when_setup_leaves_gaps(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Upstream setup.sh is not fail-fast (a swallowed download error still exits 0) — a run
-    that leaves the tree incomplete must raise with the missing pieces named, not return
-    normally and crash later at server launch."""
+    """A setup.sh run that leaves the tree incomplete must raise with the missing pieces named,
+    not return normally and crash later at server launch."""
     _make_provisioned_tree(tmp_path)
     (tmp_path / "env" / "webshop" / "data" / "items.json").unlink()  # data dir left empty
     monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
     monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
+    monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: False)
     ran: list[object] = []
     monkeypatch.setattr(provisioning.subprocess, "run", lambda *a, **k: ran.append(a))
     with pytest.raises(RuntimeError, match="webshop data"):

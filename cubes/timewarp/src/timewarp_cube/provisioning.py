@@ -69,6 +69,12 @@ _QUICK_CMD_TIMEOUT_S = 60
 _CLONE_TIMEOUT_S = 600
 _SETUP_TIMEOUT_S = 3600
 
+#: Remediation appended to every checkout-reconciliation error — the checkout is a cache, so
+#: deleting it is always a safe (if slow) way out.
+_CHECKOUT_HINT = (
+    "Reset/stash the changes, delete the directory to force a fresh clone, or point TIMEWARP_HOME elsewhere."
+)
+
 
 def default_checkout_dir() -> Path:
     """Where the upstream repo is cloned. Override with ``TIMEWARP_HOME``."""
@@ -188,8 +194,7 @@ def is_provisioned(checkout_dir: Path | None = None) -> bool:
 
 
 def _clone_repo(checkout_dir: Path) -> None:
-    if (checkout_dir / "setup.sh").is_file():
-        return
+    """Fresh clone of the upstream repo — callers go through ``_sync_checkout``."""
     checkout_dir.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Cloning %s (%s) into %s …", UPSTREAM_REPO, UPSTREAM_COMMIT or UPSTREAM_BRANCH, checkout_dir)
     if UPSTREAM_COMMIT:
@@ -204,7 +209,86 @@ def _clone_repo(checkout_dir: Path) -> None:
             check=True,
             timeout=_CLONE_TIMEOUT_S,
         )
+
+
+def _head_commit(checkout_dir: Path) -> str:
+    """HEAD SHA of an existing checkout."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(checkout_dir),
+            capture_output=True,
+            text=True,
+            timeout=_QUICK_CMD_TIMEOUT_S,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        raise RuntimeError(f"Could not read the git HEAD of {checkout_dir}: {e}. {_CHECKOUT_HINT}") from e
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{checkout_dir} exists but is not a git checkout ({result.stderr.strip()}). {_CHECKOUT_HINT}"
+        )
+    return result.stdout.strip()
+
+
+def _require_clean_worktree(checkout_dir: Path) -> None:
+    """Refuse to move a checkout whose *tracked* files are locally modified.
+
+    ``--untracked-files=no`` is load-bearing: the multi-GB index/data files ``setup.sh``
+    downloads live untracked inside the worktree. They are not local edits, and ``git
+    checkout`` leaves them in place — so they must not block (or be destroyed by) a pin bump.
+    """
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=str(checkout_dir),
+        capture_output=True,
+        text=True,
+        timeout=_QUICK_CMD_TIMEOUT_S,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"`git status` failed in {checkout_dir}: {result.stderr.strip()}. {_CHECKOUT_HINT}")
+    if result.stdout.strip():
+        raise RuntimeError(
+            f"The TimeWarp checkout at {checkout_dir} has locally modified tracked files:\n"
+            f"{result.stdout.strip()}\n{_CHECKOUT_HINT}"
+        )
+
+
+def _sync_checkout(checkout_dir: Path) -> bool:
+    """Clone the upstream repo, or advance an existing checkout to ``UPSTREAM_COMMIT``.
+
+    Returns True when HEAD moved (fresh clone or pin advance) so the caller re-runs
+    ``setup.sh``: a new pin can need data or conda-env packages the old one didn't.
+
+    Reconciling matters because the pin is a *constant in this file* — without it, a machine
+    that cloned once would keep running the old upstream forever while the pin says otherwise.
+    """
+    changed = False
+    if not (checkout_dir / "setup.sh").is_file():
+        _clone_repo(checkout_dir)
+        changed = True
+    elif UPSTREAM_COMMIT and _head_commit(checkout_dir) != UPSTREAM_COMMIT:
+        _require_clean_worktree(checkout_dir)
+        logger.info("Advancing TimeWarp checkout %s to pinned commit %s …", checkout_dir, UPSTREAM_COMMIT)
+        try:
+            # Fetch the SHA explicitly so this works whatever the existing clone looks like —
+            # a shallow or single-branch clone can't reach an arbitrary commit otherwise.
+            subprocess.run(
+                ["git", "fetch", "--depth", "1", "origin", UPSTREAM_COMMIT],
+                cwd=str(checkout_dir),
+                check=True,
+                timeout=_CLONE_TIMEOUT_S,
+            )
+            subprocess.run(
+                ["git", "checkout", UPSTREAM_COMMIT],
+                cwd=str(checkout_dir),
+                check=True,
+                timeout=_QUICK_CMD_TIMEOUT_S,
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            raise RuntimeError(f"Could not advance {checkout_dir} to {UPSTREAM_COMMIT}: {e}. {_CHECKOUT_HINT}") from e
+        changed = True
     _log_resolved_commit(checkout_dir)
+    return changed
 
 
 def _log_resolved_commit(checkout_dir: Path) -> None:
@@ -224,13 +308,18 @@ def _log_resolved_commit(checkout_dir: Path) -> None:
 def ensure_provisioned(checkout_dir: Path | None = None, *, force: bool = False) -> Path:
     """L1 — clone the upstream repo and run its idempotent ``setup.sh`` if not already set up.
 
-    Cheap when ``is_provisioned()`` is already True (the common case). ``setup.sh`` itself
-    skips re-creating the conda env and re-downloading existing index/data files, so a
-    forced re-run only fetches what is genuinely missing.
+    Cheap when ``is_provisioned()`` is already True (the common case) — the steady-state cost
+    is one local ``git rev-parse``. ``setup.sh`` itself skips re-creating the conda env and
+    re-downloading existing index/data files, so a forced re-run only fetches what is
+    genuinely missing.
+
+    A pin advance (``_sync_checkout`` moved HEAD) always re-runs ``setup.sh``, even when the
+    old tree looks complete: newer upstream can need extra data or newer packages inside the
+    existing conda env, and only ``setup.sh`` knows what those are.
     """
     checkout_dir = checkout_dir or default_checkout_dir()
-    _clone_repo(checkout_dir)
-    if not force and is_provisioned(checkout_dir):
+    updated = _sync_checkout(checkout_dir)
+    if not (force or updated) and is_provisioned(checkout_dir):
         logger.info("TimeWarp already provisioned at %s — skipping setup.sh", checkout_dir)
         return checkout_dir
     _conda_bin()  # fail fast with an actionable message before the long setup
