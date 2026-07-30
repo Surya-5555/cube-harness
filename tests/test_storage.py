@@ -818,6 +818,32 @@ class TestSummaryStats:
         assert summary["n_errored"] == 1
         assert summary["n_completed"] == 0
 
+    def test_avg_reward_divides_by_every_episode_not_just_completed(self, tmp_dir: Path) -> None:
+        """``total_reward`` sums over *all* episodes, so dividing by ``n_completed`` inflated the
+        mean by the errored fraction — five solved episodes plus five errored ones reported 1.0
+        instead of 0.5. It also has to agree with ``Experiment.print_stats``, which computes the
+        same quantity as sum(rewards)/len(rewards); the two used to disagree, and XRay and
+        ``make report`` read this one."""
+        storage = FileStorage(tmp_dir)
+        for i in range(5):
+            storage.update_experiment_summary(self._make_trajectory_with_stats(traj_id=f"task_ok_ep{i}"))
+        for i in range(5):
+            storage.update_experiment_summary(
+                Trajectory(
+                    id=f"task_err_ep{i}",
+                    metadata={"task_id": f"task_err_{i}", "agent_name": "A"},
+                    summary_stats={"final_reward": 0.0, "error_type": "RuntimeError"},
+                    reward_info={"reward": 0.0},
+                )
+            )
+
+        with open(tmp_dir / "experiment_summary.json") as f:
+            summary = json.load(f)
+        assert summary["n_episodes"] == 10
+        assert summary["n_completed"] == 5 and summary["n_errored"] == 5
+        assert summary["total_reward"] == pytest.approx(5.0)
+        assert summary["avg_reward"] == pytest.approx(0.5)  # not 1.0
+
 
 class TestNonNativeMetadataSerialization:
     """Regression guard for the Decimal serialization fix.

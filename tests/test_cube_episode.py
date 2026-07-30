@@ -5,12 +5,14 @@ from pathlib import Path
 
 import pytest
 from cube.core import Observation
-from cube.task import TaskConfig
+from cube.task import TaskConfig, TaskMetadata
 
 from cube_harness.agent import Agent, AgentConfig
 from cube_harness.core import AgentOutput, EvaluationEvent, ToolCallEvent
 from cube_harness.episode import Episode
 from cube_harness.storage import FileStorage
+
+from .conftest import ShadowingCubeTaskConfig
 
 
 class _FailingAgentConfig(AgentConfig):
@@ -108,6 +110,30 @@ class TestCubeEpisode:
         # reward_info carries the terminal eval payload.
         assert view.reward_info["reward"] == 1.0
         assert view.reward_info["done"] is True
+
+    def test_task_eval_info_cannot_overwrite_harness_reward_keys(
+        self, tmp_dir: Path, mock_agent_config: AgentConfig
+    ) -> None:
+        """`reward_info["done"]` is the harness's own "this episode finalized", and XRay and
+        inspect_results read it as such. A benchmark is free to return its own `done` meaning
+        something else — browsergym's means "solved or stopped" — and letting that through
+        persisted `done: false` on episodes that had demonstrably finished."""
+        episode = Episode(
+            id=0,
+            output_dir=tmp_dir,
+            agent_config=mock_agent_config,
+            task_config=ShadowingCubeTaskConfig(metadata=TaskMetadata(id="shadowing_task")),
+            exp_name="cube_test",
+            max_steps=5,
+            storage=None,
+            runtime_context=None,
+        )
+
+        view = episode.run()
+
+        assert view.reward_info["done"] is True  # harness's meaning wins
+        assert view.reward_info["reward"] == 1.0  # harness's value wins
+        assert view.reward_info["custom"] == "kept"  # non-colliding task info survives
 
     def test_run_streams_events_to_disk(
         self, tmp_dir: Path, mock_agent_config: AgentConfig, mock_cube_task_config: TaskConfig
