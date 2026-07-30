@@ -9,4 +9,5 @@ debug:
 install:
 	uv sync --all-extras
 	uv pip install -e .
-	uv run scripts/generate_task_metadata.py
+	# task_metadata.json is committed, so there is nothing to generate here — regenerating it is
+	# a deliberate developer step: `uv run scripts/generate_task_metadata.py --force`.

@@ -7,9 +7,17 @@ debug suite (``python -m timewarp_cube.debug``) or the smoke script, not here.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import io
+import shutil
+import stat
+import os
 import subprocess
+import tempfile
+import time
 import urllib.error
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -235,6 +243,52 @@ def test_ensure_provisioned_reruns_setup_after_pin_advance(monkeypatch: pytest.M
     assert ran == [["bash", "setup.sh"]]
 
 
+def test_provision_lock_excludes_a_second_holder(tmp_path: Path) -> None:
+    """L1 must be serialized across processes, or two racing runs both fetch into the same tree.
+    While the lock is held, an independent acquirer cannot take it."""
+    checkout = tmp_path / "timewarp"
+    with provisioning._provision_lock(checkout):
+        lock_path = checkout.parent / f"{checkout.name}.provision.lock"
+        assert lock_path.is_file()
+        with lock_path.open("w") as rival, pytest.raises(OSError):
+            fcntl.flock(rival, fcntl.LOCK_EX | fcntl.LOCK_NB)  # flock fds are independent
+
+
+def test_ensure_provisioned_runs_check_and_setup_under_one_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The is_provisioned check and setup.sh must sit inside the *same* lock hold. Locking only
+    setup.sh would still let both racers observe 'not provisioned' and both proceed."""
+    events: list[str] = []
+
+    @contextlib.contextmanager
+    def _recording_lock(checkout_dir: Path) -> Iterator[None]:
+        events.append("lock")
+        yield
+        events.append("unlock")
+
+    _make_provisioned_tree(tmp_path)
+    monkeypatch.setattr(provisioning, "_provision_lock", _recording_lock)
+    monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
+    monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
+    monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: events.append("sync") or True)
+    monkeypatch.setattr(provisioning.subprocess, "run", lambda cmd, **k: events.append("setup.sh"))
+
+    assert provisioning.ensure_provisioned(tmp_path) == tmp_path
+    assert events == ["lock", "sync", "setup.sh", "unlock"]
+
+
+def test_ensure_provisioned_releases_lock_on_the_skip_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The early return for an already-provisioned tree must not leak the lock — the next run
+    (and any waiting concurrent run) would deadlock."""
+    _make_provisioned_tree(tmp_path)
+    monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
+    monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: False)
+
+    for _ in range(2):  # second call proves the first released
+        assert provisioning.ensure_provisioned(tmp_path) == tmp_path
+
+
 def test_ensure_provisioned_raises_when_setup_leaves_gaps(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A setup.sh run that leaves the tree incomplete must raise with the missing pieces named,
     not return normally and crash later at server launch."""
@@ -275,18 +329,17 @@ def test_build_url_webshop_has_abc_suffix() -> None:
 # ── log files (_open_logs) ─────────────────────────────────────────────────────
 
 
-def test_open_logs_paths_are_port_qualified(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Two concurrent auto-mode runs share a site name but get distinct ports — the log paths
-    must carry the port so they don't collide and truncate each other's logs (Fix 1)."""
-    monkeypatch.setattr(provisioning.tempfile, "gettempdir", lambda: str(tmp_path))
-    out_a, err_a, err_path_a = provisioning._open_logs("wiki", 5000)
-    out_b, err_b, err_path_b = provisioning._open_logs("wiki", 6000)
+def test_open_logs_writes_inside_the_caller_supplied_dir(tmp_path: Path) -> None:
+    """Logs land in the caller's private per-run dir, never a predictable shared-tempdir path:
+    concurrent runs can't truncate each other's logs, and no other local user can pre-create
+    (or symlink) a path we open for writing. _tail reads these back to diagnose crashes."""
+    out_f, err_f, err_path = provisioning._open_logs(tmp_path, "wiki", 5000)
     try:
-        assert err_path_a != err_path_b  # same site, different port → distinct paths
-        assert "5000" in err_path_a.name and "6000" in err_path_b.name
+        assert err_path.parent == tmp_path
+        assert "5000" in err_path.name  # port kept so the files stay self-describing
     finally:
-        for handle in (out_a, err_a, out_b, err_b):
-            handle.close()
+        out_f.close()
+        err_f.close()
 
 
 class _TrackingHandle:
@@ -313,7 +366,7 @@ def test_open_logs_closes_stdout_when_stderr_open_fails(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(provisioning.Path, "open", _fake_open)
     with pytest.raises(OSError, match="disk full"):
-        provisioning._open_logs("wiki", 5000)
+        provisioning._open_logs(Path("/logs"), "wiki", 5000)
     assert len(handles) == 1 and handles[0].closed  # stdout handle opened then closed, not leaked
 
 
@@ -334,9 +387,14 @@ class _FakeProc:
         return 0
 
 
-def _fake_logs(site: str, port: int) -> tuple[io.StringIO, io.StringIO, Path]:
+def _fake_logs(log_dir: Path, site: str, port: int) -> tuple[io.StringIO, io.StringIO, Path]:
     """Stand-in for _open_logs that touches no filesystem (Popen is mocked, so handles are unused)."""
-    return io.StringIO(), io.StringIO(), Path(f"/tmp/{site}_{port}.err")
+    return io.StringIO(), io.StringIO(), log_dir / f"{site}_{port}.err"
+
+
+def _stub_log_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep start_servers' real mkdtemp out of the shared temp dir for tests that don't assert on it."""
+    monkeypatch.setattr(provisioning.tempfile, "mkdtemp", lambda prefix=None: str(tmp_path))
 
 
 def _seq_free_port(start: int = 5000, count: int = 1000) -> object:
@@ -349,12 +407,13 @@ def _seq_free_port(start: int = 5000, count: int = 1000) -> object:
     return _next
 
 
-def test_start_servers_builds_handle(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_servers_builds_handle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(provisioning, "_env_python", lambda env=provisioning.CONDA_ENV: "/py")
     monkeypatch.setattr(provisioning, "free_port", _seq_free_port())
     monkeypatch.setattr(provisioning, "_wait_until_healthy", lambda *a, **k: None)
     monkeypatch.setattr(provisioning.subprocess, "Popen", _FakeProc)
     monkeypatch.setattr(provisioning, "_open_logs", _fake_logs)
+    _stub_log_dir(monkeypatch, tmp_path)
 
     servers = provisioning.start_servers(Path("/repo"), ui_version=2)
     assert servers.urls == _LOCAL_URLS
@@ -405,10 +464,36 @@ def test_start_servers_passes_server_env_to_popen(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(provisioning, "_wait_until_healthy", lambda *a, **k: None)
     monkeypatch.setattr(provisioning.subprocess, "Popen", _RecordingProc)
     monkeypatch.setattr(provisioning, "_open_logs", _fake_logs)
+    _stub_log_dir(monkeypatch, tmp_path)
 
     provisioning.start_servers(Path("/repo"), ui_version=1)
     assert len(popen_envs) == 3
     assert all(e is not None and e["JAVA_HOME"] == str(prefix / "lib" / "jvm") for e in popen_envs)
+
+
+def test_start_servers_creates_a_private_log_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One 0700 mkdtemp dir per run, shared by all three sites — the guard against a local user
+    pre-creating or symlinking the predictable /tmp/timewarp_<site>_<port>_*.log paths."""
+    log_dirs: list[Path] = []
+
+    def _record(log_dir: Path, site: str, port: int) -> tuple[io.StringIO, io.StringIO, Path]:
+        log_dirs.append(log_dir)
+        return io.StringIO(), io.StringIO(), log_dir / f"{site}.err"
+
+    monkeypatch.setattr(provisioning, "_env_python", lambda env=provisioning.CONDA_ENV: "/py")
+    monkeypatch.setattr(provisioning, "free_port", _seq_free_port())
+    monkeypatch.setattr(provisioning, "_wait_until_healthy", lambda *a, **k: None)
+    monkeypatch.setattr(provisioning.subprocess, "Popen", _FakeProc)
+    monkeypatch.setattr(provisioning, "_open_logs", _record)
+
+    provisioning.start_servers(Path("/repo"))
+    assert len(log_dirs) == 3 and len(set(log_dirs)) == 1  # one dir for the whole run
+    log_dir = log_dirs[0]
+    try:
+        assert log_dir.is_dir()
+        assert stat.S_IMODE(log_dir.stat().st_mode) == 0o700  # owner-only
+    finally:
+        shutil.rmtree(log_dir, ignore_errors=True)
 
 
 def test_start_servers_rejects_bad_version(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -481,14 +566,17 @@ def test_task_config_make_reads_tw_urls_from_runtime_context() -> None:
     """Auto mode publishes URLs via runtime_context; TaskConfig.make threads them onto the task."""
     cfg = _config().named_subset("wiki")
     task_cfg = next(iter(cfg.get_task_configs()))
-    task = task_cfg.make(runtime_context={"tw_urls": _LOCAL_URLS})
+    task = task_cfg.make(runtime_context={"tw_urls": _LOCAL_URLS, "tw_ui_version": 4})
     assert task.tw_urls == _LOCAL_URLS
+    assert task.tw_ui_version == 4  # rides along so reset()'s info records the era (PS-001)
 
 
 def test_task_config_make_no_urls_without_runtime_context() -> None:
     cfg = _config(provision_mode="manual").named_subset("wiki")
     task_cfg = next(iter(cfg.get_task_configs()))
-    assert task_cfg.make(runtime_context=None).tw_urls is None  # manual mode → ambient env vars
+    task = task_cfg.make(runtime_context=None)
+    assert task.tw_urls is None  # manual mode → ambient env vars
+    assert task.tw_ui_version is None  # era of a server we didn't start is unknowable
 
 
 def test_setup_manual_raises_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -515,6 +603,46 @@ def test_setup_auto_reuses_running_servers(monkeypatch: pytest.MonkeyPatch) -> N
     bench._setup()
     assert bench._runtime_context["tw_urls"] == _URLS
     assert bench._servers is None
+
+
+def test_setup_auto_warns_that_ui_version_is_unapplied_on_reuse(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """ui_version IS the experiment in TimeWarp. Reused servers render whatever era they were
+    started with, so the request cannot be honoured — say so loudly and record the era as
+    unknown, rather than labelling the episodes with an era that never took effect."""
+    for site, var in provisioning.SITE_ENV_VARS.items():
+        monkeypatch.setenv(var, _URLS[site])
+    monkeypatch.setattr(provisioning, "is_reachable", lambda url, timeout=5.0: True)
+
+    bench = TimeWarpBenchmarkConfig.benchmark_class(_config(ui_version=3))
+    with caplog.at_level("WARNING"):
+        bench._setup()
+    warning = next(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
+    assert "ui_version=3 is NOT applied" in warning
+    assert "TW_WIKI" in warning  # names the vars to unset
+    assert bench._runtime_context["tw_ui_version"] is None
+
+
+def test_setup_auto_records_ui_version_when_it_launches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cube-launched servers: the era is known, applied, and published for the trajectory."""
+    for var in provisioning.SITE_ENV_VARS.values():
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(provisioning, "ensure_provisioned", lambda checkout=None: None)
+    launched: list[int] = []
+
+    def _start(checkout: Path | None, ui_version: int) -> provisioning.TimeWarpServers:
+        launched.append(ui_version)
+        return provisioning.TimeWarpServers(urls=_LOCAL_URLS, checkout_dir=Path("/repo"))
+
+    monkeypatch.setattr(provisioning, "start_servers", _start)
+
+    bench = TimeWarpBenchmarkConfig.benchmark_class(_config(ui_version=5))
+    bench._setup()
+    assert launched == [5]
+    assert bench._runtime_context["tw_ui_version"] == 5
+    for var in provisioning.SITE_ENV_VARS.values():
+        monkeypatch.delenv(var, raising=False)  # apply_to_env wrote os.environ directly
 
 
 def test_setup_auto_launches_when_no_servers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -618,3 +746,99 @@ def test_get_task_configs_yields_timewarp_configs() -> None:
     """The benchmark no longer overrides get_task_configs — the base yields TimeWarpTaskConfig."""
     configs = list(_config().named_subset("wiki").get_task_configs())
     assert configs and all(isinstance(tc, TimeWarpTaskConfig) for tc in configs)
+
+
+# ── log-directory lifecycle ──────────────────────────────────────────────────
+
+
+def test_stop_never_deletes_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """stop() cannot tell a good run from a bad one — a killed server reads as still running for
+    up to ~500ms, and a Flask app that 500s on every request never dies at all — so it must not
+    try. Deleting on a wrong guess destroys the only record of the failure."""
+    monkeypatch.setattr(provisioning.os, "killpg", lambda *a: None)
+    monkeypatch.setattr(provisioning.os, "getpgid", lambda pid: pid)
+    log_dir = Path(tempfile.mkdtemp(dir=tmp_path))
+    (log_dir / "wiki.err").write_text("traceback")
+    servers = provisioning.TimeWarpServers(
+        urls={"wiki": "http://127.0.0.1:5000"},
+        checkout_dir=Path("/repo"),
+        _procs=[_FakeProc(["wiki"])],  # type: ignore[list-item]
+        _log_dir=log_dir,
+    )
+
+    servers.stop()
+    servers.stop()  # idempotent
+
+    assert (log_dir / "wiki.err").read_text() == "traceback"
+
+
+def test_prune_log_dirs_reclaims_only_old_runs(tmp_path: Path) -> None:
+    """Bounding accumulation happens on the next launch, where age is an unambiguous signal —
+    unlike teardown, where 'did this run go fine' is not answerable."""
+    old = tmp_path / f"{provisioning._LOG_DIR_PREFIX}old"
+    recent = tmp_path / f"{provisioning._LOG_DIR_PREFIX}recent"
+    unrelated = tmp_path / "someone-elses-dir"
+    for d in (old, recent, unrelated):
+        d.mkdir()
+        (d / "x.log").write_text("x")
+    stale = time.time() - provisioning._LOG_RETENTION_S - 60
+    os.utime(old, (stale, stale))
+
+    provisioning._prune_log_dirs(tmp_path, provisioning._LOG_DIR_PREFIX)
+
+    assert not old.exists()
+    assert recent.is_dir() and unrelated.is_dir()  # a concurrent run's dir is far too recent to match
+
+
+def test_start_servers_stops_children_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The healthcheck blocks for up to three minutes. A Ctrl-C (or SIGTERM-turned-SystemExit) in
+    that window must still reap the servers — `benchmark._servers` is unassigned at that point, so
+    nothing else could ever reach them and they would hold their ports forever."""
+    killed: list[int] = []
+    monkeypatch.setattr(provisioning, "_env_python", lambda env=provisioning.CONDA_ENV: "/py")
+    monkeypatch.setattr(provisioning, "free_port", _seq_free_port())
+    monkeypatch.setattr(provisioning.subprocess, "Popen", _FakeProc)
+    monkeypatch.setattr(provisioning, "_open_logs", _fake_logs)
+    monkeypatch.setattr(provisioning.os, "killpg", lambda pgid, sig: killed.append(pgid))
+    monkeypatch.setattr(provisioning.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(provisioning, "_wait_until_healthy", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+
+    with pytest.raises(KeyboardInterrupt):
+        provisioning.start_servers(Path("/repo"))
+
+    assert len(killed) == 3  # all three servers reaped, not orphaned
+
+
+def test_provision_lock_falls_back_only_when_the_tree_is_unwritable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A read-only checkout cannot be provisioned into by anyone, so there is nothing to race on
+    and the run must proceed. That is the ONLY degradation."""
+    parent = tmp_path / "ro"
+    parent.mkdir()
+    (parent / "tw").mkdir()
+    parent.chmod(0o555)
+    try:
+        entered = False
+        with provisioning._provision_lock(parent / "tw"):
+            entered = True
+        assert entered
+    finally:
+        parent.chmod(0o755)
+
+
+def test_provision_lock_still_raises_when_the_tree_is_writable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unwritable lockfile in a WRITABLE directory (a 0644 file left by another user on a shared
+    TIMEWARP_HOME) is not the read-only case: the tree can still be written, so the race the lock
+    exists to prevent is live and continuing unlocked would risk a corrupt tree."""
+    checkout = tmp_path / "tw"
+    checkout.mkdir()
+
+    def _deny(*_a: object, **_kw: object) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "open", _deny)
+
+    with pytest.raises(PermissionError):
+        with provisioning._provision_lock(checkout):
+            pass

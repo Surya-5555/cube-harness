@@ -21,6 +21,7 @@ from playwright.sync_api import Page
 from pydantic import PrivateAttr
 
 from timewarp_cube import provisioning
+from timewarp_cube._data import verify_upstream_data
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,12 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
     worker process) because BrowserGym's TimeWarpInstance reads TW_WIKI/TW_NEWS/TW_WEBSHOP from
     the environment, and driver env does not reach Ray workers. None in manual mode → BrowserGym
     reads the ambient (shell-exported) env vars."""
+    tw_ui_version: int | None = None
+    """Temporal UI era the servers were actually launched at, from the benchmark's
+    ``runtime_context``. None whenever the cube did not launch them (manual mode, or auto mode
+    reusing external servers): the era is then genuinely unknowable, and recording that honestly
+    beats recording a requested-but-unapplied value. Surfaced in ``reset()``'s info so every
+    trajectory carries the UI it ran against — the axis TimeWarp exists to measure (PS-001)."""
     # validate_per_step stays at the default (False): TimeWarp only scores the agent's
     # terminal chat answer, so evaluate() need only run once the task is done. Per-step
     # validation added no reward signal (non-answer steps always score 0) and cost a
@@ -128,6 +135,7 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
             "task_id": self.id,
             "sites": self.metadata.sites,
             "goal": goal,
+            "ui_version": self.tw_ui_version,
         }
         return obs, info
 
@@ -143,13 +151,25 @@ class TimeWarpTask(Task[TimeWarpTaskMetadata]):
         Evaluator failures propagate (upstream ≥ 0.2.0 no longer swallows them into a
         0.0 score): the harness records the episode as FAILED with the real error, which
         is what we want — a judge outage is not the same as an agent getting it wrong.
+
+        BrowserGym's own ``done`` is reported as ``bgym_done``, not ``done``: the harness owns
+        ``reward_info["done"]`` ("this episode finalized", which XRay and inspect_results read),
+        while BrowserGym's means "solved or stopped" and is False for a correct-but-unscored
+        answer. They are different questions and the names must not collide.
         """
         if self._bgym_task is None:
             raise RuntimeError("TimeWarp task is not initialized. Call reset() first.")
         score, done, _user_message, task_info = self._bgym_task.validate(
             self._browser_tool.page, self._chat_tool.messages
         )
-        return score, {"done": done, **task_info}
+        # A hard zero from validate()'s own pre-checks reports itself only through `error`, and
+        # nothing downstream turns that into an error_type — so without this line an episode
+        # poisoned by an off-domain tab is indistinguishable from an agent that answered wrongly.
+        if task_info.get("error"):
+            logger.warning(
+                "TimeWarp task %s scored %.1f with an evaluation error: %s", self.id, score, task_info["error"]
+            )
+        return score, {**task_info, "bgym_done": done}
 
     def finished(self, obs: Observation | None = None) -> bool:
         """Done once the agent has submitted a final answer (assistant) or reported infeasible.
@@ -183,12 +203,19 @@ class TimeWarpTaskConfig(TaskConfig[TimeWarpTaskMetadata]):
         runtime_context: RuntimeContext | None = None,
     ) -> TimeWarpTask:
         assert self.tool_config is not None, "TimeWarpTaskConfig requires a tool_config."
-        # Auto mode publishes the resolved server URLs into runtime_context (re-derived each
-        # run); manual mode leaves it unset → tw_urls None → BrowserGym reads the ambient env.
+        # Also checked in TimeWarpBenchmark._setup, but a Ray worker builds tasks straight from a
+        # pickled TaskConfig and never runs _setup — so without this the process that actually
+        # scores would be the one process not verifying what it is scoring with. Cached: free.
+        verify_upstream_data()
+        # Auto mode publishes the resolved server URLs and UI era into runtime_context
+        # (re-derived each run); manual mode leaves it unset → both None → BrowserGym reads the
+        # ambient env and the episode records the era as unknown.
         tw_urls = runtime_context.get("tw_urls") if runtime_context else None
+        tw_ui_version = runtime_context.get("tw_ui_version") if runtime_context else None
         return TimeWarpTask(
             metadata=self.metadata,
             tool_config=self.tool_config,
             seed=self.seed if self.seed is not None else _DEFAULT_SEED,
             tw_urls=tw_urls,
+            tw_ui_version=tw_ui_version,
         )

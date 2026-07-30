@@ -21,11 +21,20 @@ The servers bind ``127.0.0.1`` only, so the whole flow is intrinsically single-h
 benchmark threads the resolved URLs through its ``runtime_context`` — re-derived on every
 run, so a resumed run always uses the freshly-launched ports — rather than env vars, which
 do not reach Ray workers. See ``benchmark.py`` for the orchestration.
+
+Scope note (for whoever needs this next): what follows provisions long-lived *local
+processes*, which cube-standard's resource layer deliberately does not model — ``cube.resource``
+covers Docker services (``DockerServiceConfig``) and VMs (``VMResourceConfig``), and TimeWarp is
+neither. A one-cube exception is the right size for a one-cube need. If a **second** cube ever
+needs bare-process provisioning, propose a process-service ``ResourceConfig`` upstream in
+cube-standard rather than copying this module — see AGENTS.md, "External contracts".
 """
 
 from __future__ import annotations
 
 import contextlib
+import errno
+import fcntl
 import logging
 import os
 import shutil
@@ -35,6 +44,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
@@ -190,7 +200,7 @@ def is_provisioned(checkout_dir: Path | None = None) -> bool:
     zero-byte index pickle or an empty data dir behind — is treated as *not* provisioned and
     re-run rather than launching servers against corrupt data.
     """
-    checkout_dir = checkout_dir or default_checkout_dir()
+    checkout_dir = checkout_dir.expanduser() if checkout_dir else default_checkout_dir()
     return not _missing_components(checkout_dir)
 
 
@@ -306,6 +316,70 @@ def _log_resolved_commit(checkout_dir: Path) -> None:
             logger.info("TimeWarp upstream checked out at commit %s", result.stdout.strip())
 
 
+@contextlib.contextmanager
+def _provision_lock(checkout_dir: Path) -> Iterator[None]:
+    """Serialize L1 across every process sharing *checkout_dir*.
+
+    L2 is already safe for concurrent runs on one host (``free_port`` hands out distinct ports;
+    each run logs into its own private directory), but L1 was not: two experiments starting
+    together on a fresh machine both see ``is_provisioned() == False`` and both run ``setup.sh``
+    into the same tree, racing on the same multi-GB downloads and the same search index. The
+    loser leaves a *corrupt* tree — which ``_missing_components`` cannot detect, because every
+    piece is present, just malformed.
+
+    Holding the lock across the check *and* the setup makes the second caller wait, then find
+    the tree already complete and skip. The lockfile lives beside the checkout, not inside it,
+    so it works before the clone exists and can never be mistaken for repo content.
+
+    Two honest limits. The lock does **not** survive holder death: flock is released by the
+    kernel, so a process killed mid-``setup.sh`` lets the next caller in to find a tree that
+    ``_missing_components`` calls complete but that is actually malformed. And on a shared NFS
+    ``TIMEWARP_HOME`` flock is advisory-at-best across hosts — though the servers bind
+    ``127.0.0.1``, so this module is single-host by construction anyway.
+
+    One deliberate degradation: a checkout whose parent directory is **not writable** cannot be
+    provisioned into by anyone, so there is nothing to race on — a read-only or admin-provisioned
+    tree (``TIMEWARP_HOME=/opt/shared/timewarp``, a baked container image) previously took the
+    "already provisioned" fast path and must keep working. That case warns and runs unlocked.
+
+    A failure to take the lock in a *writable* directory is a different thing and stays fatal:
+    the tree can still be written, so the race the lock exists to prevent is live. The common
+    shape is a lockfile left at 0644 by another user on a shared ``TIMEWARP_HOME`` — silently
+    continuing there is exactly how two concurrent ``setup.sh`` runs corrupt the tree.
+    """
+    lock_path = checkout_dir.parent / f"{checkout_dir.name}.provision.lock"
+    handle: TextIO | None = None
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("w")
+    except OSError as exc:
+        if os.access(lock_path.parent, os.W_OK):
+            raise
+        unlockable = exc
+    if handle is None:
+        logger.warning(
+            "TimeWarp checkout parent %s is not writable (%s) — provisioning unlocked. Safe for a "
+            "pre-provisioned or read-only tree, which is the only way to reach this state.",
+            lock_path.parent,
+            unlockable,
+        )
+        yield  # outside the except block, so a failure in the body carries no misleading context
+        return
+    with handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.ENOLCK, errno.EOPNOTSUPP):
+                # The filesystem has no locking at all (NFS without lockd, some FUSE/overlay
+                # mounts). That is not contention, and retrying blocks forever or raises again.
+                logger.warning("%s does not support flock (%s) — provisioning unlocked.", lock_path, exc.strerror)
+                yield
+                return
+            logger.info("Another process is provisioning TimeWarp at %s — waiting for it …", checkout_dir)
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        yield  # closing the handle on the way out releases the lock
+
+
 def ensure_provisioned(checkout_dir: Path | None = None, *, force: bool = False) -> Path:
     """L1 — clone the upstream repo and run its idempotent ``setup.sh`` if not already set up.
 
@@ -317,24 +391,28 @@ def ensure_provisioned(checkout_dir: Path | None = None, *, force: bool = False)
     A pin advance (``_sync_checkout`` moved HEAD) always re-runs ``setup.sh``, even when the
     old tree looks complete: newer upstream can need extra data or newer packages inside the
     existing conda env, and only ``setup.sh`` knows what those are.
+
+    Serialized per checkout dir by ``_provision_lock`` so concurrent runs on one host cannot
+    race on the same downloads.
     """
-    checkout_dir = checkout_dir or default_checkout_dir()
-    updated = _sync_checkout(checkout_dir)
-    if not (force or updated) and is_provisioned(checkout_dir):
-        logger.info("TimeWarp already provisioned at %s — skipping setup.sh", checkout_dir)
-        return checkout_dir
-    _conda_bin()  # fail fast with an actionable message before the long setup
-    logger.info("Running upstream setup.sh in %s (one-time; downloads conda env + data) …", checkout_dir)
-    subprocess.run(["bash", "setup.sh"], cwd=str(checkout_dir), check=True, timeout=_SETUP_TIMEOUT_S)
-    # Belt and braces: upstream setup.sh is fail-fast as of v0.2.0, but a pre-existing broken
-    # conda env or an interrupted run can still leave gaps. Verify the postcondition here so a
-    # partial provision fails with an actionable message instead of crashing at server launch.
-    missing = _missing_components(checkout_dir)
-    if missing:
-        raise RuntimeError(
-            f"Upstream setup.sh finished but TimeWarp is still not fully provisioned at {checkout_dir} — "
-            f"missing: {', '.join(missing)}. Inspect the setup.sh output above for the step that failed."
-        )
+    checkout_dir = checkout_dir.expanduser() if checkout_dir else default_checkout_dir()
+    with _provision_lock(checkout_dir):
+        updated = _sync_checkout(checkout_dir)
+        if not (force or updated) and is_provisioned(checkout_dir):
+            logger.info("TimeWarp already provisioned at %s — skipping setup.sh", checkout_dir)
+            return checkout_dir
+        _conda_bin()  # fail fast with an actionable message before the long setup
+        logger.info("Running upstream setup.sh in %s (one-time; downloads conda env + data) …", checkout_dir)
+        subprocess.run(["bash", "setup.sh"], cwd=str(checkout_dir), check=True, timeout=_SETUP_TIMEOUT_S)
+        # Belt and braces: upstream setup.sh is fail-fast as of v0.2.0, but a pre-existing broken
+        # conda env or an interrupted run can still leave gaps. Verify the postcondition here so a
+        # partial provision fails with an actionable message instead of crashing at server launch.
+        missing = _missing_components(checkout_dir)
+        if missing:
+            raise RuntimeError(
+                f"Upstream setup.sh finished but TimeWarp is still not fully provisioned at {checkout_dir} — "
+                f"missing: {', '.join(missing)}. Inspect the setup.sh output above for the step that failed."
+            )
     return checkout_dir
 
 
@@ -396,9 +474,9 @@ class TimeWarpServers:
     """Live handle to the three locally-launched TimeWarp Flask servers.
 
     ``urls`` maps site -> base URL (webshop carries the upstream ``/abc`` suffix).
-    ``stop()`` kills each server's process group, reaps it, and closes its log files; safe to
-    call more than once. ``_stderr_paths`` (site order) lets the healthcheck surface a crashed
-    server's stderr instead of just an exit code.
+    ``stop()`` kills each server's process group, reaps it, closes its log files and removes the
+    private log directory; safe to call more than once. ``_stderr_paths`` (site order) lets the
+    healthcheck surface a crashed server's stderr instead of just an exit code.
     """
 
     urls: dict[str, str]
@@ -406,6 +484,7 @@ class TimeWarpServers:
     _procs: list[subprocess.Popen] = field(default_factory=list, repr=False)
     _logs: list[TextIO] = field(default_factory=list, repr=False)
     _stderr_paths: list[Path] = field(default_factory=list, repr=False)
+    _log_dir: Path | None = field(default=None, repr=False)
 
     def stop(self) -> None:
         for proc in self._procs:
@@ -429,6 +508,16 @@ class TimeWarpServers:
             with contextlib.suppress(OSError):
                 log.close()
         self._logs.clear()
+        # The logs are deliberately NOT deleted here. Deciding at teardown whether a run "went
+        # fine" cannot be done reliably: `proc.poll()` reports a killed server as still running
+        # for tens to hundreds of milliseconds after the signal, and a Flask app that raises on
+        # every request never dies at all — `is_reachable` accepts any HTTP status, so a server
+        # 500-ing its way through an entire experiment looks perfectly healthy at stop() time.
+        # Both cases would delete the only record of what went wrong. `_prune_log_dirs` bounds
+        # the accumulation instead, on the next launch, which needs no such judgement.
+        if self._log_dir is not None:
+            logger.info("TimeWarp server logs: %s", self._log_dir)
+            self._log_dir = None
 
     def __enter__(self) -> TimeWarpServers:
         return self
@@ -442,18 +531,19 @@ def _build_url(site: str, port: int, host: str) -> str:
     return f"{base}/abc" if site == "webshop" else base  # webshop is mounted under /abc upstream
 
 
-def _open_logs(site: str, port: int) -> tuple[TextIO, TextIO, Path]:
+def _open_logs(log_dir: Path, site: str, port: int) -> tuple[TextIO, TextIO, Path]:
     """Open per-site stdout/stderr log files so a crashed server's output is inspectable
     (returns the open handles plus the stderr path for the healthcheck error message).
 
-    The filenames are qualified by *port* (not just *site*) so two concurrent auto-mode runs
-    on the same host — which get distinct ports from ``free_port`` but share a ``site`` name —
-    write to separate files instead of truncating/interleaving each other's logs (which would
-    make the healthcheck's ``_tail`` misdiagnose crashes).
+    *log_dir* is the caller's private per-run directory (``start_servers`` creates it with
+    ``tempfile.mkdtemp``, mode 0700), so these paths are neither shared nor guessable: two
+    concurrent auto-mode runs cannot truncate each other's logs, and no other local user can
+    pre-create — or symlink — a path we are about to open for writing. That integrity is
+    load-bearing, because the healthcheck's ``_tail`` reads these files back to diagnose a
+    crash. The port stays in the filename purely so the files are self-describing.
     """
-    tmp = Path(tempfile.gettempdir())
-    out_path = tmp / f"timewarp_{site}_{port}_stdout.log"
-    err_path = tmp / f"timewarp_{site}_{port}_stderr.log"
+    out_path = log_dir / f"timewarp_{site}_{port}_stdout.log"
+    err_path = log_dir / f"timewarp_{site}_{port}_stderr.log"
     out_f = out_path.open("w")
     try:
         err_f = err_path.open("w")
@@ -461,6 +551,32 @@ def _open_logs(site: str, port: int) -> tuple[TextIO, TextIO, Path]:
         out_f.close()  # don't leak the stdout handle if opening stderr fails (disk full / perms)
         raise
     return out_f, err_f, err_path
+
+
+#: How long a run's server logs survive before a later launch reclaims them. Well beyond any
+#: experiment, so a concurrent run's live directory is never a candidate.
+_LOG_RETENTION_S = 7 * 24 * 3600
+
+#: Shared prefix so a later run can find (and reclaim) an earlier one's log directory.
+_LOG_DIR_PREFIX = "timewarp-logs-"
+
+
+def _prune_log_dirs(parent: Path, prefix: str) -> None:
+    """Reclaim server-log directories from runs that finished over ``_LOG_RETENTION_S`` ago.
+
+    ``stop()`` never deletes logs, because at teardown there is no reliable way to tell a run
+    that went fine from one that did not. Pruning on the *next* launch needs no such judgement:
+    by then the logs are old enough that nobody is coming back for them, and anything still
+    being written to is far too recent to match.
+    """
+    cutoff = time.time() - _LOG_RETENTION_S
+    for stale in parent.glob(f"{prefix}*"):
+        try:
+            if stale.is_dir() and stale.stat().st_mtime < cutoff:
+                shutil.rmtree(stale)
+                logger.debug("Reclaimed stale TimeWarp log dir %s", stale)
+        except OSError as exc:  # another run's dir, a permissions quirk — never fatal
+            logger.debug("Could not reclaim %s: %s", stale, exc)
 
 
 def _tail(path: Path, max_lines: int = 20) -> str:
@@ -490,7 +606,7 @@ def start_servers(
     Bind-probe, URL, and health-check all use ``127.0.0.1`` so there is no IPv4/IPv6 ambiguity
     about which interface is actually being served.
     """
-    checkout_dir = checkout_dir or default_checkout_dir()
+    checkout_dir = checkout_dir.expanduser() if checkout_dir else default_checkout_dir()
     if not (1 <= ui_version <= 6):
         raise ValueError(f"ui_version must be 1-6, got {ui_version}")
 
@@ -499,14 +615,17 @@ def start_servers(
     sites = list(SITE_ENV_VARS)  # wiki, news, webshop
     ports = [free_port(start=start_port) for _ in sites]
     urls = {site: _build_url(site, port, host) for site, port in zip(sites, ports)}
+    _prune_log_dirs(Path(tempfile.gettempdir()), _LOG_DIR_PREFIX)
+    log_dir = Path(tempfile.mkdtemp(prefix=_LOG_DIR_PREFIX))  # mkdtemp is 0700 — private to this run
+    logger.info("TimeWarp server logs: %s", log_dir)
 
-    servers = TimeWarpServers(urls=urls, checkout_dir=checkout_dir)
+    servers = TimeWarpServers(urls=urls, checkout_dir=checkout_dir, _log_dir=log_dir)
     try:
         for site, port in zip(sites, ports):
             site_dir = checkout_dir / "env" / site
             cmd = _site_command(site, app_python, port, ui_version)
             logger.info("Starting %s (theme %d) on port %d: %s", site, ui_version, port, " ".join(cmd))
-            out_f, err_f, err_path = _open_logs(site, port)
+            out_f, err_f, err_path = _open_logs(log_dir, site, port)
             servers._logs += [out_f, err_f]
             servers._stderr_paths.append(err_path)
             servers._procs.append(
@@ -515,7 +634,12 @@ def start_servers(
                 )
             )
         _wait_until_healthy(servers, timeout_s=healthcheck_timeout_s)
-    except Exception:
+    except BaseException:
+        # BaseException, not Exception: the healthcheck can block for up to three minutes, and a
+        # Ctrl-C or a SIGTERM-turned-SystemExit inside that window would otherwise skip stop()
+        # entirely. `servers` is a local and `benchmark._servers` has not been assigned yet, so
+        # nothing downstream could ever reach these processes — they would hold their ports for
+        # the life of the machine.
         servers.stop()
         raise
     logger.info("TimeWarp servers ready: %s", urls)

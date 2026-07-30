@@ -21,18 +21,18 @@ Two provisioning modes (``provision_mode`` on the config):
   vars) and ``_setup()`` only verifies they are reachable.
 """
 
-import importlib.resources
-import json
 import logging
 import os
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
 from cube.benchmark import Benchmark, BenchmarkConfig, BenchmarkMetadata
 from cube.resource import InfraConfig
 from cube.task import TaskConfig
+from pydantic import Field
 
 from timewarp_cube import provisioning
+from timewarp_cube._data import load_task_metadata, verify_upstream_data
 from timewarp_cube.task import TimeWarpTaskConfig, TimeWarpTaskMetadata
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ _START_HINT = (
 )
 
 #: Task count derived from the shipped task_metadata.json so ``num_tasks`` can't drift from it.
-_NUM_TASKS = len(json.loads(importlib.resources.files("timewarp_cube").joinpath("task_metadata.json").read_text()))
+_NUM_TASKS = len(load_task_metadata())
 
 
 class TimeWarpBenchmark(Benchmark["TimeWarpBenchmarkConfig"]):
@@ -64,6 +64,7 @@ class TimeWarpBenchmark(Benchmark["TimeWarpBenchmarkConfig"]):
         self._servers: provisioning.TimeWarpServers | None = None
 
     def _setup(self) -> None:
+        verify_upstream_data()  # a wrong upstream release scores every task wrong, silently
         if self.config.provision_mode == "manual":
             self._setup_manual()
         else:
@@ -91,8 +92,22 @@ class TimeWarpBenchmark(Benchmark["TimeWarpBenchmarkConfig"]):
             )
         existing = provisioning.urls_from_env()
         if existing is not None and all(provisioning.is_reachable(url) for url in existing.values()):
-            logger.info("Using already-running TimeWarp servers: %s", existing)
-            urls = existing
+            # Servers we did not launch: we cannot know — or change — which UI era they render,
+            # so ui_version does not apply and the era is recorded as unknown rather than as the
+            # value that was asked for but never took effect. Warn, because ui_version *is* the
+            # experiment in TimeWarp: silently running era 1 under an "era 3" label is a wrong
+            # result, not a slow one.
+            logger.warning(
+                "Using already-running TimeWarp servers (%s). ui_version=%d is NOT applied — the UI "
+                "era these servers render is whatever they were started with, and cannot be verified "
+                "from here; episodes will record ui_version=None. Unset %s to have the cube launch "
+                "its own servers at ui_version=%d.",
+                existing,
+                self.config.ui_version,
+                ", ".join(_REQUIRED_ENV_VARS),
+                self.config.ui_version,
+            )
+            urls, ui_version = existing, None
         else:
             if existing is not None:
                 # All three env vars are set but at least one server isn't answering — don't
@@ -103,14 +118,19 @@ class TimeWarpBenchmark(Benchmark["TimeWarpBenchmarkConfig"]):
                     "servers, to reuse your own.",
                     ", ".join(_REQUIRED_ENV_VARS),
                 )
-            checkout = self.config.checkout_dir
-            provisioning.ensure_provisioned(checkout)
+            # Take ensure_provisioned's resolved path rather than passing the possibly-None config
+            # value on to start_servers: otherwise each resolves default_checkout_dir()
+            # independently, and a TIMEWARP_HOME changed in between would provision one tree and
+            # launch from another.
+            checkout = provisioning.ensure_provisioned(self.config.checkout_dir)
             self._servers = provisioning.start_servers(checkout, self.config.ui_version)
-            urls = self._servers.urls
+            urls, ui_version = self._servers.urls, self.config.ui_version
         # Resolved URLs reach Ray workers via runtime_context (re-derived per run, so a resume
         # uses these ports, not a stale persisted set); also export them here so driver-side /
-        # sequential (debug) runs see them directly.
+        # sequential (debug) runs see them directly. The resolved era rides along so every
+        # trajectory records which UI it actually ran against (PS-001) — see TimeWarpTask.reset.
         self._runtime_context["tw_urls"] = urls
+        self._runtime_context["tw_ui_version"] = ui_version
         provisioning.apply_to_env(urls)
 
     def close(self) -> None:
@@ -168,8 +188,31 @@ class TimeWarpBenchmarkConfig(BenchmarkConfig[TimeWarpTaskMetadata]):
     provision_mode: Literal["auto", "manual"] = "auto"
     """``auto``: clone-check + run upstream setup.sh if needed + launch the Flask servers.
     ``manual``: start the servers yourself and set TW_WIKI/TW_NEWS/TW_WEBSHOP."""
-    ui_version: int = 1
-    """Temporal UI era (1-6) the auto-launched servers render. Ignored in manual mode."""
+    ui_version: Annotated[int, Field(ge=1, le=6)] = 1
+    """Which UI theme (1-6) the cube's own servers render — TimeWarp's independent variable.
+
+    **1-5 are eras; 6 is a neutral control theme, not a sixth era.** And the era indices are *not
+    time-aligned across sites* — read from upstream's ``num_to_theme`` maps:
+
+    ==========  ==============  ================  ============
+    ui_version  wiki            news              webshop
+    ==========  ==============  ================  ============
+    1           2001            2000s             2000
+    2           2002            2004s             2005
+    3           2003-4          2008s             2010
+    4           2005-2022       2016s             2015
+    5           2023-2025       2024s             2025
+    6           minimal         base-minimal      classic
+    ==========  ==============  ================  ============
+
+    So a multi-site run at ``ui_version=4`` is 2005-2022 wiki + 2016 news + 2015 webshop, and a
+    1→6 sweep is not a monotonic walk through time at its endpoint. Treat the number as a theme
+    index; do not read a year off it. (Upstream wiki also defines ``7: modern`` but excludes it
+    from its own sweeps, and news/webshop have no 7 — hence the 1-6 bound.)
+
+    Applies only when the cube launches the servers. Not applied in manual mode, nor when auto
+    mode reuses reachable ``TW_*`` servers (logged as a warning; episodes then record
+    ``ui_version: None``, since the theme of a server we did not start is unknowable)."""
     checkout_dir: Path | None = None
     """Where ``_setup_auto`` (via ``provisioning.ensure_provisioned``) clones the upstream
     TimeWarp repo in auto mode. None → ``TIMEWARP_HOME`` env var, else ``~/.cache/timewarp``
