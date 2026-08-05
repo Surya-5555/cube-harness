@@ -168,6 +168,11 @@ make debug                  # manual-mode smoke: needs the 3 servers already run
 uv run pytest tests/        # fast unit tests — no servers, no browser, no conda, no API key
 ```
 
+`make debug` only *verifies* that the three servers are reachable — it never provisions or
+launches anything. Have them up first (left over from a prior auto-mode run, or started manually —
+see [Manual](#manual)) with `TW_WIKI` / `TW_NEWS` / `TW_WEBSHOP` exported. It submits each task's
+own gold answer and asserts `reward == 1.0`, so a silent-zero regression fails it.
+
 The unit tests run on every PR via the `TimeWarp unit tests` job in
 [`cube-ci-fast.yml`](../../.github/workflows/cube-ci-fast.yml). The debug suite does not: it needs
 three live servers behind a conda env, which a hosted runner can't stand up.
@@ -206,14 +211,6 @@ Two more things the benchmark does not isolate per episode:
   that includes *any other local port* (the check compares `netloc`, which carries the port, but
   only authorizes bare `localhost` / `127.0.0.1`). The cube logs a warning when this happens, since
   otherwise it is indistinguishable from a wrong answer.
-
-`make debug` is a **manual-mode** smoke: it only *verifies* that the three servers are reachable —
-it does not provision or launch anything. Before running it, have the servers up (either left over
-from a prior auto-mode benchmark run, or started manually from the upstream repo — see
-[Manual](#manual)) with `TW_WIKI` / `TW_NEWS` / `TW_WEBSHOP` exported. Both debug tasks are
-scored by deterministic verifiers, so no API key is needed.
-
-The unit tests in [`tests/`](tests/) cover the parts that don't need infrastructure: metadata loads 231 tasks, the named subsets filter/cover correctly, the configs round-trip, the toolbox pairs a browser tool with a `ChatTool`, that `install()` stays lightweight (no provisioning), and the provisioning helpers (mode toggle, `is_provisioned` completeness checks, the auto-launch path, server teardown, and `runtime_context` URL threading) with subprocess/socket calls mocked. The [`debug.py`](src/timewarp_cube/debug.py) suite exercises the full setup→validate path against the live servers you started with a scripted reference-answer agent.
 
 `task_metadata.json` is a shipped package resource holding only public fields (`sites`, `intent_template_id`, `eval_types`). TimeWarp has no heavy execution data — all task logic loads from `browsergym-timewarp` at runtime via the numeric task id. To regenerate it after a task-list change (developer use only):
 

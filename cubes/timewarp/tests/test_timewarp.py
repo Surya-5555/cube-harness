@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import pytest
 from cube.tool import ToolboxConfig
-from cube_harness.agent import apply_description_overrides
 from cube_browser_tool.bgym_tool import BgymToolConfig
 from cube_chat_tool import ChatToolConfig
 
@@ -136,7 +135,6 @@ def test_install_does_not_provision(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     for var in provisioning.SITE_ENV_VARS.values():
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(provisioning, "has_conda", lambda: True)
 
     def _fail(*args: object, **kwargs: object) -> None:
         raise AssertionError("install() must not provision")
@@ -193,17 +191,16 @@ def test_verify_upstream_data_is_cached_so_worker_calls_are_free() -> None:
 
 
 def test_answer_protocol_overrides_bind_to_real_actions() -> None:
-    """The overrides are keyed by action name, and `apply_description_overrides` raises on an
-    unknown key — so a rename in ChatTool must fail here rather than silently dropping the hint
-    that is worth ~27 points of accuracy."""
-    schemas = _browser_with_chat(use_screenshot=False, headless=True).make().action_set
-    encoded = [a.as_dict() for a in schemas]  # the shape ReactAgent/Genny hand to the LLM
+    """The overrides are keyed by action name, and the harness's `apply_description_overrides`
+    raises on an unknown key — so a rename in ChatTool must fail here rather than silently
+    dropping the hint that is worth ~27 points of accuracy.
 
-    apply_description_overrides(encoded, dict(ANSWER_PROTOCOL_OVERRIDES))
+    Asserted against the action set directly rather than by calling the harness: a cube depends
+    on cube-standard, never on cube-harness, and importing it here made the cube's own
+    `pytest tests/` uncollectable in its standalone venv."""
+    action_names = {a.name for a in _browser_with_chat(use_screenshot=False, headless=True).make().action_set}
 
-    applied = {e["function"]["name"]: e["function"]["description"] for e in encoded}
-    assert applied["send_message"] == ANSWER_PROTOCOL_OVERRIDES["send_message"]
-    assert applied["report_infeasible"] == ANSWER_PROTOCOL_OVERRIDES["report_infeasible"]
+    assert set(ANSWER_PROTOCOL_OVERRIDES) <= action_names
 
 
 def test_answer_protocol_overrides_are_opt_in() -> None:

@@ -10,9 +10,10 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import io
-import shutil
-import stat
 import os
+import shutil
+import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -225,7 +226,7 @@ def test_ensure_provisioned_skips_setup_when_complete(monkeypatch: pytest.Monkey
     def _boom(*_a: object, **_k: object) -> None:
         raise AssertionError("setup.sh must not run when already provisioned")
 
-    monkeypatch.setattr(provisioning.subprocess, "run", _boom)
+    monkeypatch.setattr(provisioning, "_run_setup_sh", _boom)
     assert provisioning.ensure_provisioned(tmp_path) == tmp_path
 
 
@@ -236,11 +237,41 @@ def test_ensure_provisioned_reruns_setup_after_pin_advance(monkeypatch: pytest.M
     monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
     monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
     monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: True)
-    ran: list[list[str]] = []
-    monkeypatch.setattr(provisioning.subprocess, "run", lambda cmd, **k: ran.append(cmd))
+    ran: list[Path] = []
+    monkeypatch.setattr(provisioning, "_run_setup_sh", lambda d: ran.append(d))
 
     assert provisioning.ensure_provisioned(tmp_path) == tmp_path
-    assert ran == [["bash", "setup.sh"]]
+    assert ran == [tmp_path]
+
+
+def test_run_setup_sh_kills_the_whole_group_on_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A timeout must take setup.sh's *descendants* down too. `subprocess.run(timeout=…)` kills
+    only bash, leaving conda and the HuggingFace fetches writing into the checkout after the
+    provision lock releases — which lets the next caller start a second, concurrent setup.sh."""
+
+    class _Hanging:
+        pid = 4321
+        returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired(["bash", "setup.sh"], timeout or 0)
+
+    killed: list[tuple[int, int]] = []
+    popen_kwargs: dict[str, object] = {}
+
+    def _popen(*_a: object, **kwargs: object) -> _Hanging:
+        popen_kwargs.update(kwargs)
+        return _Hanging()
+
+    monkeypatch.setattr(provisioning.subprocess, "Popen", _popen)
+    monkeypatch.setattr(provisioning.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(provisioning.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        provisioning._run_setup_sh(tmp_path)
+
+    assert popen_kwargs.get("start_new_session") is True  # or killpg would hit our own group
+    assert killed == [(4321, signal.SIGKILL)]
 
 
 def test_provision_lock_excludes_a_second_holder(tmp_path: Path) -> None:
@@ -272,7 +303,7 @@ def test_ensure_provisioned_runs_check_and_setup_under_one_lock(
     monkeypatch.setattr(provisioning, "_conda_env_exists", lambda env=provisioning.CONDA_ENV: True)
     monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
     monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: events.append("sync") or True)
-    monkeypatch.setattr(provisioning.subprocess, "run", lambda cmd, **k: events.append("setup.sh"))
+    monkeypatch.setattr(provisioning, "_run_setup_sh", lambda d: events.append("setup.sh"))
 
     assert provisioning.ensure_provisioned(tmp_path) == tmp_path
     assert events == ["lock", "sync", "setup.sh", "unlock"]
@@ -298,7 +329,7 @@ def test_ensure_provisioned_raises_when_setup_leaves_gaps(monkeypatch: pytest.Mo
     monkeypatch.setattr(provisioning, "_conda_bin", lambda: "/usr/bin/conda")
     monkeypatch.setattr(provisioning, "_sync_checkout", lambda d: False)
     ran: list[object] = []
-    monkeypatch.setattr(provisioning.subprocess, "run", lambda *a, **k: ran.append(a))
+    monkeypatch.setattr(provisioning, "_run_setup_sh", lambda *a, **k: ran.append(a))
     with pytest.raises(RuntimeError, match="webshop data"):
         provisioning.ensure_provisioned(tmp_path)
     assert ran  # setup.sh was attempted before the postcondition check

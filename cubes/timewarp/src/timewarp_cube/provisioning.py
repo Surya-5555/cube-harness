@@ -55,15 +55,13 @@ logger = logging.getLogger(__name__)
 
 #: Upstream TimeWarp project that ships the environment servers and start scripts.
 UPSTREAM_REPO = "https://github.com/sparklabutah/timewarp"
-UPSTREAM_BRANCH = "master"
 
 #: Pinned commit for reproducibility (PS-001). Locked to upstream tag ``v0.2.0`` (also master
 #: HEAD as of 2026-07-29) so the provisioned upstream code + data layout are deterministic;
 #: bump deliberately, together with the ``browsergym-timewarp`` pin in pyproject.toml — the
 #: servers here and the task data there come from the same upstream release.
-#: Setting this to None would track the branch tip, which is NOT reproducible.
 #: The resolved HEAD is always logged so a run records exactly what it used.
-UPSTREAM_COMMIT: str | None = "312ad5287499eef2e4dfbd3614f3e1d2f0776d10"
+UPSTREAM_COMMIT = "312ad5287499eef2e4dfbd3614f3e1d2f0776d10"
 
 #: Conda environment that upstream ``setup.sh`` creates; the servers run inside it.
 CONDA_ENV = "timewarp"
@@ -130,11 +128,6 @@ def apply_to_env(urls: dict[str, str]) -> None:
 # ── conda helpers ─────────────────────────────────────────────────────────────
 
 
-def has_conda() -> bool:
-    """True if a ``conda`` executable is on PATH (auto mode needs it for the server env)."""
-    return shutil.which("conda") is not None
-
-
 def _conda_bin() -> str:
     conda = shutil.which("conda")
     if conda is None:
@@ -164,6 +157,32 @@ def _conda_env_exists(env: str = CONDA_ENV) -> bool:
 
 
 # ── L1: provisioning (clone + setup.sh) ──────────────────────────────────────
+
+
+def _run_setup_sh(checkout_dir: Path) -> None:
+    """Run upstream ``setup.sh``, tearing down its whole process group if it overruns.
+
+    ``subprocess.run(timeout=…)`` kills only bash. The conda build and the multi-GB HuggingFace
+    fetches it spawned would keep writing into the checkout after ``_provision_lock`` releases —
+    letting the next caller run a *second* ``setup.sh`` alongside them, which is exactly the
+    concurrent corruption the lock exists to prevent. ``start_new_session`` puts the descendants
+    in their own group so one ``killpg`` reaches all of them.
+
+    ``BaseException``, not ``Exception``: this call can block for an hour, and a Ctrl-C inside
+    that window orphans the same downloads as a timeout does.
+    """
+    cmd = ["bash", "setup.sh"]
+    proc = subprocess.Popen(cmd, cwd=str(checkout_dir), start_new_session=True)
+    try:
+        returncode = proc.wait(timeout=_SETUP_TIMEOUT_S)
+    except BaseException:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        with contextlib.suppress(subprocess.SubprocessError, OSError):
+            proc.wait(timeout=10)  # reap, so it does not linger as a zombie
+        raise
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, cmd)
 
 
 def _nonempty_file(path: Path) -> bool:
@@ -207,19 +226,12 @@ def is_provisioned(checkout_dir: Path | None = None) -> bool:
 def _clone_repo(checkout_dir: Path) -> None:
     """Fresh clone of the upstream repo — callers go through ``_sync_checkout``."""
     checkout_dir.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Cloning %s (%s) into %s …", UPSTREAM_REPO, UPSTREAM_COMMIT or UPSTREAM_BRANCH, checkout_dir)
-    if UPSTREAM_COMMIT:
-        # A specific SHA may not be a branch tip, so a shallow --branch clone can't reach it.
-        subprocess.run(["git", "clone", UPSTREAM_REPO, str(checkout_dir)], check=True, timeout=_CLONE_TIMEOUT_S)
-        subprocess.run(
-            ["git", "checkout", UPSTREAM_COMMIT], cwd=str(checkout_dir), check=True, timeout=_QUICK_CMD_TIMEOUT_S
-        )
-    else:
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", UPSTREAM_BRANCH, UPSTREAM_REPO, str(checkout_dir)],
-            check=True,
-            timeout=_CLONE_TIMEOUT_S,
-        )
+    logger.info("Cloning %s (%s) into %s …", UPSTREAM_REPO, UPSTREAM_COMMIT, checkout_dir)
+    # A specific SHA may not be a branch tip, so a shallow --branch clone can't reach it.
+    subprocess.run(["git", "clone", UPSTREAM_REPO, str(checkout_dir)], check=True, timeout=_CLONE_TIMEOUT_S)
+    subprocess.run(
+        ["git", "checkout", UPSTREAM_COMMIT], cwd=str(checkout_dir), check=True, timeout=_QUICK_CMD_TIMEOUT_S
+    )
 
 
 def _head_commit(checkout_dir: Path) -> str:
@@ -277,7 +289,7 @@ def _sync_checkout(checkout_dir: Path) -> bool:
     if not (checkout_dir / "setup.sh").is_file():
         _clone_repo(checkout_dir)
         changed = True
-    elif UPSTREAM_COMMIT and _head_commit(checkout_dir) != UPSTREAM_COMMIT:
+    elif _head_commit(checkout_dir) != UPSTREAM_COMMIT:
         _require_clean_worktree(checkout_dir)
         logger.info("Advancing TimeWarp checkout %s to pinned commit %s …", checkout_dir, UPSTREAM_COMMIT)
         try:
@@ -403,7 +415,7 @@ def ensure_provisioned(checkout_dir: Path | None = None, *, force: bool = False)
             return checkout_dir
         _conda_bin()  # fail fast with an actionable message before the long setup
         logger.info("Running upstream setup.sh in %s (one-time; downloads conda env + data) …", checkout_dir)
-        subprocess.run(["bash", "setup.sh"], cwd=str(checkout_dir), check=True, timeout=_SETUP_TIMEOUT_S)
+        _run_setup_sh(checkout_dir)
         # Belt and braces: upstream setup.sh is fail-fast as of v0.2.0, but a pre-existing broken
         # conda env or an interrupted run can still leave gaps. Verify the postcondition here so a
         # partial provision fails with an actionable message instead of crashing at server launch.
@@ -474,9 +486,10 @@ class TimeWarpServers:
     """Live handle to the three locally-launched TimeWarp Flask servers.
 
     ``urls`` maps site -> base URL (webshop carries the upstream ``/abc`` suffix).
-    ``stop()`` kills each server's process group, reaps it, closes its log files and removes the
-    private log directory; safe to call more than once. ``_stderr_paths`` (site order) lets the
-    healthcheck surface a crashed server's stderr instead of just an exit code.
+    ``stop()`` kills each server's process group, reaps it and closes its log files; safe to call
+    more than once. The log *directory* is deliberately left behind (see ``stop()``) and reclaimed
+    by a later launch. ``_stderr_paths`` (site order) lets the healthcheck surface a crashed
+    server's stderr instead of just an exit code.
     """
 
     urls: dict[str, str]

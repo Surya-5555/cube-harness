@@ -7,8 +7,10 @@ through the chat tool that ``GenericTimeWarpTask.validate`` consumes.
 Requires the TimeWarp environments running with TW_WIKI / TW_NEWS / TW_WEBSHOP set
 (start them from the upstream TimeWarp repo, https://github.com/sparklabutah/timewarp,
 via scripts/environment/run_all_env.sh — see the cube README). No API key: the debug
-tasks are scored by deterministic verifiers. Like workarena, the suite only fails on
-errors (Python exceptions), not on reward.
+tasks are scored by deterministic verifiers, so the suite asserts ``reward == 1.0`` —
+submitting a task's own gold answer must score it. (Unlike workarena, which is
+reward-blind because its cheat agent is nondeterministic.) A silent zero — a renamed
+chat role, say — would otherwise take the no-answer branch and still report success.
 
 Public API (cube.testing protocol)
 -----------------------------------
@@ -90,5 +92,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s")
 
     results = run_debug_suite("timewarp-cube", _this_module)
-    failed = [r for r in results if r["error"]]
+    failed = [r for r in results if r["error"] or not r["done"] or r["reward"] != 1.0]
     sys.exit(1 if failed else 0)
