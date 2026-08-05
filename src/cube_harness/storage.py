@@ -1470,14 +1470,9 @@ class FileStorage:
                 summary.total_completion_tokens += stats.get("completion_tokens", 0)
                 summary.total_cost += stats.get("cost", 0.0)
 
-                # Divide by every episode, not just the non-errored ones: `total_reward` sums over
-                # all of them, so `/ n_completed` inflated the mean by the errored fraction — an
-                # experiment where half the episodes error and the rest score 1.0 reported 1.0.
-                # `n_episodes` also matches `Experiment.print_stats`, which computes this same
-                # quantity as sum(rewards)/len(rewards); the two used to disagree, and XRay and
-                # `make report` read this one.
-                if summary.n_episodes > 0:
-                    summary.avg_reward = round(summary.total_reward / summary.n_episodes, 4)
+                # `total_reward` sums over every episode, so the denominator must too — `/ n_completed`
+                # inflated the mean by the errored fraction. Matches `Experiment.print_stats`.
+                summary.avg_reward = round(summary.total_reward / summary.n_episodes, 4)
                 summary.updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
                 tmp_path = summary_path.with_suffix(".tmp")
