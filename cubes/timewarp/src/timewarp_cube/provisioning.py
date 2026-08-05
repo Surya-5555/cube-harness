@@ -13,9 +13,11 @@ so the cube can stand the servers up on its own — no Docker, just local proces
 
     L2 (per benchmark run) — ``start_servers()`` / ``TimeWarpServers.stop()``
         Pick free ports via the shared ``cube.infra_utils.free_port`` helper (a
-        process-wide lock + PID-derived offset keep parallel runs off the same port),
-        launch the three apps under the ``timewarp`` conda env (one process group each,
-        for clean teardown), and health-check them.
+        process-wide lock + PID-derived offset make a collision between parallel runs
+        unlikely, though nothing reserves the port between probe and bind — a loser
+        fails the launch loudly rather than silently sharing a port), launch the three
+        apps under the ``timewarp`` conda env (one process group each, for clean
+        teardown), and health-check them.
 
 The servers bind ``127.0.0.1`` only, so the whole flow is intrinsically single-host; the
 benchmark threads the resolved URLs through its ``runtime_context`` — re-derived on every
@@ -332,8 +334,9 @@ def _log_resolved_commit(checkout_dir: Path) -> None:
 def _provision_lock(checkout_dir: Path) -> Iterator[None]:
     """Serialize L1 across every process sharing *checkout_dir*.
 
-    L2 is already safe for concurrent runs on one host (``free_port`` hands out distinct ports;
-    each run logs into its own private directory), but L1 was not: two experiments starting
+    L2 already tolerates concurrent runs on one host (``free_port`` makes a port clash unlikely
+    and a clash fails the launch loudly; each run logs into its own private directory), but L1
+    did not: two experiments starting
     together on a fresh machine both see ``is_provisioned() == False`` and both run ``setup.sh``
     into the same tree, racing on the same multi-GB downloads and the same search index. The
     loser leaves a *corrupt* tree — which ``_missing_components`` cannot detect, because every
@@ -574,6 +577,17 @@ _LOG_RETENTION_S = 7 * 24 * 3600
 _LOG_DIR_PREFIX = "timewarp-logs-"
 
 
+def _newest_mtime(log_dir: Path) -> float:
+    """Newest mtime among *log_dir*'s files, falling back to the directory's own.
+
+    The directory's mtime only tracks entries being added or removed, so it stops advancing the
+    moment ``_open_logs`` has created the six files — a server writing to them for weeks never
+    touches it. Ageing on the directory alone would therefore let a later launch delete a
+    *live* run's logs the instant that run outlived the retention window.
+    """
+    return max((f.stat().st_mtime for f in log_dir.iterdir()), default=log_dir.stat().st_mtime)
+
+
 def _prune_log_dirs(parent: Path, prefix: str) -> None:
     """Reclaim server-log directories from runs that finished over ``_LOG_RETENTION_S`` ago.
 
@@ -585,7 +599,7 @@ def _prune_log_dirs(parent: Path, prefix: str) -> None:
     cutoff = time.time() - _LOG_RETENTION_S
     for stale in parent.glob(f"{prefix}*"):
         try:
-            if stale.is_dir() and stale.stat().st_mtime < cutoff:
+            if stale.is_dir() and _newest_mtime(stale) < cutoff:
                 shutil.rmtree(stale)
                 logger.debug("Reclaimed stale TimeWarp log dir %s", stale)
         except OSError as exc:  # another run's dir, a permissions quirk — never fatal
@@ -614,8 +628,12 @@ def start_servers(
 
     Each app runs in its own process group (``start_new_session=True``) so ``stop()`` can
     tear it down precisely without the host-wide ``pkill`` sweep upstream's stop script uses.
-    Ports come from the shared ``cube.infra_utils.free_port`` helper — its process-wide lock
-    plus PID-derived offset stop two concurrent benchmark setups racing onto the same port.
+    Ports come from the shared ``cube.infra_utils.free_port`` helper — its process-wide lock plus
+    PID-derived offset make two concurrent benchmark setups landing on the same port unlikely.
+    It is a probe, not a reservation: all three ports are picked before any server binds, so a
+    collision is still possible (and certain for PIDs congruent mod 1000). There is no retry —
+    the loser fails the healthcheck below with the server's own "address in use" stderr, which is
+    the right trade for a launch path that must not silently share a port.
     Bind-probe, URL, and health-check all use ``127.0.0.1`` so there is no IPv4/IPv6 ambiguity
     about which interface is actually being served.
     """

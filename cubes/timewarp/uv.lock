@@ -2488,26 +2488,34 @@ version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "browsergym-timewarp" },
+    { name = "cube-browser-playwright" },
     { name = "cube-browser-tool", extra = ["bgym"] },
     { name = "cube-chat-tool" },
     { name = "cube-standard" },
+    { name = "nltk" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "browsergym-timewarp", specifier = "==0.2.0" },
+    { name = "cube-browser-playwright", specifier = ">=0.2.0" },
     { name = "cube-browser-tool", extras = ["bgym"], git = "https://github.com/The-AI-Alliance/cube-standard?subdirectory=cube-tools%2Fcube-browser-tool" },
     { name = "cube-chat-tool", specifier = ">=0.1.0" },
     { name = "cube-standard", specifier = ">=0.1.0rc8" },
+    { name = "nltk", specifier = "!=3.10.1" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0" }]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "typer", specifier = ">=0.12" },
+]
 
 [[package]]
 name = "tokenizers"

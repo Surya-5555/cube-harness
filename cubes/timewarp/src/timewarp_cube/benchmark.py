@@ -138,6 +138,15 @@ class TimeWarpBenchmark(Benchmark["TimeWarpBenchmarkConfig"]):
             logger.info("Stopping TimeWarp servers.")
             self._servers.stop()
             self._servers = None
+            # Drop the URLs *we* exported in _setup_auto. Left behind, they point at ports that
+            # just died, and the next _setup_auto in this process (a retry round, or a second
+            # experiment under one `run`) reads its own leftovers as user-supplied servers: at
+            # best a misleading "set but not all reachable" warning, at worst — if the OS has
+            # since handed a port to something else that answers HTTP — a silent reuse of the
+            # wrong server at ui_version=None. Only cube-launched servers are cleared; in manual
+            # mode and in the reuse branch the vars are the user's and are left untouched.
+            for var in _REQUIRED_ENV_VARS:
+                os.environ.pop(var, None)
         logger.info("TimeWarp benchmark closed.")
 
 

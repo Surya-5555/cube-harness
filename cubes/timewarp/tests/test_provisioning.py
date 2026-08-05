@@ -696,6 +696,41 @@ def test_setup_auto_launches_when_no_servers(monkeypatch: pytest.MonkeyPatch) ->
         monkeypatch.delenv(var, raising=False)  # apply_to_env wrote os.environ directly — clean up
 
 
+def test_close_clears_the_env_vars_it_exported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cube-launched run must not leave TW_* behind: the next _setup_auto in this process (a
+    retry round, or a second experiment under one `run`) would read its own leftovers as
+    user-supplied servers pointing at ports that just died."""
+    for var in provisioning.SITE_ENV_VARS.values():
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(provisioning, "ensure_provisioned", lambda checkout=None: None)
+    monkeypatch.setattr(
+        provisioning,
+        "start_servers",
+        lambda checkout, ui_version: provisioning.TimeWarpServers(urls=_LOCAL_URLS, checkout_dir=Path("/repo")),
+    )
+
+    bench = TimeWarpBenchmarkConfig.benchmark_class(_config())
+    bench._setup()
+    assert provisioning.urls_from_env() == _LOCAL_URLS  # exported for driver-side runs
+
+    bench.close()
+    assert provisioning.urls_from_env() is None
+
+
+def test_close_leaves_user_supplied_env_vars_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The reuse branch launched nothing, so the vars are the user's — clearing them would be
+    the cube deleting configuration it does not own."""
+    for site, var in provisioning.SITE_ENV_VARS.items():
+        monkeypatch.setenv(var, _URLS[site])
+    monkeypatch.setattr(provisioning, "is_reachable", lambda url, timeout=5.0: True)
+
+    bench = TimeWarpBenchmarkConfig.benchmark_class(_config())
+    bench._setup()
+    bench.close()
+
+    assert provisioning.urls_from_env() == _URLS
+
+
 def test_setup_auto_raises_on_partial_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Auto mode refuses a half-configured environment instead of silently relaunching all three."""
     for var in provisioning.SITE_ENV_VARS.values():
@@ -813,12 +848,28 @@ def test_prune_log_dirs_reclaims_only_old_runs(tmp_path: Path) -> None:
         d.mkdir()
         (d / "x.log").write_text("x")
     stale = time.time() - provisioning._LOG_RETENTION_S - 60
+    os.utime(old / "x.log", (stale, stale))  # the *logs* are what age; see _newest_mtime
     os.utime(old, (stale, stale))
 
     provisioning._prune_log_dirs(tmp_path, provisioning._LOG_DIR_PREFIX)
 
     assert not old.exists()
     assert recent.is_dir() and unrelated.is_dir()  # a concurrent run's dir is far too recent to match
+
+
+def test_prune_log_dirs_spares_a_live_run_still_writing(tmp_path: Path) -> None:
+    """A directory's mtime stops advancing once its files exist, so a run that outlives the
+    retention window looks stale by that measure while its servers are still logging. Age on the
+    newest *file* instead, or a later launch deletes a live run's only crash record."""
+    live = tmp_path / f"{provisioning._LOG_DIR_PREFIX}live"
+    live.mkdir()
+    (live / "timewarp_wiki_5000_stderr.log").write_text("still running")
+    ancient = time.time() - provisioning._LOG_RETENTION_S - 86400
+    os.utime(live, (ancient, ancient))  # dir looks old; the log inside was just written
+
+    provisioning._prune_log_dirs(tmp_path, provisioning._LOG_DIR_PREFIX)
+
+    assert live.is_dir()
 
 
 def test_start_servers_stops_children_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:

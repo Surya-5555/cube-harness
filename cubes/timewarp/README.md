@@ -20,9 +20,11 @@ start them yourself.
   run picks up the freshly-launched ports), so this works under Ray on a single host. If
   `TW_WIKI` / `TW_NEWS` / `TW_WEBSHOP` already point at reachable servers, those are reused and
   nothing is launched — see the `ui_version` warning below. **Requires `conda`** (the servers run
-  in the `timewarp` env the upstream `setup.sh` creates). Concurrent runs on one host are safe:
-  provisioning is serialized by a lockfile beside the checkout, and each run gets its own ports
-  and its own private log directory.
+  in the `timewarp` env the upstream `setup.sh` creates). Concurrent runs on one host are
+  supported: provisioning is serialized by a lockfile beside the checkout, and each run gets its
+  own private log directory and its own ports — port selection is a probe rather than a
+  reservation, so a clash between simultaneous launches is unlikely but possible, and fails the
+  launch loudly rather than sharing a port.
 - **manual** — start the servers yourself and set the three env vars; `_setup()` only verifies
   reachability. (Same pattern as [`webarena-verified`](../webarena-verified).)
 

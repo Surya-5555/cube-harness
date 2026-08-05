@@ -168,6 +168,9 @@ jobs:
       - name: Pre-install cube-browser-tool[bgym] from cube-standard@dev
         run: uv pip install 'cube-browser-tool[bgym] @ git+https://github.com/The-AI-Alliance/cube-standard.git@dev#subdirectory=cube-tools/cube-browser-tool'
 
+      - name: Check cubes/timewarp/uv.lock is up to date
+        run: uv lock --check --project cubes/timewarp
+
       - name: Install timewarp-cube
         run: uv pip install -e "cubes/timewarp"
 
