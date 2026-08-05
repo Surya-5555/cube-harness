@@ -1,0 +1,3539 @@
+[
+  {
+    "id": "1",
+    "split": "test",
+    "abstract_description": "Is biophysics mentioned as a related page or branch in the Biology article, the Physics article, both, or neither of them?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 1,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "2",
+    "split": "test",
+    "abstract_description": "What is the population difference between the two special administrative regions of China?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 2,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "3",
+    "split": "test",
+    "abstract_description": "List all specific animal names found in the 'Natural History' section of the New Zealand page and the 'Indigenous life' section of the Australia page.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 3,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "4",
+    "split": "test",
+    "abstract_description": "Go to Black Sabbath's article and click the second hyperlink in the article's content. I need the population of the country that the link leads to. If it's not a country, just go to the first country mentioned on that visited page and give me that country's population.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 4,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "5",
+    "split": "test",
+    "abstract_description": "How many total Pro Football Hall of Famers are there in the articles about the American football teams mentioned in Eminem's article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 5,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "6",
+    "split": "test",
+    "abstract_description": "Trace this path: start at the \"Territory\" page \u2192 the first country mentioned \u2192 a country that shares its southern border \u2192 the largest city of that country. What is the first word of the second section on that final page (the introductory paragraphs count as one section)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 6,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "7",
+    "split": "test",
+    "abstract_description": "Navigate to the article corresponding to the last word in the second paragraph of the 'Hip-hop' article. In the visited page, follow the first hyperlink and tell me the first line from the article's content.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 7,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "8",
+    "split": "test",
+    "abstract_description": "Recursively follow the first link in the main content of each page, starting from the article on Research. What is the title of the final article whose page does not exist?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 8,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "9",
+    "split": "test",
+    "abstract_description": "Recursively follow the third hyperlink in the main content of each article, starting from the article \"Periodic table.\" Keep traversing until there is no third hyperlink or you encounter a \"page does not exist\" article. List the titles of all the valid pages in the order that you visited.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 9,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "10",
+    "split": "test",
+    "abstract_description": "Visit the article about the earliest known statistics mentioned in the Statistics article. Then visit the article about the last country mentioned in its main content. What is the name of the first animal mentioned on that country's page?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 10,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "11",
+    "split": "test",
+    "abstract_description": "Who is the current mayor of New York City, according to the article on NYC?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 11,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "12",
+    "split": "test",
+    "abstract_description": "Navigate to the article on Canada and find who the head of the military is. Tell me the name of that person.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 12,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "13",
+    "split": "test",
+    "abstract_description": "Visit the article on the date of the latest event from the article on the year 1971. Then tell me the year of the first event from the 1900s, as listed in that article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 13,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "14",
+    "split": "test",
+    "abstract_description": "What is the total number of floral and faunal emblems mentioned in the articles for all six Australian states?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 14,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "15",
+    "split": "test",
+    "abstract_description": "Find out which U.S. state uses the word borough instead of counties based on the Borough Wiki article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 15,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "16",
+    "split": "test",
+    "abstract_description": "How many times did you encounter the word Hell in these articles: \"Peru\", \"Pusha T\", and \"Doom (2016 video game)\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 16,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "17",
+    "split": "test",
+    "abstract_description": "Which specialized tools were mentioned in the approaches section of the Physics article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 17,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "18",
+    "split": "test",
+    "abstract_description": "How many times is the word \"Ishmael\" mentioned on the page \"Abraham\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 18,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "19",
+    "split": "test",
+    "abstract_description": "Trace this path in the exact order: France \u2192 Emblem \u2192 Democracy \u2192 Name \u2192 Custom. While visiting these articles, which word appears immediately before either \"Suzuki Ichiro\" or \"Suffrage\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 19,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "20",
+    "split": "test",
+    "abstract_description": "Which Brazilian president is mentioned in the article on Conservatism?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 20,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "21",
+    "split": "test",
+    "abstract_description": "Go to the page of the first notable Nobel laureate mentioned in the Nobel Prize article. Then visit the last hyperlink in the second section (the introductory paragraph counts as a section). How many countries are mentioned on the final visited page?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 21,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "22",
+    "split": "test",
+    "abstract_description": "I heard that possession of illegal drugs is considered a victimless crime. Can you find a reference article to this statement? If yes, then tell me the name of the article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 22,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "23",
+    "split": "test",
+    "abstract_description": "Which one of these does not have a valid page: Burger King, Wendy's, McDonald's?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 23,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "24",
+    "split": "test",
+    "abstract_description": "Start at the Computer Science article and serially visit the hyperlinks in that article. Stop when you find a hyperlink where the hyperlink text doesn't match the title of the page it leads to, and tell me the text of that hyperlink.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 24,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "25",
+    "split": "test",
+    "abstract_description": "Does the article on Sociology discuss its relationship with Mathematics? If so, please provide the title of the section.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 25,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "26",
+    "split": "test",
+    "abstract_description": "I've been wanting to learn more about civil wars for a long time. It's fascinating how conflicts can arise between two groups within the same country. Since it's a common topic, there should be plenty of articles on it. I'm especially interested in civil wars where one group wants to separate from, or secede from, the country. Could you search for an article on this and let me know the title?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 26,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "27",
+    "split": "test",
+    "abstract_description": "Start at the Computer Science article and serially visit the hyperlinks in that article. Stop when you find a hyperlink where the hyperlink text doesn't match the title of the page it leads to, and tell me the names of all the hyperlinks that you have visited.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 27,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "28",
+    "split": "test",
+    "abstract_description": "Start from the article on the color blue. Sequentially visit the hyperlinks in that article. Stop when you visit a hyperlink that doesn't have a valid page, and tell me the text of that hyperlink.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 28,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "29",
+    "split": "test",
+    "abstract_description": "Start at the article \"World\" and serially visit the first five hyperlinks in the article's content. Tell me the names of all the articles that don't have a valid page.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 29,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "30",
+    "split": "test",
+    "abstract_description": "I have always wanted to know more about the history of the famous tech company Apple. I think the official name of the company is Apple Inc. Can you find a Wiki article for me?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 30,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "31",
+    "split": "test",
+    "abstract_description": "How many searches does DuckDuckGo receive every day?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": 31,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "32",
+    "split": "test",
+    "abstract_description": "Which of these two plane crashes appears to be deadlier, based on the number of casualties: (1) \"Airliner crashes in China, 42 killed\" and (2) \"Ethiopian airliner crashes into Mediterranean Sea\"? Mention the title of the article related to the deadlier incident.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 32,
+    "eval_types": [
+      "llm_judge"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "33",
+    "split": "test",
+    "abstract_description": "List the names of the countries mentioned in both of these news articles: \"Turbolinux adopted by China's largest bank\" and \"United States Homeland Security network monitors suspicious activity\".",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 33,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "34",
+    "split": "test",
+    "abstract_description": "When you search for \"UFC\", which of the search results are actually related to UFC? Share the titles of those news articles. If none of the results are relevant, please state 'None'.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 34,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "35",
+    "split": "test",
+    "abstract_description": "How many articles did you find on Richard Stallman (articles that consist only of redirect pages should be excluded)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 35,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "36",
+    "split": "test",
+    "abstract_description": "Is there any news article regarding Salt Lake City that was published in 2024?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 36,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "37",
+    "split": "test",
+    "abstract_description": "Someone told me about an article where Tom Cruise spoke out against antidepressant drugs. Can you please find that article and tell me the title?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 37,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "38",
+    "split": "test",
+    "abstract_description": "There is an article on Tom Cruise debating psychiatry. Do you think the publication year of the article is consistent with the year that the event occurred?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 38,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "39",
+    "split": "test",
+    "abstract_description": "How many articles are there on Morocco that were published in 2009?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 39,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "40",
+    "split": "test",
+    "abstract_description": "Were these two articles published on the same day: Bayern beating Dortmund 5-4 on penalties in the German Super Cup, and Dortmund signing Ousmane Dembele?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 40,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "41",
+    "split": "test",
+    "abstract_description": "Follow this navigation path: Search Boston, visit the fifth result from the first page, identify the second state in the body/content of the article, and search the state. Visit the third link from the search result and tell me the name of the first state in the content/body of the final article. If you encounter a redirect link at any point, then visit that link. If any of the articles are not found, then report the task as incomplete.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 41,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "42",
+    "split": "test",
+    "abstract_description": "Navigate to the 11th article when you search \"murder case\". Then take the first two words from the main content of the visited article and search them. Report the name of the last article in the search results.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 42,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "43",
+    "split": "test",
+    "abstract_description": "Could you list all the news articles on the most recent diesel emission scandal at Volkswagen?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 43,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "44",
+    "split": "test",
+    "abstract_description": "List the names of all the animals mentioned in these articles: \"England: Fire at London Zoo kills aardvark, meerkats believed dead\", \"Three-car crash in New Hampshire on Frederick E. Everett Turnpike kills one\", and \"Wikinews interviews Ritchie Lai of NBA Asia about the gaming industry\".",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 44,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "45",
+    "split": "test",
+    "abstract_description": "Tell me the names of the articles where NASA scientists found some form of life in one of Neptune's satellites.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 45,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "46",
+    "split": "test",
+    "abstract_description": "How many articles did you find about the former prime minister of Bangladesh being sentenced to death?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 46,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "47",
+    "split": "test",
+    "abstract_description": "Does any article on Richard Dawkins appear in the search results when you search \"Richard Stallman\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 47,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "48",
+    "split": "test",
+    "abstract_description": "When was the article about the Texas woman who murdered her entire family published?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 48,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "49",
+    "split": "test",
+    "abstract_description": "Did the 2024 news on Mauritanian refugees returning from Senegal come before the news of six soldiers being killed in a Senegal ambush? If one or none of the articles can be found, then simply answer no.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 49,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "50",
+    "split": "test",
+    "abstract_description": "Did you find any news article about a robbery on the front page (if there are multiple such articles, pick the one with the biggest headline)? If so, where did the crime take place?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 50,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "51",
+    "split": "test",
+    "abstract_description": "Was there any news on English people reporting crime using Facebook?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 51,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "52",
+    "split": "test",
+    "abstract_description": "Perform the following steps: Search \"Pok\u00e9mon\", visit the first search result, search the name of the first city in the visited article, visit the thirteenth search result, and tell me the name of the first city in that visited article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 52,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "53",
+    "split": "test",
+    "abstract_description": "Does the first search result for \"David Suzuki\" appear among the search results for \"Toronto\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": 53,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "54",
+    "split": "test",
+    "abstract_description": "What is the maximum available length for each of the following items: the Lindy DisplayPort to HDMI cable and the Kodak HDMI Mini Cable? Answer in metres.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 54,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "55",
+    "split": "test",
+    "abstract_description": "Which cable is longer: the white Type-C to HDMI Cable or the Type-C USB Charger Cable?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 55,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "56",
+    "split": "test",
+    "abstract_description": "What is the total cost if I buy all the 100% polyester skirts available in the shop? If there are multiple variants (sizes, colors) of the same item, include only one.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 56,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "57",
+    "split": "test",
+    "abstract_description": "What would be the minimum cost to buy almonds and rice crackers?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 57,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "58",
+    "split": "test",
+    "abstract_description": "List all the different color options available for the Nautica and GRADO SR325x headphones.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 58,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "59",
+    "split": "test",
+    "abstract_description": "What is the total price of all the rackets and tennis balls available in the shop? If there are multiple variants of the same item, pick one only.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 59,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "60",
+    "split": "test",
+    "abstract_description": "Is there any skirt that costs less than purchasing at least one pair of jeans?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 60,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "61",
+    "split": "test",
+    "abstract_description": "What's the replacement guarantee or warranty period of the 20x50 binoculars?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 61,
+    "eval_types": [
+      "string_match",
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "62",
+    "split": "test",
+    "abstract_description": "Is the Wii U Microphone compatible with the Wii system?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 62,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "63",
+    "split": "test",
+    "abstract_description": "How many mattresses are available in the shop? (Include similar products like mattress sofas and toppers, but not related products like bed frames.)",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 63,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "64",
+    "split": "test",
+    "abstract_description": "How many sound bars are available under 150 USD?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 64,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "65",
+    "split": "test",
+    "abstract_description": "How many telescopes are available for purchase?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 65,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "66",
+    "split": "test",
+    "abstract_description": "How many Crumbl Cookies are available in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 66,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "67",
+    "split": "test",
+    "abstract_description": "How many leggings products appear when you search for the word \"leggings\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 67,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "68",
+    "split": "test",
+    "abstract_description": "I am looking for a music player to play mini vinyl records. It must be small, portable, and in black. If you find this product, could you place the order and share the confirmation code? If there is no such product or if any of the criteria are not satisfied, then please let me know.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 68,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "69",
+    "split": "test",
+    "abstract_description": "Could you please order the following products and share the confirmation codes with me: Hauklie Men's Polo Shirt (1 grey, size X-Large, and 1 black, size Large) and a GXP Side Table?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 69,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "70",
+    "split": "test",
+    "abstract_description": "Place an order for a pair of jeans that are made of at least 60% cotton. If there are multiple options, pick any. The size must be M. Once you complete the order, share the completion code.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 70,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "71",
+    "split": "test",
+    "abstract_description": "Place an order for a blue superhero T-shirt with a Flash logo on it. The size should be M. Once you complete the order, share the completion code.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 71,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "72",
+    "split": "test",
+    "abstract_description": "What color is most prominent on the exterior body of the navy and yellow Nautica headphones?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 72,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "73",
+    "split": "test",
+    "abstract_description": "What is the color of the TASYL USB lightning camera adapter?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 73,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "74",
+    "split": "test",
+    "abstract_description": "Search for the word \"camera.\" Among the search results, which of the following colors is most common in the product pictures: white, blue, black, red, cyan, or green?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 74,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "75",
+    "split": "test",
+    "abstract_description": "Is there a remote in the product picture of the 4-Channel Wireless Bluetooth Power Amplifier?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 75,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "76",
+    "split": "test",
+    "abstract_description": "Which of the following items are available in the shop: Ice-cream, Dog food, Mushroom, Superglue?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 76,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "77",
+    "split": "test",
+    "abstract_description": "I am looking for a tooth powder that contains fluoride, as I heard it is good for dental health. It would be great if the product is also herbal and vegan. Please tell me the product name of the best match you find.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 77,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "78",
+    "split": "test",
+    "abstract_description": "Does the Salt & Sugar Bundle Kit reduce the appearance of acne scars?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 78,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "79",
+    "split": "test",
+    "abstract_description": "How many times does the phrase \"baking soda\" appear on the Arm & Hammer Toothpaste product page (including Description, Features, Reviews)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 79,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "80",
+    "split": "test",
+    "abstract_description": "Is there any pink USB-C charging cable available in the shop? If so, please place the order for one and share the confirmation code with me.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": 80,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "81",
+    "split": "test",
+    "abstract_description": "Find the most recent sports event mentioned in Brazil's Wikipedia article. Can you find a news article about that event? If so, please tell me the title of the news article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 81,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "82",
+    "split": "test",
+    "abstract_description": "I need you to cross-reference something. Go to the Paris Agreement article on Wiki and find the last article in the 'Related Pages' or 'See also' section. Search the title of that article on News, visit the top result, and check if the news article contains the word 'Russia'.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 82,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "83",
+    "split": "test",
+    "abstract_description": "Find the country of origin of the rice used in the Crunchmaster Rice Crackers. Visit the Wikipedia article on that country and tell me the last word of the first paragraph.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": 83,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "84",
+    "split": "test",
+    "abstract_description": "Verify if the BioCorneum Advanced Scar Treatment Gel from Shop is FDA-cleared. If so, then search \"Food and Drug Administration\" on Wiki and tell me when the agency was formed. Otherwise, search \"Food & Drug Administration\" on News and tell me the title of the first search result.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 84,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "85",
+    "split": "test",
+    "abstract_description": "Are there any news articles about the Monopoly board game? If there are none, place an order for the Monopoly board game at the shop. Otherwise, order any other board game. In either case, share the order's confirmation code at the end.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 85,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "86",
+    "split": "test",
+    "abstract_description": "What is the title of the 11th search result when you search for the name of the first notable school shooting mentioned in the school shooting Wiki article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 86,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "87",
+    "split": "test",
+    "abstract_description": "Is there a Wiki article on the video game associated with the Nintendo Switch travel case found in the shop? If so, identify the main character featured on that game's cover and tell me when that character first appeared.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": 87,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "88",
+    "split": "test",
+    "abstract_description": "Order 24 packets of Savannah's Candy Box. Before placing the order, verify that there is no negative news about the product. If there is, then don't place the order and let me know. Otherwise, share the confirmation code of the order.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 88,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "89",
+    "split": "test",
+    "abstract_description": "Look up Organic Diced Pear in the Shop and check the product description. Identify the vitamin mentioned in the description and visit its article on Wiki. Does the fruit pear appear in that article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": 89,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "90",
+    "split": "test",
+    "abstract_description": "Search for \"Vitamin K\" on Wiki and identify all the vegetables listed there as sources of vitamin K. How many of those vegetables are available in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": 90,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "91",
+    "split": "test",
+    "abstract_description": "Search News for \"video game\" and visit the sixth search result. Is that news event described in the wiki page for \"Video game\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 91,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "92",
+    "split": "test",
+    "abstract_description": "Do the following tasks: Search \"crocodile\" on News, visit the first news article, identify the country where that crocodile lives, search that country on Wiki, and tell me the population of that country. If you encounter a redirect link at any point, then please visit that link.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 92,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "93",
+    "split": "test",
+    "abstract_description": "Search Canada on Wiki and find the name of the current prime minister. Look up his name on News and click on the first article. When was that article published?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 93,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "94",
+    "split": "test",
+    "abstract_description": "Which ones of the following sites: Wiki, News, and Shop, have an article or product page on a screwdriver?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 94,
+    "eval_types": [
+      "list_match",
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "95",
+    "split": "test",
+    "abstract_description": "Which ones of the following sites: Wiki, News, and Shop, have an article or product page on High-Definition Multimedia Interface (HDMI)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 95,
+    "eval_types": [
+      "list_match",
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "96",
+    "split": "test",
+    "abstract_description": "I heard some bad news about biscuits. Can you check and share the title of such a news article with me? If there are none, please place an order for the top search result on \"biscuits\" and share the confirmation code with me.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 96,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "97",
+    "split": "test",
+    "abstract_description": "Can you place an order for the cheapest nuts available and share the confirmation code with me?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 97,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "98",
+    "split": "test",
+    "abstract_description": "Which scholars are mentioned in the article on Rayleigh scattering?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 98,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "99",
+    "split": "test",
+    "abstract_description": "Is it true that Mattel had to recall its products due to safety concerns? If so, please visit the Wiki page for Mattel and find the first product mentioned in that article. Tell me the name of that product and whether it is available in the Shop.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 99,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "100",
+    "split": "test",
+    "abstract_description": "I am a huge fan of the Donkey Kong series. Please find related Wiki articles, news, and products from the Shop. If there are multiple entries, pick the most relevant ones. If you cannot find any product or article, mention that in your answer. Share the titles of these items with me using the following format: <site name>: <article/news/product title>.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": 100,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "101",
+    "split": "test",
+    "abstract_description": "Visit the Wiki article on probability and find the second hyperlink on that page. Search the hyperlink text in the Shop, visit the second search result, and search its brand name on Wiki. If a Wiki article exists, then tell me the name of that article; otherwise, tell me the name of the brand.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": 101,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "102",
+    "split": "test",
+    "abstract_description": "Please complete the following steps: (1) Search News for \"Japan\", (2) visit the second search result, (3) visit the Wiki page for the second word found in the news article's body, (4) identify the first country mentioned in that Wiki article, and (5) search that country on News and tell me the title of the first search result.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 102,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "103",
+    "split": "test",
+    "abstract_description": "How many people were included in the sample for the latest trial of the Australian bird flu vaccine?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": 103,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "104",
+    "split": "test",
+    "abstract_description": "List all articles from the 'Related Pages' sections of the Biophysics and Biochemistry pages.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "105",
+    "split": "test",
+    "abstract_description": "Did the Physics article's \"Approaches in Physics\" section mention the names of more scientists than the Chemistry article's \"Atoms\" section?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "106",
+    "split": "test",
+    "abstract_description": "Find the largest city listed on the Wikipedia pages for Canada and Australia. Then tell me the population difference between those two cities.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "107",
+    "split": "test",
+    "abstract_description": "Visit the pages of the birthplaces of Albert Einstein's first and second sons. Then calculate the population difference between those places.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "108",
+    "split": "test",
+    "abstract_description": "Visit the articles for Physics, Chemistry, and Biology to identify which one(s) contain a section that explicitly discusses the discipline's relationship with mathematics.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "109",
+    "split": "test",
+    "abstract_description": "In the article on Language, visit the first hyperlink in the \"Types of Languages\" section. Then check the \"Related Pages\" section of the visited article. Is there any article that appears in both this section and the \"Related Pages\" section of the Language article? If so, list the common pages; otherwise, answer \"None\".",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "110",
+    "split": "test",
+    "abstract_description": "Visit the first article listed in the \"Related Pages\" sections of the Time and War articles. Then list all the related pages mentioned in each of those visited articles.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "111",
+    "split": "test",
+    "abstract_description": "Visit the pages of the people who were murdered in the \"Unnatural causes of death\" section of the \"Death\" article. How many of these visited articles have a \"Legacy\" section?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "112",
+    "split": "test",
+    "abstract_description": "Visit the pages of the hyperlinked geographic regions mentioned in the \"Trees\" section of the Australia page. Among the visited pages, list the titles of the pages that do not have a section on languages.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "113",
+    "split": "test",
+    "abstract_description": "Visit the article on the first rapper mentioned on Kid Cudi's page (excluding Kid Cudi himself). How many studio albums has that rapper released (excluding collaborative albums)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "114",
+    "split": "test",
+    "abstract_description": "What is the last word of the first section of the article on Metallica's drummer?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "115",
+    "split": "test",
+    "abstract_description": "Visit the article on the first country mentioned in the article on Southeast Asia. If that article has a politics section, go to the article on the first politician mentioned in that section. Otherwise, go to the article on the first island mentioned on that country's page. What are the last three words of the main content of the final visited article (excluding references and \"Related Pages\")?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "116",
+    "split": "test",
+    "abstract_description": "Trace this path: start at the \"Territory\" page \u2192 the first country mentioned \u2192 a country that shares its southern border. What is the last word of the first section (the introduction counts as a section) on that final visited page?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "117",
+    "split": "test",
+    "abstract_description": "Visit the pages of all the countries in the United Kingdom. Which of these countries have a dedicated section on their culture?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "118",
+    "split": "test",
+    "abstract_description": "Visit the article about the earliest known statistics mentioned in the Statistics article. List all the countries mentioned on that page.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "119",
+    "split": "test",
+    "abstract_description": "Navigate to the article on the first specialized tool mentioned in the Physics article. Then navigate to the last hyperlink in the main content of that page (excluding references and related pages). How many related pages does the final visited article have?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "120",
+    "split": "test",
+    "abstract_description": "Recursively follow the first link in the main content of each page, starting from the \"Technology\" page. What is the title of the final article you reach before a \"page does not exist\" message appears?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "121",
+    "split": "test",
+    "abstract_description": "Recursively follow the first link in the main content of each page, starting from the \"Technology\" page, until you reach an article that does not exist. List the titles of all the valid pages in the order that you visited.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "122",
+    "split": "test",
+    "abstract_description": "What is the name of the TV character whose singing is compared to death metal?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "123",
+    "split": "test",
+    "abstract_description": "What type of material is used to make ceramic glass?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "124",
+    "split": "test",
+    "abstract_description": "What is the total area of El Salvador, according to its article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "125",
+    "split": "test",
+    "abstract_description": "What is Thom Yorke's first solo album, according to his article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "126",
+    "split": "test",
+    "abstract_description": "What is the name of the latest album by Clipse, according to their article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "127",
+    "split": "test",
+    "abstract_description": "Navigate to the page about the highest point in El Salvador and tell me its height.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "128",
+    "split": "test",
+    "abstract_description": "Find the birth date of the first person mentioned in the scientific method example in the Science article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match",
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "129",
+    "split": "test",
+    "abstract_description": "According to their respective articles, did Rio de Janeiro host the Summer Olympic Games before Beijing?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "130",
+    "split": "test",
+    "abstract_description": "Based on the relevant articles, which Australian state uses the Cooktown Orchid as its emblem?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "131",
+    "split": "test",
+    "abstract_description": "How many times in total do you encounter the word \"pigeon\" in these articles: \"Peru\", \"Pusha T\", and \"Doom (2016 video game)\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "132",
+    "split": "test",
+    "abstract_description": "Which three biogeochemical cycles were mentioned in the article on Biology?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "133",
+    "split": "test",
+    "abstract_description": "How many sections are there in the article on the general theory of relativity (including the introduction section but excluding the Related Pages and See Also sections)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "134",
+    "split": "test",
+    "abstract_description": "Visit the first hyperlink in the article \"CryEngine\". What is the name of the country mentioned in the first section of the visited page?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "135",
+    "split": "test",
+    "abstract_description": "Which fast food restaurants were mentioned in the article on hamburgers?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "136",
+    "split": "test",
+    "abstract_description": "How many of the hyperlinks from the \"History and geography\" section of the Rio de Janeiro page refer to places (excluding pages that don't exist)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "137",
+    "split": "test",
+    "abstract_description": "Visit the article on the last grandmaster mentioned in Magnus Carlsen's article, and tell me the birthplace of that grandmaster.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "138",
+    "split": "test",
+    "abstract_description": "List all the countries mentioned in the 'Antonio de Cabez\u00f3n' article, and tell me their names in alphabetical order.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "139",
+    "split": "test",
+    "abstract_description": "Start at the \"Valve Corporation\" article and sequentially visit the hyperlinks in that article. Stop when you find a hyperlink where the hyperlink text doesn't match the title of the page it leads to, and tell me the text of that hyperlink.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "140",
+    "split": "test",
+    "abstract_description": "Start at the \"Valve Corporation\" article and sequentially visit the hyperlinks in that article. Stop when you find a hyperlink where the hyperlink text doesn't match the title of the page it leads to, and tell me the names of all the hyperlinks that you have visited.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "141",
+    "split": "test",
+    "abstract_description": "Start from the article on the country \"Angola\". Sequentially visit the hyperlinks in that article. Stop when you visit a hyperlink that doesn't have a valid page, and tell me the text of that hyperlink.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "142",
+    "split": "test",
+    "abstract_description": "Start at the article \"Crayon\" and serially visit the first five hyperlinks in the article's content. Tell me the titles of the articles that don't have a valid page.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "143",
+    "split": "test",
+    "abstract_description": "Which seems to be the deadlier accident (based on the number of casualties) from these two articles: (1) Serb pilots defend colleague in Air India Express disaster, and (2) Molten steel kills 32 workers in Liaoning, China? Mention the name of the article related to the deadlier accident.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "llm_judge"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "144",
+    "split": "test",
+    "abstract_description": "Which cities are mentioned in any one of these two articles: (1) Australia, NATO enhance ties, and (2) Two pieces of suspected plane debris from Maldives taken to Malaysia for analysis?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "145",
+    "split": "test",
+    "abstract_description": "Which countries are mentioned in both of these articles: (1) Kenya deports Somali businessman, and (2) Rwandan genocide suspect arrested in Uganda?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "146",
+    "split": "test",
+    "abstract_description": "Compare the first two articles that appear when you search for articles on Morocco. Are these two articles related to the same event?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "147",
+    "split": "test",
+    "abstract_description": "Is there any news article regarding San Diego that was published in 2024?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "148",
+    "split": "test",
+    "abstract_description": "Were these two articles published on the same day: (a) Former guitarist of pioneering death metal band Possessed dies in shootout with San Francisco police, and (b) Seven civilians killed in Iraq?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "149",
+    "split": "test",
+    "abstract_description": "Navigate to the 23rd article in the search results for \"crime patrol\". Then take the first two words of the title of the visited article, search those two words, and report the title of the last article in the search results.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "150",
+    "split": "test",
+    "abstract_description": "Follow this navigation path: Search \"Utah\", visit the fourth search result, identify the name of the first city in the body/content of the article, and search its name. Visit the fourth search result and tell me the name of the last state mentioned in the visited article. If you encounter a redirect link at any point, then visit that link. If any of the articles are not found, then report the task as incomplete.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "151",
+    "split": "test",
+    "abstract_description": "How many articles did you find on India winning the 2025 Champions Trophy?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "152",
+    "split": "test",
+    "abstract_description": "How many suspects have been arrested so far in connection with Pheobe Bishop's murder?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "153",
+    "split": "test",
+    "abstract_description": "I heard workers died in an accident involving molten steel in China. Can you tell me when the last similar major incident happened in China?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "154",
+    "split": "test",
+    "abstract_description": "I heard Utah refused radioactive waste from a Maine plant. When did that plant stop producing electricity?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "155",
+    "split": "test",
+    "abstract_description": "I heard Greta Thunberg was named Time magazine's Person of the Year. What is the first article about this?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match",
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "156",
+    "split": "test",
+    "abstract_description": "How many articles did you find on Ken Lay (articles that consist only of redirect pages should be excluded)?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "157",
+    "split": "test",
+    "abstract_description": "Can you tell me the name of the article on the Indian prime minister testing positive for COVID-19?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "158",
+    "split": "test",
+    "abstract_description": "Follow this navigation path: search for \"England,\" visit the second article in the results, then take the first three words of its main content and search them. Visit the fifth search result. What is the first sentence of that article's main content? If you encounter a redirect link at any point, follow the redirect. If any of the articles are not found, report the task as incomplete.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "159",
+    "split": "test",
+    "abstract_description": "How many external links are provided in the article \"World Health Organization declares COVID-19 pandemic\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "160",
+    "split": "test",
+    "abstract_description": "Does Stephen Hawking appear in the search results when you search \"Stephen Curry\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "161",
+    "split": "test",
+    "abstract_description": "There is an article called \"2007 European football friendly match: England vs. Germany\". Do you think the publication year of the article is consistent with the year when the match took place?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "162",
+    "split": "test",
+    "abstract_description": "Did the 2024 article, \"Indian flooding displaces thousands\", get published before the 2024 article \"Satellite radio approved in Canada\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "163",
+    "split": "test",
+    "abstract_description": "Based on the article, \"Allahabad High Court grants bail to accused linked to Umesh Pal murder case\", when was Umesh Pal shot?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match",
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "164",
+    "split": "test",
+    "abstract_description": "Navigate to the article \"Hurricane Emily is second strike for Jamaica\", find the name of the last country mentioned, search for the name of that country, and tell me the title of the last search result.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "165",
+    "split": "test",
+    "abstract_description": "Based on these two articles: (1) \"At least eight dead after drone strikes in Pakistan\" and (2) \"Tornado touches down in Joplin, Missouri\", which appears to describe the deadlier incident?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "166",
+    "split": "test",
+    "abstract_description": "How many people were killed in the 2024 Joplin tornado?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "167",
+    "split": "test",
+    "abstract_description": "Based on the article, \"Pilots spot 'UFOs' near the Channel Islands\", is it true that the UFOs are said to have come from Neptune?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "168",
+    "split": "test",
+    "abstract_description": "What unique sizes are available for all the men's and women's jeans?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "169",
+    "split": "test",
+    "abstract_description": "What colors are available for the Men's Running Tennis shoes?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "170",
+    "split": "test",
+    "abstract_description": "Are the FIN86 Men's Elastic High Waisted Shorts made of the same material as the Yinimo Men's Gym Shorts? If not, how do they differ?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match",
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "171",
+    "split": "test",
+    "abstract_description": "Does the longest variant of the Lindy DisplayPort to HDMI cable exceed the length of the longest variant of the Kodak HDMI Mini Cable?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "172",
+    "split": "test",
+    "abstract_description": "What is the total price of all the toy cars available in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "173",
+    "split": "test",
+    "abstract_description": "How many grams of protein are in a standard serving of Schoolyard cheese puffs?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "174",
+    "split": "test",
+    "abstract_description": "Is it recommended to dry clean the Burband Women's High Waist Bike Shorts?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "175",
+    "split": "test",
+    "abstract_description": "Does the description of the XXBR Summer T-shirts mention the material type?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "176",
+    "split": "test",
+    "abstract_description": "What is the price of the most expensive bookshelf?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "177",
+    "split": "test",
+    "abstract_description": "What's the warranty period of the Samsung remote for the UN85S9VF model?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match",
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "178",
+    "split": "test",
+    "abstract_description": "Does the Samsung remote for the UN85S9VFXZA model contain batteries?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "179",
+    "split": "test",
+    "abstract_description": "What's the material of the Yinimo Men's Gym Shorts?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "180",
+    "split": "test",
+    "abstract_description": "Is the Goya Foods wafer marketed as a Latino snack?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "181",
+    "split": "test",
+    "abstract_description": "I'm looking to buy a jute pouf. Can you please search the shop and let me know how many such products are available?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "182",
+    "split": "test",
+    "abstract_description": "How many socks are available in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "183",
+    "split": "test",
+    "abstract_description": "How many search results appear when you search the word \"cat\" in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "184",
+    "split": "test",
+    "abstract_description": "Is there any red HDMI cable in the shop? If yes, order a single unit and tell me the confirmation code. Otherwise, say that none are available.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "185",
+    "split": "test",
+    "abstract_description": "How many rugs are available to buy?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "186",
+    "split": "test",
+    "abstract_description": "Is there any bikini with a wrap skirt available in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "187",
+    "split": "test",
+    "abstract_description": "Can I purchase the Dota 2 video game from this shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "188",
+    "split": "test",
+    "abstract_description": "How many electric scooters are available in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "189",
+    "split": "test",
+    "abstract_description": "Can you find any Nintendo Switch console in the shop?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "190",
+    "split": "test",
+    "abstract_description": "I'm looking for a pair of jeans for less than $30. The size should be XL. Once you complete the order, share the completion code.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "191",
+    "split": "test",
+    "abstract_description": "I'm looking for a box of cookies under $5. Can you please place the order and share the completion code with me?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "192",
+    "split": "test",
+    "abstract_description": "Order these products and share the confirmation codes: Welch's Orange Pineapple Juice, Stirrings Simple Classic Cocktail Mix Mojito, and Italian Basil Pesto.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "193",
+    "split": "test",
+    "abstract_description": "Can you place an order for a Romwe wrap skirt and share the confirmation code with me? If there are size options, then please pick the medium size.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "194",
+    "split": "test",
+    "abstract_description": "Order every variant of the Cravings by Zoe Valentine's Day chocolates and share the confirmation codes.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "195",
+    "split": "test",
+    "abstract_description": "Order all the skirts available in the shop and share the confirmation codes. If there are multiple options, then always pick the small size.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "196",
+    "split": "test",
+    "abstract_description": "What is the focal length range in millimeters of the stock lens on the Canon PowerShot S3 camera product picture?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "197",
+    "split": "test",
+    "abstract_description": "How many of the color options for the Nautica headphones have two distinct visible colors?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "198",
+    "split": "test",
+    "abstract_description": "What's the color of the Rifle Scope Mount Camera Adapter in the product picture?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "199",
+    "split": "test",
+    "abstract_description": "Place an order for the first pink socks that appear when you search for \"socks.\" Then share the confirmation code here. If you need to pick a size, please choose medium.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "200",
+    "split": "test",
+    "abstract_description": "What's written on the body of the 20x50 Binoculars? If there are multiple 20x50 Binoculars, pick the first one from the search results.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "201",
+    "split": "test",
+    "abstract_description": "Place an order for a Spider-Man superhero T-shirt with a white spider. The size should be Large. Once you complete the order, share the completion code.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "202",
+    "split": "test",
+    "abstract_description": "Could you please order the most expensive cracker available in the Shop and send me the confirmation code?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "203",
+    "split": "test",
+    "abstract_description": "Which of the following items are available in the shop: Crayon, Candle, Face Lotion, and Electric Chair?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "204",
+    "split": "test",
+    "abstract_description": "How many times does the word \"Cotton\" appear on the product page (including Description, Features, Reviews) for \"Custom Polo Shirts for Men\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "205",
+    "split": "test",
+    "abstract_description": "Visit the Wiki article on the first country mentioned in the latest News article about TikTok. Based on that Wiki article, tell me the population of that country.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "206",
+    "split": "test",
+    "abstract_description": "I need you to run a quick check. Go to the \u201cQuantum mechanics\u201d article on Wiki and find the first article listed in the \u201cRelated pages\u201d section. Search for the second word of that article\u2019s title on News, visit the second search result, and tell me whether that news article contains the word \u201cship\u201d.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "207",
+    "split": "test",
+    "abstract_description": "First, verify whether \u201cBrisling Sardines in BBQ Sauce\u201d is kosher. If it is, look up \u201csardine\u201d on Wikipedia and find the word from which its name is derived. If it is not, search for \u201cFish\u201d on News and tell me the 20th search result.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "208",
+    "split": "test",
+    "abstract_description": "Visit the first article of the News search for the toy maker Mattel. Find the name of the first toy product mentioned in that article. Is that product available in the Shop? If so, how many such products are available?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "209",
+    "split": "test",
+    "abstract_description": "Please find the fifth unique country mentioned on the \u201cAnime\u201d Wiki page, then search for that country\u2019s name on News, and report the title of the thirteenth article in the search results.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "210",
+    "split": "test",
+    "abstract_description": "Does the Canon EOS Rebel T7i found in the Shop have a Wiki page? If yes, tell me the title of that Wiki page. Otherwise, find the most relevant page and tell me its title. If you find none of the pages to be relevant, just say \"Article not found\".",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "211",
+    "split": "test",
+    "abstract_description": "Search for \"Apple\" on News. Is the first search result negative news about the tech company Apple? If yes, say \"Found negative news\". If not, order an \u201ciPad Case Fit for iPad 9.7\u201d and send me the confirmation code.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "212",
+    "split": "test",
+    "abstract_description": "Does the \"Once Upon A Time Queen Born In 1982 T-Shirts\" product from the Shop contain polyester? If so, go to the Polyester article on Wiki and tell me the names of the clothing brands mentioned there. Otherwise, just tell me, \"T-shirt is polyester-free!!!\"",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "213",
+    "split": "test",
+    "abstract_description": "Could you check whether the \"Tattoo\" article on Wiki talks about mummification? If so, tell me how many tattoo machines are available in the Shop. Only consider electronic tattoo machines, not manual ones.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "214",
+    "split": "test",
+    "abstract_description": "Search for \"Iran\" on News and visit the first search result. Was that news incident reported in Iran\u2019s Wiki article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "215",
+    "split": "test",
+    "abstract_description": "Search for \"Driving Accident\" on News. Visit the first News article and identify the U.S. state where that accident occurred. Then search for that state on Wiki and tell me its population.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "216",
+    "split": "test",
+    "abstract_description": "Visit the Wiki article on \"Espadrille\" and find the first country mentioned in that article. Which of the following sites: Wiki, News, or Shop, have an article about that country or a product from that country?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "217",
+    "split": "test",
+    "abstract_description": "Order the most expensive bed and send me the confirmation code.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "218",
+    "split": "test",
+    "abstract_description": "Search \"dog\" on News. If the first search result says something positive about dogs, then place an order for a dog toy in the Shop and share the confirmation code. Otherwise, tell me the title of the news article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "219",
+    "split": "test",
+    "abstract_description": "Who are the first three female referees to be appointed to the men's 2022 FIFA World Cup?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "list_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "220",
+    "split": "test",
+    "abstract_description": "Verify whether Sony's net profit fell significantly in 2024 or 2025. If so, visit the Sony's Wiki article and identify the first product mentioned on that page. Can you find that exact product in the Shop? If so, place the order and share the confirmation code with me. If any of the above conditions cannot be satisfied, state that explicitly.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "221",
+    "split": "test",
+    "abstract_description": "I love the Matrix movie series. Please find related Wiki articles, news, and products from the Shop. If there are multiple entries on each site, pick the one you think is the most relevant. If you cannot find any product or article, mention that in your answer. Share the titles of these items in the following format: <site name>: <article/news/product title>.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "222",
+    "split": "test",
+    "abstract_description": "Visit the Wiki article on Gabon and search for the last word of the first section in the Shop (introduction counts as a section). If there are search results, click on the first one and tell me the title of the product. Otherwise, tell me \"No product found\".",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "223",
+    "split": "test",
+    "abstract_description": "How many patients participated in the pollen tablet trial for hay fever?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "number_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "224",
+    "split": "test",
+    "abstract_description": "Visit the Wiki article on \"Brazil\" and find the most recent sporting event mentioned in the Sports section. Search for that event (don't include the year in the search) on News, and tell me the name of the third news article in the search results.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "225",
+    "split": "test",
+    "abstract_description": "Search \"Cranberry\" on News and visit the first news article in the search results. Then search, on Wiki, for the name of the first country mentioned in that article\u2019s content. Tell me the first line of the final visited article.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "226",
+    "split": "test",
+    "abstract_description": "Search \"Ruffles Ridged Potato Chips\" on Shop and find the country of origin. Search for the name of that country on News and visit the second news article in the search results. What is the last word in the visited article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "227",
+    "split": "test",
+    "abstract_description": "Search \"chips\" on News. If the first article is about snack chips, then go to Shop, search \"chips\", and place an order for the first chips product you find in the search results. Otherwise, let me know that the first article is not about snack chips.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "228",
+    "split": "test",
+    "abstract_description": "Find the fastest-growing city in Utah, based on its Wiki article. Then search that city's name on News and tell me the publication date of the second search result.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "229",
+    "split": "test",
+    "abstract_description": "Place an order for an Oval Mosaic Wall Mirror if you can find a news article on Johan Cruyff. If you place the order, share the confirmation code with me. Otherwise, let me know that you didn\u2019t place the order.",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "230",
+    "split": "test",
+    "abstract_description": "Search \"El Paso, Texas\" on Wiki and find the last sentence in the article\u2019s content. Has the event mentioned in the last sentence been covered by any news article?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  },
+  {
+    "id": "231",
+    "split": "test",
+    "abstract_description": "What happened at the end of the book \"The Neptune Secret\"?",
+    "recommended_max_steps": 30,
+    "container_config": null,
+    "sites": [
+      "wiki",
+      "news",
+      "webshop"
+    ],
+    "intent_template_id": null,
+    "eval_types": [
+      "string_match"
+    ],
+    "_type": "timewarp_cube.task.TimeWarpTaskMetadata"
+  }
+]
