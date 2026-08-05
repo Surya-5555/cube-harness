@@ -53,6 +53,7 @@ class RolloutTaskRunner:
             recorder_config=recorder_config,
             write_eval_log=persist_rollout,
             trajectory_id=self.trajectory_id,
+            profile=self.payload.get("profile"),
         )
         if persist_rollout:
             log_file = get_log_path(self.output_dir, self.trajectory_id)

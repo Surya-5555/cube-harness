@@ -17,6 +17,16 @@ from cube_harness.episode_logs import trajectory_log_id
 from cube_harness.episode_status import TERMINAL_STATUSES, EpisodeStatus, next_retry_count
 from cube_harness.eval_log import EpisodeRecord
 from cube_harness.llm import is_permanent_llm_error
+from cube_harness.metrics.profiler import (
+    PHASE_AGENT_LOOP,
+    PHASE_EVALUATE,
+    PHASE_SETUP,
+    PHASE_TEARDOWN,
+    EpisodeProfile,
+    PhaseAccumulator,
+    ProfileConfig,
+    ResourceSampler,
+)
 from cube_harness.metrics.tracer import get_tracer
 from cube_harness.storage import FileStorage, Storage, TrajectoryView
 from cube_harness.streamer import EventStreamer, EventStreamerConfig
@@ -44,6 +54,11 @@ class EpisodeConfig(TypedBaseModel):
     recorder_config: EventStreamerConfig = Field(default_factory=EventStreamerConfig)
     write_eval_log: bool = True
     trajectory_id: str | None = None
+    # Opt-in episode profiling (resource sampling + phase timing). None ⇒
+    # no profiling, no overhead. Carried here so it survives Ray pickling
+    # and the resume path; both the standard runner (`Experiment.profile`)
+    # and the RL rollout path (`RolloutConfig.profile`) populate it.
+    profile: ProfileConfig | None = None
 
     @property
     def resolved_trajectory_id(self) -> str:
@@ -84,6 +99,7 @@ class Episode:
         recorder_config: EventStreamerConfig | None = None,
         write_eval_log: bool = True,
         trajectory_id: str | None = None,
+        profile: ProfileConfig | None = None,
     ) -> None:
         self.config = EpisodeConfig(
             id=id,
@@ -96,6 +112,7 @@ class Episode:
             recorder_config=recorder_config or EventStreamerConfig(),
             write_eval_log=write_eval_log,
             trajectory_id=trajectory_id,
+            profile=profile,
         )
         self._runtime_context = runtime_context
         self.storage = storage or FileStorage(output_dir)
@@ -123,6 +140,7 @@ class Episode:
             recorder_config=episode_config.recorder_config,
             write_eval_log=episode_config.write_eval_log,
             trajectory_id=episode_config.trajectory_id,
+            profile=episode_config.profile,
         )
 
     def run(self) -> TrajectoryView:
@@ -198,17 +216,25 @@ class Episode:
         streamer: EventStreamer | None = None
         max_steps_reached = False
 
+        # Opt-in profiling: resource sampler runs for the whole episode (only
+        # when `profile` is set); `phases` accumulates coarse per-phase
+        # wall-clock for profile.json. Phase boundaries are also OTel spans
+        # (trace-first) so they show in OTLP independently of profiling.
+        sampler = ResourceSampler(self.config.profile).start() if self.config.profile is not None else None
+        phases = PhaseAccumulator()
+
         try:
             with tracer.episode(task_id, experiment=self.config.exp_name) as episode_span:
                 start_time = ep_status.started_at
 
-                # 1. Build the live task and agent.
-                task = self.config.task_config.make(runtime_context=self._runtime_context)
-                action_set = task.action_set
-                agent = self.config.agent_config.make(action_set, task_id=task_id)
+                # 1. Build the live task and agent + reset the env (setup phase).
+                with tracer.span(PHASE_SETUP), phases.phase(PHASE_SETUP):
+                    task = self.config.task_config.make(runtime_context=self._runtime_context)
+                    action_set = task.action_set
+                    agent = self.config.agent_config.make(action_set, task_id=task_id)
 
-                # 2. Reset the env to get the initial observation.
-                obs, info = task.reset()
+                    # 2. Reset the env to get the initial observation.
+                    obs, info = task.reset()
                 initial = EnvironmentOutput(obs=obs, info=info)
 
                 agent_name = self.config.agent_config.agent_name
@@ -276,7 +302,8 @@ class Episode:
 
                 # 7. Drive the agent. agent.run is the canonical entry.
                 try:
-                    agent.run(initial.obs, env_tool)
+                    with phases.phase(PHASE_AGENT_LOOP):
+                        agent.run(initial.obs, env_tool)
                 except BudgetExceeded as e:
                     logger.info(colored(f"Budget exceeded: {e}", "yellow"))
                     streamer.record_failure(e)
@@ -306,7 +333,8 @@ class Episode:
                 # the outer except below tags status and propagates to the
                 # runner.
                 try:
-                    reward, info = task.evaluate()
+                    with tracer.span(PHASE_EVALUATE), phases.phase(PHASE_EVALUATE):
+                        reward, info = task.evaluate()
                 except Exception as e:
                     streamer.record_failure(e)
                     raise
@@ -386,8 +414,41 @@ class Episode:
             # task.close is best-effort; avoid masking the real exception.
             try:
                 if "task" in locals():
-                    task.close()
+                    with tracer.span(PHASE_TEARDOWN), phases.phase(PHASE_TEARDOWN):
+                        task.close()
             except Exception:
                 logger.exception("Failed to close task")
             tracer.shutdown()
+            if sampler is not None:
+                self._write_profile(sampler, phases, task_id, trajectory_id, ep_status)
         return self.storage.load_episode(trajectory_id)
+
+    def _write_profile(
+        self,
+        sampler: ResourceSampler,
+        phases: PhaseAccumulator,
+        task_id: str,
+        trajectory_id: str,
+        ep_status: EpisodeStatus,
+    ) -> None:
+        """Stop the sampler and persist ``profile.json`` beside the trajectory.
+
+        Best-effort: profiling must never fail an episode. Skipped when the
+        storage has no on-disk artifact directory (RL in-memory rollouts).
+        """
+        sampler.stop()
+        try:
+            ep_dir = self.storage.episode_dir(trajectory_id)
+            if ep_dir is None:
+                return
+            wall = (ep_status.ended_at or time.time()) - (ep_status.started_at or 0.0)
+            EpisodeProfile(
+                task_id=task_id,
+                trajectory_id=trajectory_id,
+                wall_time_s=wall,
+                phases=phases.totals(),
+                resources=sampler.summaries(),
+                sample_count=sampler.sample_count,
+            ).write(ep_dir)
+        except Exception:
+            logger.warning("Failed to write episode profile", exc_info=True)

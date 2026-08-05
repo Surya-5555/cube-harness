@@ -43,6 +43,17 @@ STEPS_DIR = "steps"
 ARCHIVED_MARKER = ".archived_"
 
 
+def is_episode_dir(path: Path) -> bool:
+    """True if ``path`` is a single episode directory.
+
+    The on-disk layout is owned here: a real episode holds an ``events/``
+    (current event-stream) or legacy ``steps/`` subdir. Consumers that need to
+    recognize an episode directory (e.g. the investigator) must call this rather
+    than re-deriving the layout, so they don't drift when storage evolves.
+    """
+    return (path / EVENTS_DIR).is_dir() or (path / STEPS_DIR).is_dir()
+
+
 class LLMCallRef(BaseModel):
     llm_call_id: str
 
@@ -73,6 +84,12 @@ class Storage(Protocol):
     def read_episode_status(self, trajectory_id: str) -> EpisodeStatus | None: ...
 
     def archive_episode(self, trajectory_id: str) -> None: ...
+
+    def episode_dir(self, trajectory_id: str) -> Path | None:
+        """On-disk directory for this episode's artifacts, or None for
+        non-persistent storage. Used to drop side artifacts (e.g.
+        ``profile.json``) beside the trajectory."""
+        ...
 
 
 class InMemoryTrajectoryView:
@@ -191,6 +208,9 @@ class InMemoryStorage:
         self._events.pop(trajectory_id, None)
         self._statuses.pop(trajectory_id, None)
         self._episode_configs.pop(trajectory_id, None)
+
+    def episode_dir(self, trajectory_id: str) -> Path | None:
+        return None  # in-memory storage has no on-disk artifact directory
 
 
 _thread_local = threading.local()
@@ -809,6 +829,13 @@ class FileStorage:
 
     def _episode_dir(self, trajectory_id: str) -> Path:
         return self.output_dir / EPISODES_DIR / trajectory_id
+
+    def episode_dir(self, trajectory_id: str) -> Path | None:
+        # Pure accessor: the directory is already created by save_metadata /
+        # save_episode_config before any caller needs it. Side artifacts
+        # (profile.json) are written best-effort, so a missing dir on an
+        # early-setup crash just degrades to no-write rather than forcing one.
+        return self._episode_dir(trajectory_id)
 
     def _episode_dirs(self) -> Iterator[Path]:
         episodes_dir = self.output_dir / EPISODES_DIR
