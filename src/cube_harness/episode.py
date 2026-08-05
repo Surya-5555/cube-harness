@@ -350,7 +350,7 @@ class Episode:
                     update={
                         "metadata": final_metadata,
                         "end_time": end_time,
-                        "reward_info": {**info, "reward": reward, "done": True},
+                        "reward_info": {"reward": reward, "done": True, **info},
                         "summary_stats": streamer.summary_stats(duration=end_time - start_time, final_reward=reward),
                     }
                 )
