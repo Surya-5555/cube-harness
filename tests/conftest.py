@@ -351,27 +351,3 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Save xray e2e screenshots to /tmp/xray_screenshots/ for visual inspection.",
     )
-
-
-class ShadowingCubeTask(MockCubeTask):
-    """Returns eval info whose keys collide with the harness's own reward_info keys.
-
-    Not hypothetical: TimeWarp's `evaluate()` returned BrowserGym's `done` ("solved or stopped"),
-    which is False for a correct-but-unscored answer, and it used to overwrite the harness's
-    `done` ("this episode finalized") in the persisted record.
-    """
-
-    def evaluate(self, obs: Observation | None = None) -> tuple[float, dict]:
-        _ = obs
-        return 1.0, {"done": False, "reward": -99.0, "custom": "kept"}
-
-
-class ShadowingCubeTaskConfig(MockCubeTaskConfig):
-    """Cube TaskConfig that instantiates a ShadowingCubeTask."""
-
-    def make(self, runtime_context=None) -> ShadowingCubeTask:
-        _ = runtime_context
-        return ShadowingCubeTask(
-            metadata=TaskMetadata(id=self.task_id),
-            tool_config=self.tool_config or MockToolConfig(),
-        )
