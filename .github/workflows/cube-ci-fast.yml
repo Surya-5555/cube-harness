@@ -4,12 +4,6 @@ name: Cube CI (fast)
 # All debug agents are scripted — no LLM API keys required.
 # Only infra secrets (HF token, Docker) are needed.
 #
-# Cubes whose debug suite needs infrastructure a hosted runner can't stand up
-# (timewarp: conda + several GB from HuggingFace + three live Flask servers) get
-# their server-free unit tests run here instead. Better than the alternative,
-# which is a cube test suite that runs nowhere: the root tests.yml job collects
-# `tests/` only, so `cubes/*/tests/` is invisible to it.
-#
 # Ownership: cube-harness (PR-level smoke tests for cubes in this repo).
 # The full nightly monitoring matrix across all registered cubes and all
 # infra targets is owned by cube-registry.
@@ -150,15 +144,10 @@ jobs:
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
   timewarp:
-    # Unit tests, not the debug suite: TimeWarp's debug suite is manual-mode and needs three
-    # live Flask servers behind a conda env built by a multi-GB upstream setup.sh — out of
-    # scope for a hosted runner. The tests below are server-, browser-, conda- and
-    # network-free by construction (subprocess/urlopen/free_port are mocked), so they cover
-    # the provisioning logic, the auto/manual wiring and the metadata contract on every PR.
     name: TimeWarp unit tests
     needs: changes
     if: needs.changes.outputs.timewarp == 'true' || github.event_name == 'push'
-    runs-on: ubuntu-22.04  # Match the other cube jobs — browsergym pulls Playwright's deps
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -188,6 +177,4 @@ jobs:
 
       - name: Run TimeWarp unit tests
         # --no-sync: keep the cube-standard@dev / cube-browser-tool@dev installs.
-        # -m matches the repo convention: the cube's tests carry no markers today, so this is a
-        # no-op now and stays correct the day one is marked slow.
         run: uv run --no-sync pytest cubes/timewarp/tests -v -m "not slow and not live_api"

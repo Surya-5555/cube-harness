@@ -350,10 +350,6 @@ class Episode:
                     update={
                         "metadata": final_metadata,
                         "end_time": end_time,
-                        # Task info spreads FIRST so the harness's own keys win. A benchmark is
-                        # free to return its own `done` (browsergym's, say, which means "the task
-                        # was solved or stopped", not "the episode ended") — letting that overwrite
-                        # ours persisted `done: false` on episodes that had demonstrably finished.
                         "reward_info": {**info, "reward": reward, "done": True},
                         "summary_stats": streamer.summary_stats(duration=end_time - start_time, final_reward=reward),
                     }
