@@ -9,6 +9,12 @@ dependencies = [
     "browsergym-timewarp==0.2.0",
     "cube-browser-tool[bgym]>=0.3.0",
     "cube-chat-tool>=0.1.0",
+    # browsergym-timewarp → libwebarena requires nltk unpinned. 3.10.1 added a
+    # cwd-import guard that blocks any module resolving under Path.cwd() — which
+    # is all of site-packages when .venv sits in the repo root, the layout
+    # `make install` produces. Every `import timewarp_cube` then dies with
+    # "Blocked import of regex from current working directory".
+    "nltk!=3.10.1",
 ]
 
 [project.entry-points."cube.benchmarks"]

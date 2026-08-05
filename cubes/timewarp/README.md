@@ -50,6 +50,14 @@ start them yourself.
 uv pip install timewarp-cube   # not yet on PyPI — see pyproject for the git source
 ```
 
+Working from a cube-harness checkout, install it editable — and re-run this after any `make
+install`, which calls `uv sync` and prunes every package that isn't in the root lock, this cube
+included:
+
+```bash
+uv pip install -e cubes/timewarp
+```
+
 There is no separate heavy install step. In auto mode the cube clones the upstream repo and runs
 its **idempotent** `setup.sh` (conda env + ~GBs of data) lazily on the **first** benchmark run,
 cloning to `~/.cache/timewarp` — override with the `TIMEWARP_HOME` env var. (`cube install
