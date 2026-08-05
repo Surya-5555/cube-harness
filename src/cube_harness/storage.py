@@ -1470,9 +1470,8 @@ class FileStorage:
                 summary.total_completion_tokens += stats.get("completion_tokens", 0)
                 summary.total_cost += stats.get("cost", 0.0)
 
-                # `total_reward` sums over every episode, so the denominator must too — `/ n_completed`
-                # inflated the mean by the errored fraction. Matches `Experiment.print_stats`.
-                summary.avg_reward = round(summary.total_reward / summary.n_episodes, 4)
+                if summary.n_completed > 0:
+                    summary.avg_reward = round(summary.total_reward / summary.n_completed, 4)
                 summary.updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
                 tmp_path = summary_path.with_suffix(".tmp")
