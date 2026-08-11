@@ -70,8 +70,8 @@ class ReactAgent(Agent):
         super().__init__(config)
         self.llm = config.llm_config.make()
         self.token_counter = config.llm_config.make_counter()
-        # STOP (`final_step`) is automatically included in the task's `action_set`
-        # and has a safe schema provided by cube-standard.
+        # STOP (`final_step`) is provided by cube-standard in the task's `action_set` when
+        # `accept_agent_stop=True` (the default) and uses an Anthropic-safe empty-object schema.
         # `can_finish=False` opts the agent out of offering STOP to the LLM.
         self.tools: list[dict] = [tool.as_dict() for tool in tools]
         if not config.can_finish:
